@@ -9,6 +9,10 @@ use rig::streaming::StreamedAssistantContent;
 use rig::streaming::StreamingChat;
 use std::io::Write;
 
+use my_deepseek_agent::token_usage::{print_turn_usage, TokenUsage};
+
+type Agent = rig::agent::Agent<deepseek::CompletionModel>;
+
 const PREAMBLE: &str = r#"You are an expert coding assistant with access to tools for reading, writing, searching, and executing code.
 
 ## Your Capabilities
@@ -81,10 +85,8 @@ async fn read_stdin_line() -> Option<String> {
     .flatten()
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    dotenv::dotenv().ok();
-
+/// Validates that the DEEPSEEK_API_KEY environment variable is set.
+fn check_api_key() {
     if std::env::var("DEEPSEEK_API_KEY").is_err() {
         eprintln!(
             "{} {}",
@@ -93,23 +95,221 @@ async fn main() -> Result<()> {
         );
         std::process::exit(1);
     }
+}
 
+/// Builds the DeepSeek agent with tools and preamble.
+///
+/// Precondition: `DEEPSEEK_API_KEY` must be set (enforced by `check_api_key()`).
+fn build_agent() -> Agent {
     let client = deepseek::Client::from_env();
     let tools = my_deepseek_agent::tools::all_tools();
 
-    let agent = client
+    client
         .agent(deepseek::DEEPSEEK_CHAT)
         .preamble(PREAMBLE)
         .tools(tools)
         .default_max_turns(10)
-        .build();
+        .build()
+}
 
+/// Prints the help menu.
+fn print_help() {
+    println!();
+    println!("  {}  Read file contents", "file_read".bright_yellow());
+    println!("  {}  Write to a file", "file_write".bright_yellow());
+    println!("  {}  Run shell commands", "shell_exec".bright_yellow());
+    println!("  {}  Search code patterns", "code_search".bright_yellow());
+    println!();
+    println!("  {}  Show token usage statistics", "usage".dimmed());
+    println!("  {}  Clear conversation history", "clear".dimmed());
+    println!("  {}  Exit the agent", "quit".dimmed());
+    println!();
+}
+
+/// Built-in commands that don't require an agent response.
+enum Command {
+    Help,
+    Usage,
+    Clear,
+    Quit,
+}
+
+/// Checks whether the input is a built-in command.
+/// Returns `Some(Command)` if recognized, `None` otherwise.
+fn parse_command(input: &str) -> Option<Command> {
+    match input {
+        "help" => Some(Command::Help),
+        "usage" => Some(Command::Usage),
+        "clear" => Some(Command::Clear),
+        "quit" | "exit" | "q" => Some(Command::Quit),
+        _ => None,
+    }
+}
+
+/// Executes a built-in command. Returns true if the main loop should break.
+fn run_command(cmd: Command, chat_history: &mut Vec<Message>, session_usage: &mut TokenUsage) -> bool {
+    match cmd {
+        Command::Help => print_help(),
+        Command::Usage => session_usage.print_session_report(),
+        Command::Clear => {
+            chat_history.clear();
+            println!("{}", "Conversation history cleared 🗑️".dimmed());
+        }
+        Command::Quit => {
+            println!("{}", "Goodbye! 👋".dimmed());
+            return true;
+        }
+    }
+    false
+}
+
+/// Result of streaming a response from the agent.
+struct StreamResult {
+    full_response: String,
+    interrupted: bool,
+    should_exit: bool,
+}
+
+/// Streams a response from the agent, handling Ctrl+C interrupts.
+/// Returns the accumulated response text, whether it was interrupted, and whether the user wants to exit.
+///
+/// Note: if interrupted, `FinalResponse` is never received, so `chat_history` won't be
+/// updated with this turn. That's acceptable — the user chose to discard the partial
+/// response, and the next turn starts fresh contextually.
+async fn stream_response(
+    agent: &Agent,
+    input: &str,
+    chat_history: &mut Vec<Message>,
+    session_usage: &mut TokenUsage,
+    interrupt_rx: &mut tokio::sync::mpsc::Receiver<()>,
+) -> StreamResult {
+    let streaming_request = agent.stream_chat(input, chat_history.as_slice());
+    let mut stream = streaming_request.await;
+
+    let mut full_response = String::new();
+    let mut interrupted = false;
+
+    loop {
+        let item = tokio::select! {
+            _ = interrupt_rx.recv() => {
+                println!(
+                    "\n{} {}",
+                    "⚠".bright_yellow(),
+                    "Interrupted — press Ctrl+C again to quit".dimmed()
+                );
+                let second_interrupt = tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => false,
+                    _ = interrupt_rx.recv() => true,
+                };
+                if second_interrupt {
+                    return StreamResult {
+                        full_response,
+                        interrupted: true,
+                        should_exit: true,
+                    };
+                }
+                interrupted = true;
+                break;
+            }
+            item = stream.next() => {
+                match item {
+                    Some(item) => item,
+                    None => break,
+                }
+            }
+        };
+
+        match item {
+            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
+                text_content,
+            ))) => {
+                print!("{}", text_content.text);
+                let _ = std::io::stdout().flush();
+                full_response.push_str(&text_content.text);
+            }
+            Ok(MultiTurnStreamItem::StreamAssistantItem(
+                StreamedAssistantContent::ToolCall { tool_call, .. },
+            )) => {
+                println!(
+                    "\n  {} {}",
+                    "⟳".bright_yellow(),
+                    format!("[{}]", tool_call.function.name)
+                        .bright_yellow()
+                        .bold()
+                );
+            }
+            Ok(MultiTurnStreamItem::FinalResponse(final_res)) => {
+                if let Some(history) = final_res.history() {
+                    *chat_history = history.to_vec();
+                }
+                let turn_usage = final_res.usage();
+                print_turn_usage(&turn_usage);
+                session_usage.add(turn_usage);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                let err_msg = e.to_string();
+                if err_msg.contains("MaxTurnError") || err_msg.contains("max turn limit") {
+                    if full_response.is_empty() {
+                        println!(
+                            "\n{} {}",
+                            "⚠".bright_yellow(),
+                            "Reached tool call limit without producing a response.".dimmed()
+                        );
+                    } else {
+                        println!(
+                            "\n{} {}",
+                            "⚠".bright_yellow(),
+                            "Reached tool call limit. Here is what I have so far:".dimmed()
+                        );
+                    }
+                } else {
+                    eprintln!("\n{} Error: {}", "✗".bright_red(), e);
+                }
+                break;
+            }
+        }
+    }
+
+    StreamResult {
+        full_response,
+        interrupted,
+        should_exit: false,
+    }
+}
+
+/// Prints a notice if the response was interrupted.
+fn print_interrupted_notice(full_response: &str, interrupted: bool) {
+    if !full_response.is_empty() {
+        println!();
+        if interrupted {
+            println!(
+                "  {}",
+                "(response was interrupted, context and token usage not recorded)".dimmed()
+            );
+            println!();
+        } else {
+            println!();
+        }
+    } else if interrupted {
+        println!(
+            "  {}",
+            "(response was interrupted, token usage not recorded)".dimmed()
+        );
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    dotenv::dotenv().ok();
+    check_api_key();
+
+    let agent = build_agent();
     print_banner();
 
     let mut chat_history: Vec<Message> = Vec::new();
+    let mut session_usage = TokenUsage::new();
 
-    // Ctrl+C channel: a background task repeatedly awaits Ctrl+C and sends notifications.
-    // This gives us a reusable, cancellable signal source for tokio::select!.
     let (interrupt_tx, mut interrupt_rx) = tokio::sync::mpsc::channel::<()>(1);
     tokio::spawn(async move {
         loop {
@@ -119,7 +319,6 @@ async fn main() -> Result<()> {
     });
 
     loop {
-        // Read user input — Ctrl+C at the prompt exits the program
         print!("{} ", "❯".bright_green().bold());
         std::io::stdout().flush()?;
 
@@ -134,7 +333,6 @@ async fn main() -> Result<()> {
         let input = match input {
             Some(line) => line.trim().to_string(),
             None => {
-                // EOF (Ctrl+D)
                 println!("{}", "Goodbye! 👋".dimmed());
                 break;
             }
@@ -144,137 +342,31 @@ async fn main() -> Result<()> {
             continue;
         }
 
-        if input == "quit" || input == "exit" || input == "q" {
-            println!("{}", "Goodbye! 👋".dimmed());
-            break;
-        }
-
-        if input == "help" {
-            println!();
-            println!("  {}  Read file contents", "file_read".bright_yellow());
-            println!("  {}  Write to a file", "file_write".bright_yellow());
-            println!("  {}  Run shell commands", "shell_exec".bright_yellow());
-            println!("  {}  Search code patterns", "code_search".bright_yellow());
-            println!();
-            println!("  {}  Clear conversation history", "clear".dimmed());
-            println!("  {}  Exit the agent", "quit".dimmed());
-            println!();
-            continue;
-        }
-
-        if input == "clear" {
-            chat_history.clear();
-            println!("{}", "Conversation history cleared 🗑️".dimmed());
-            continue;
-        }
-
-        // Stream the response with multi-turn history
-        let streaming_request = agent.stream_chat(&input, &chat_history);
-        let mut stream = streaming_request.await;
-
-        let mut full_response = String::new();
-        let mut interrupted = false;
-
-        loop {
-            let item = tokio::select! {
-                _ = interrupt_rx.recv() => {
-                    println!(
-                        "\n{} {}",
-                        "⚠".bright_yellow(),
-                        "Interrupted — press Ctrl+C again to quit".dimmed()
-                    );
-                    // Brief pause: if user presses Ctrl+C again quickly, we exit
-                    let second_interrupt = tokio::select! {
-                        _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => false,
-                        _ = interrupt_rx.recv() => true,
-                    };
-                    if second_interrupt {
-                        println!("{}", "Goodbye! 👋".dimmed());
-                        return Ok(());
-                    }
-                    interrupted = true;
-                    break;
-                }
-                item = stream.next() => {
-                    match item {
-                        Some(item) => item,
-                        None => break,
-                    }
-                }
-            };
-
-            match item {
-                Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
-                    text_content,
-                ))) => {
-                    print!("{}", text_content.text);
-                    std::io::stdout().flush()?;
-                    full_response.push_str(&text_content.text);
-                }
-                Ok(MultiTurnStreamItem::StreamAssistantItem(
-                    StreamedAssistantContent::ToolCall { tool_call, .. },
-                )) => {
-                    println!(
-                        "\n  {} {}",
-                        "⟳".bright_yellow(),
-                        format!("[{}]", tool_call.function.name)
-                            .bright_yellow()
-                            .bold()
-                    );
-                }
-                Ok(MultiTurnStreamItem::FinalResponse(final_res)) => {
-                    // Update chat history with the completed turn
-                    if let Some(history) = final_res.history() {
-                        chat_history = history.to_vec();
-                    }
-                }
-                Ok(_) => {
-                    // Ignore other stream items (reasoning deltas, tool call deltas, etc.)
-                }
-                Err(e) => {
-                    let err_msg = e.to_string();
-                    if err_msg.contains("MaxTurnError") || err_msg.contains("max turn limit") {
-                        // TODO: match on error type if rig-core exports it
-                        if full_response.is_empty() {
-                            println!(
-                                "\n{} {}",
-                                "⚠".bright_yellow(),
-                                "Reached tool call limit without producing a response.".dimmed()
-                            );
-                        } else {
-                            println!(
-                                "\n{} {}",
-                                "⚠".bright_yellow(),
-                                "Reached tool call limit. Here is what I have so far:".dimmed()
-                            );
-                        }
-                    } else {
-                        eprintln!("\n{} Error: {}", "✗".bright_red(), e);
-                    }
-                    break;
-                }
+        if let Some(cmd) = parse_command(&input) {
+            if run_command(cmd, &mut chat_history, &mut session_usage) {
+                break;
             }
+            continue;
         }
 
-        // Note: if interrupted, FinalResponse is never received, so chat_history
-        // won't be updated with this turn. That's acceptable — the user chose to
-        // discard the partial response, and the next turn starts fresh contextually.
+        let result = stream_response(
+            &agent,
+            &input,
+            &mut chat_history,
+            &mut session_usage,
+            &mut interrupt_rx,
+        )
+        .await;
 
-        // Drain any stale interrupt signals so they don't trigger at the next prompt
+        if result.should_exit {
+            println!("{}", "Goodbye! 👋".dimmed());
+            return Ok(());
+        }
+
+        // Drain stale interrupt signals
         while interrupt_rx.try_recv().is_ok() {}
 
-        if !full_response.is_empty() {
-            println!();
-            if interrupted {
-                println!(
-                    "  {}",
-                    "(response was interrupted, context not saved to history)".dimmed()
-                );
-                println!();
-            } else {
-                println!();
-            }
-        }
+        print_interrupted_notice(&result.full_response, result.interrupted);
     }
 
     Ok(())
