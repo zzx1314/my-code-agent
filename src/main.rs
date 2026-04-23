@@ -279,36 +279,42 @@ async fn stream_response(
     let mut full_response = String::new();
     let mut interrupted = false;
     let mut is_reasoning = false;
-    let mut is_generating_text = false;
-    let mut pending_md = String::new(); // buffered text to render as Markdown
     let mut reasoning_buf = String::new(); // buffered reasoning text for current segment (cleared after summary)
     let mut total_reasoning = String::new(); // accumulated reasoning across entire stream (for 'think' command)
-    let skin = MadSkin::default();
 
-    let flush_md = |pending_md: &mut String, is_generating_text: &mut bool| {
-        if !pending_md.is_empty() {
-            if *is_generating_text {
+    // Markdown streaming state
+    let skin = MadSkin::default();
+    let mut complete_lines = String::new(); // complete lines rendered through termimad
+    let mut current_line = String::new(); // current incomplete line being streamed raw
+
+    /// Flushes all buffered text (complete lines + current line) through termimad.
+    /// Called when a text segment ends (tool call, final response, stream end).
+    ///
+    /// Known limitation: if the raw current_line wraps across multiple physical
+    /// terminal lines, `\x1b[2K` only erases the cursor's current physical line,
+    /// leaving orphaned wrapped lines visible briefly until the Markdown render
+    /// overwrites them. This is rare in typical LLM output where lines are short.
+    macro_rules! flush_all_markdown {
+        () => {{
+            if !current_line.is_empty() {
                 print!("\r\x1b[2K");
                 let _ = std::io::stdout().flush();
-                *is_generating_text = false;
+                complete_lines.push_str(&current_line);
+                current_line.clear();
             }
-            skin.print_text(pending_md);
-            pending_md.clear();
-        }
-    };
-
-    let flush_on_newline = |pending_md: &mut String, is_generating_text: &mut bool| {
-        if pending_md.contains('\n') {
-            flush_md(pending_md, is_generating_text);
-        }
-    };
+            if !complete_lines.is_empty() {
+                skin.print_text(&complete_lines);
+                complete_lines.clear();
+            }
+        }};
+    }
 
     loop {
         let item = tokio::select! {
             _ = interrupt_rx.recv() => {
-                flush_md(&mut pending_md, &mut is_generating_text);
+                flush_all_markdown!();
                 println!(
-                    "\n{} {}",
+                    "\n  {} {}",
                     "⚠".bright_yellow(),
                     "Interrupted — press Ctrl+C again to quit".dimmed()
                 );
@@ -354,14 +360,43 @@ async fn stream_response(
                     }
                     reasoning_buf.clear();
                 }
-                if !is_generating_text {
-                    is_generating_text = true;
-                    print!("  {} ", "⏳".bright_cyan());
+                full_response.push_str(&text_content.text);
+
+                // Line-buffered Markdown streaming:
+                // - Complete lines (ending with \n) are rendered through termimad
+                // - The current incomplete line is printed raw for instant feedback
+                let new_text = &text_content.text;
+                if new_text.contains('\n') {
+                    // Erase the raw current line before rendering (only if one exists)
+                    if !current_line.is_empty() {
+                        print!("\r\x1b[2K");
+                        let _ = std::io::stdout().flush();
+                    }
+
+                    // Split new text at the last newline
+                    let last_nl = new_text.rfind('\n').unwrap();
+                    let before_last_nl = &new_text[..=last_nl]; // includes the \n
+                    let after_last_nl = &new_text[last_nl + 1..];
+
+                    // Add current_line + before_last_nl to complete_lines and render
+                    complete_lines.push_str(&current_line);
+                    complete_lines.push_str(before_last_nl);
+                    current_line.clear();
+                    skin.print_text(&complete_lines);
+                    complete_lines.clear();
+
+                    // Remaining partial line becomes the new current_line
+                    current_line.push_str(after_last_nl);
+                    if !current_line.is_empty() {
+                        print!("{}", current_line);
+                        let _ = std::io::stdout().flush();
+                    }
+                } else {
+                    // No newline — accumulate into current_line, print raw
+                    current_line.push_str(new_text);
+                    print!("{}", new_text);
                     let _ = std::io::stdout().flush();
                 }
-                full_response.push_str(&text_content.text);
-                pending_md.push_str(&text_content.text);
-                flush_on_newline(&mut pending_md, &mut is_generating_text);
             }
             Ok(MultiTurnStreamItem::StreamAssistantItem(
                 StreamedAssistantContent::ToolCall { tool_call, .. },
@@ -376,7 +411,8 @@ async fn stream_response(
                     }
                     reasoning_buf.clear();
                 }
-                flush_md(&mut pending_md, &mut is_generating_text);
+                // Flush all remaining text through Markdown before showing tool indicator
+                flush_all_markdown!();
                 // Preserve blank line between reasoning/text and tool indicator
                 println!(
                     "\n  {} {}",
@@ -422,7 +458,8 @@ async fn stream_response(
                     }
                     reasoning_buf.clear();
                 }
-                flush_md(&mut pending_md, &mut is_generating_text);
+                // Flush all remaining text through Markdown rendering
+                flush_all_markdown!();
                 if let Some(history) = final_res.history() {
                     *chat_history = history.to_vec();
                 }
@@ -441,7 +478,8 @@ async fn stream_response(
                     }
                     reasoning_buf.clear();
                 }
-                flush_md(&mut pending_md, &mut is_generating_text);
+                // Flush all remaining text through Markdown rendering
+                flush_all_markdown!();
                 let err_msg = e.to_string();
                 if err_msg.contains("MaxTurnError") || err_msg.contains("max turn limit") {
                     if full_response.is_empty() {
@@ -465,8 +503,9 @@ async fn stream_response(
         }
     }
 
-    // Render any remaining buffered Markdown when stream ends
-    flush_md(&mut pending_md, &mut is_generating_text);
+    // Safety-net flush for unexpected stream termination (normal path already flushes
+    // in FinalResponse/Err handlers). No-op if buffers are already empty.
+    flush_all_markdown!();
 
     StreamResult {
         full_response,
