@@ -49,7 +49,7 @@ fn print_banner() {
     );
     println!(
         "{}",
-        "║     🤖  My Code Agent v0.1.0 (reasoner)   ║".bright_cyan()
+        "║     🤖  My Code Agent v0.1.0 (reasoner) ║".bright_cyan()
     );
     println!(
         "{}",
@@ -132,6 +132,7 @@ fn print_help() {
     println!();
     println!("  {}  Show token usage statistics", "usage".dimmed());
     println!("  {}  Clear conversation history", "clear".dimmed());
+    println!("  {}  Expand last reasoning content", "think".bright_magenta());
     println!("  {}  Exit the agent", "quit".dimmed());
     println!();
     println!("  {}  Attach file contents to your message", "@<filepath>".bright_cyan());
@@ -144,6 +145,7 @@ enum Command {
     Usage,
     Clear,
     Quit,
+    Think,
 }
 
 /// Checks whether the input is a built-in command.
@@ -154,12 +156,13 @@ fn parse_command(input: &str) -> Option<Command> {
         "usage" => Some(Command::Usage),
         "clear" => Some(Command::Clear),
         "quit" | "exit" | "q" => Some(Command::Quit),
+        "think" => Some(Command::Think),
         _ => None,
     }
 }
 
 /// Executes a built-in command. Returns true if the main loop should break.
-fn run_command(cmd: Command, chat_history: &mut Vec<Message>, session_usage: &mut TokenUsage) -> bool {
+fn run_command(cmd: Command, chat_history: &mut Vec<Message>, session_usage: &mut TokenUsage, last_reasoning: &str) -> bool {
     match cmd {
         Command::Help => print_help(),
         Command::Usage => session_usage.print_session_report(),
@@ -171,8 +174,82 @@ fn run_command(cmd: Command, chat_history: &mut Vec<Message>, session_usage: &mu
             println!("{}", "Goodbye! 👋".dimmed());
             return true;
         }
+        Command::Think => {
+            print_reasoning_full(last_reasoning);
+        }
     }
     false
+}
+
+/// Prints a collapsed summary of the reasoning content.
+/// Shows the first line of reasoning (or a truncation hint) so the user knows reasoning occurred
+/// without flooding the terminal. The full reasoning can be reviewed with the `think` command.
+fn print_reasoning_summary(reasoning: &str) {
+    if reasoning.is_empty() {
+        return;
+    }
+    // Erase the "Thinking..." line first
+    print!("\r\x1b[2K");
+    let _ = std::io::stdout().flush();
+
+    // Get first non-empty line as summary
+    let first_line = reasoning
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("");
+
+    let char_count = reasoning.len();
+    let line_count = reasoning.lines().count();
+
+    // Build display text, handling empty first line
+    let display_line = if first_line.is_empty() {
+        "(see full reasoning)".to_string()
+    } else if first_line.chars().count() > 80 {
+        // Truncate first line if too long (char-based to avoid UTF-8 panic)
+        let truncated: String = first_line.chars().take(77).collect();
+        format!("{}...", truncated)
+    } else {
+        first_line.to_string()
+    };
+
+    println!(
+        "  {} {} ({} chars, {} lines) {}",
+        "💭".bright_magenta(),
+        display_line.bright_magenta().dimmed(),
+        char_count.to_string().bright_magenta().dimmed(),
+        line_count.to_string().bright_magenta().dimmed(),
+        "[type 'think' to expand]".bright_black()
+    );
+}
+
+/// Prints the full reasoning content (expanded view).
+fn print_reasoning_full(reasoning: &str) {
+    if reasoning.is_empty() {
+        println!("  {}", "No reasoning content available.".dimmed());
+        return;
+    }
+    println!();
+    println!(
+        "  {} {}",
+        "💭".bright_magenta(),
+        "Reasoning:".bright_magenta().bold()
+    );
+    println!(
+        "  {}",
+        "─────────────────────────────────────────"
+            .bright_magenta()
+            .dimmed()
+    );
+    for line in reasoning.lines() {
+        println!("  {}", line.bright_magenta().dimmed());
+    }
+    println!(
+        "  {}",
+        "─────────────────────────────────────────"
+            .bright_magenta()
+            .dimmed()
+    );
+    println!();
 }
 
 /// Result of streaming a response from the agent.
@@ -180,6 +257,7 @@ struct StreamResult {
     full_response: String,
     interrupted: bool,
     should_exit: bool,
+    last_reasoning: String,
 }
 
 /// Streams a response from the agent, handling Ctrl+C interrupts.
@@ -203,6 +281,8 @@ async fn stream_response(
     let mut is_reasoning = false;
     let mut is_generating_text = false;
     let mut pending_md = String::new(); // buffered text to render as Markdown
+    let mut reasoning_buf = String::new(); // buffered reasoning text for current segment (cleared after summary)
+    let mut total_reasoning = String::new(); // accumulated reasoning across entire stream (for 'think' command)
     let skin = MadSkin::default();
 
     let flush_md = |pending_md: &mut String, is_generating_text: &mut bool| {
@@ -236,11 +316,17 @@ async fn stream_response(
                     _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => false,
                     _ = interrupt_rx.recv() => true,
                 };
+                // Flush current reasoning segment so 'think' command can access it
+                if !reasoning_buf.is_empty() {
+                    total_reasoning.push_str(&reasoning_buf);
+                    total_reasoning.push('\n');
+                }
                 if second_interrupt {
                     return StreamResult {
                         full_response,
                         interrupted: true,
                         should_exit: true,
+                        last_reasoning: total_reasoning,
                     };
                 }
                 interrupted = true;
@@ -260,7 +346,13 @@ async fn stream_response(
             ))) => {
                 if is_reasoning {
                     is_reasoning = false;
-                    println!();
+                    // Print collapsed reasoning summary
+                    print_reasoning_summary(&reasoning_buf);
+                    if !reasoning_buf.is_empty() {
+                        total_reasoning.push_str(&reasoning_buf);
+                        total_reasoning.push('\n');
+                    }
+                    reasoning_buf.clear();
                 }
                 if !is_generating_text {
                     is_generating_text = true;
@@ -276,7 +368,13 @@ async fn stream_response(
             )) => {
                 if is_reasoning {
                     is_reasoning = false;
-                    println!();
+                    // Print collapsed reasoning summary
+                    print_reasoning_summary(&reasoning_buf);
+                    if !reasoning_buf.is_empty() {
+                        total_reasoning.push_str(&reasoning_buf);
+                        total_reasoning.push('\n');
+                    }
+                    reasoning_buf.clear();
                 }
                 flush_md(&mut pending_md, &mut is_generating_text);
                 // Preserve blank line between reasoning/text and tool indicator
@@ -293,26 +391,36 @@ async fn stream_response(
             )) => {
                 if !is_reasoning {
                     is_reasoning = true;
-                    print!("\n{} ", "💭".bright_magenta());
+                    print!("\n  {} ", "💭".bright_magenta());
+                    print!("{}", "Thinking...".bright_magenta().dimmed());
+                    let _ = std::io::stdout().flush();
                 }
                 let text = reasoning.display_text();
-                print!("{}", text.bright_magenta().dimmed());
-                let _ = std::io::stdout().flush();
+                reasoning_buf.push_str(&text);
             }
             Ok(MultiTurnStreamItem::StreamAssistantItem(
                 StreamedAssistantContent::ReasoningDelta { reasoning: delta, .. },
             )) => {
                 if !is_reasoning {
                     is_reasoning = true;
-                    print!("\n{} ", "💭".bright_magenta());
+                    print!("\n  {} ", "💭".bright_magenta());
+                    print!("{}", "Thinking...".bright_magenta().dimmed());
+                    let _ = std::io::stdout().flush();
                 }
-                print!("{}", delta.bright_magenta().dimmed());
-                let _ = std::io::stdout().flush();
+                reasoning_buf.push_str(&delta);
+                // No spinner needed — the "Thinking..." label above is sufficient.
+                // print_reasoning_summary will cleanly replace this line when done.
             }
             Ok(MultiTurnStreamItem::FinalResponse(final_res)) => {
                 if is_reasoning {
                     is_reasoning = false;
-                    println!();
+                    // Print collapsed reasoning summary
+                    print_reasoning_summary(&reasoning_buf);
+                    if !reasoning_buf.is_empty() {
+                        total_reasoning.push_str(&reasoning_buf);
+                        total_reasoning.push('\n');
+                    }
+                    reasoning_buf.clear();
                 }
                 flush_md(&mut pending_md, &mut is_generating_text);
                 if let Some(history) = final_res.history() {
@@ -324,6 +432,15 @@ async fn stream_response(
             }
             Ok(_) => {}
             Err(e) => {
+                // Flush reasoning so 'think' command can access it
+                if is_reasoning {
+                    print_reasoning_summary(&reasoning_buf);
+                    if !reasoning_buf.is_empty() {
+                        total_reasoning.push_str(&reasoning_buf);
+                        total_reasoning.push('\n');
+                    }
+                    reasoning_buf.clear();
+                }
                 flush_md(&mut pending_md, &mut is_generating_text);
                 let err_msg = e.to_string();
                 if err_msg.contains("MaxTurnError") || err_msg.contains("max turn limit") {
@@ -355,6 +472,7 @@ async fn stream_response(
         full_response,
         interrupted,
         should_exit: false,
+        last_reasoning: total_reasoning,
     }
 }
 
@@ -389,6 +507,7 @@ async fn main() -> Result<()> {
 
     let mut chat_history: Vec<Message> = Vec::new();
     let mut session_usage = TokenUsage::new();
+    let mut last_reasoning = String::new();
 
     let (interrupt_tx, mut interrupt_rx) = tokio::sync::mpsc::channel::<()>(1);
     tokio::spawn(async move {
@@ -423,8 +542,13 @@ async fn main() -> Result<()> {
         }
 
         if let Some(cmd) = parse_command(&input) {
-            if run_command(cmd, &mut chat_history, &mut session_usage) {
+            let is_clear = matches!(cmd, Command::Clear);
+            if run_command(cmd, &mut chat_history, &mut session_usage, &last_reasoning) {
                 break;
+            }
+            // Clear reasoning when conversation is cleared
+            if is_clear {
+                last_reasoning.clear();
             }
             continue;
         }
@@ -449,6 +573,8 @@ async fn main() -> Result<()> {
 
         // Drain stale interrupt signals
         while interrupt_rx.try_recv().is_ok() {}
+
+        last_reasoning = result.last_reasoning;
 
         print_interrupted_notice(&result.full_response, result.interrupted);
     }
