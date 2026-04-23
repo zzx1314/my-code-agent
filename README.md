@@ -17,6 +17,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 |------|-------------|
 | `file_read` | Read file contents with line numbers, offset, and limit support |
 | `file_write` | Write or create files with optional parent directory creation |
+| `file_update` | Make targeted edits to existing files (find & replace) |
 | `shell_exec` | Execute shell commands with timeout and working directory support |
 | `code_search` | Search for text patterns in source code using grep |
 
@@ -60,7 +61,7 @@ Once started, you'll see the agent banner and a prompt:
 ║     🤖  My Code Agent v0.1.0              ║
 ╚══════════════════════════════════════════╝
 
-  Tools: file_read · file_write · shell_exec · code_search
+  Tools: file_read · file_write · file_update · shell_exec · code_search
   Type: your request to get started, 'quit' to exit
 
 ❯ 
@@ -142,12 +143,14 @@ src/
     ├── code_search.rs # Grep-based code search tool
     ├── file_read.rs   # File reading tool
     ├── file_write.rs  # File writing tool
+    ├── file_update.rs # File editing tool (find & replace)
     └── shell_exec.rs  # Shell command execution tool
 tests/
 ├── context.rs        # Integration tests for @filepath expansion
 ├── code_search.rs    # Integration tests for code_search
 ├── file_read.rs      # Integration tests for file_read
 ├── file_write.rs     # Integration tests for file_write
+├── file_update.rs    # Integration tests for file_update
 ├── shell_exec.rs     # Integration tests for shell_exec
 ├── token_usage.rs    # Integration tests for token_usage
 └── tools.rs          # Integration tests for tool registry
