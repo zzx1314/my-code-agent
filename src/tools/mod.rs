@@ -1,12 +1,15 @@
 pub mod code_search;
+pub mod file_delete;
 pub mod file_read;
 pub mod file_update;
 pub mod file_write;
 pub mod shell_exec;
 
 pub use code_search::CodeSearch;
+pub use file_delete::FileDelete;
 pub use file_read::FileRead;
 pub use file_update::FileUpdate;
+pub use file_update::build_diff;
 pub use file_write::FileWrite;
 pub use shell_exec::ShellExec;
 
@@ -18,6 +21,7 @@ pub fn all_tools() -> Vec<Box<dyn ToolDyn>> {
         Box::new(FileRead),
         Box::new(FileWrite),
         Box::new(FileUpdate),
+        Box::new(FileDelete),
         Box::new(ShellExec),
         Box::new(CodeSearch),
     ]

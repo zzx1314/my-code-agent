@@ -20,6 +20,7 @@ const PREAMBLE: &str = r#"You are an expert coding assistant with access to tool
 - **file_read**: Read file contents from the local filesystem
 - **file_write**: Create new files on the local filesystem (for editing existing files, use file_update instead)
 - **file_update**: Make targeted edits to existing files. Always read the file first with file_read to ensure the `old` string matches exactly, then use file_update to apply the edit
+- **file_delete**: Delete files, directories, or specific text snippets from files. Use `snippet` to remove code without deleting the whole file. Use with caution.
 - **shell_exec**: Execute shell commands (build, test, lint, etc.)
 - **code_search**: Search for patterns in source code using grep
 ## Critical Rules
@@ -57,7 +58,7 @@ fn print_banner() {
     println!(
         "  {} {}",
         "Tools:".bright_white().bold(),
-        "file_read · file_write · file_update · shell_exec · code_search".bright_green()
+        "file_read · file_write · file_update · file_delete · shell_exec · code_search".bright_green()
     );
     println!(
         "  {} {}",
@@ -124,6 +125,7 @@ fn print_help() {
     println!("  {}  Read file contents", "file_read".bright_yellow());
     println!("  {}  Write to a file", "file_write".bright_yellow());
     println!("  {}  Edit existing files (find & replace)", "file_update".bright_yellow());
+    println!("  {}  Delete files, directories, or code snippets", "file_delete".bright_yellow());
     println!("  {}  Run shell commands", "shell_exec".bright_yellow());
     println!("  {}  Search code patterns", "code_search".bright_yellow());
     println!();

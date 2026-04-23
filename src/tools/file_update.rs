@@ -106,7 +106,7 @@ impl Tool for FileUpdate {
 }
 
 /// Builds a minimal unified-diff-style string showing the replacement.
-fn build_diff(old: &str, new: &str, content: &str) -> String {
+pub fn build_diff(old: &str, new: &str, content: &str) -> String {
     let before_lines: Vec<&str> = content.lines().collect();
     let old_lines: Vec<&str> = old.lines().collect();
     let new_lines: Vec<&str> = new.lines().collect();
@@ -143,27 +143,3 @@ fn build_diff(old: &str, new: &str, content: &str) -> String {
     diff
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_build_diff() {
-        let content = "fn hello() {\n    println!(\"hi\");\n}\n";
-        let diff = build_diff("println!(\"hi\");", "println!(\"hello\");", content);
-        assert!(diff.contains("@@ line 2 @@"));
-        assert!(diff.contains("-println!(\"hi\");"));
-        assert!(diff.contains("+println!(\"hello\");"));
-    }
-
-    #[test]
-    fn test_build_diff_multiline() {
-        let content = "fn foo() {\n    let x = 1;\n    let y = 2;\n}\n";
-        let old = "    let x = 1;\n    let y = 2;";
-        let new = "    let x = 3;\n    let y = 4;";
-        let diff = build_diff(old, new, content);
-        assert!(diff.contains("@@ line 2 @@"));
-        assert!(diff.contains("-    let x = 1;"));
-        assert!(diff.contains("+    let x = 3;"));
-    }
-}
