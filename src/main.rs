@@ -9,6 +9,7 @@ use rig::streaming::StreamedAssistantContent;
 use rig::streaming::StreamingChat;
 use std::io::Write;
 
+use my_code_agent::context::{expand_file_refs, print_attachments};
 use my_code_agent::token_usage::{print_turn_usage, TokenUsage};
 
 type Agent = rig::agent::Agent<deepseek::CompletionModel>;
@@ -59,8 +60,13 @@ fn print_banner() {
     );
     println!(
         "  {} {}",
+        "Files:".bright_white().bold(),
+        "@<path> to attach file contents".bright_green()
+    );
+    println!(
+        "  {} {}",
         "Type:".bright_white().bold(),
-        "your request to get started, 'quit' to exit".dimmed()
+        "your request to get started, 'help' for commands".dimmed()
     );
     println!(
         "  {} {}",
@@ -123,6 +129,8 @@ fn print_help() {
     println!("  {}  Show token usage statistics", "usage".dimmed());
     println!("  {}  Clear conversation history", "clear".dimmed());
     println!("  {}  Exit the agent", "quit".dimmed());
+    println!();
+    println!("  {}  Attach file contents to your message", "@<filepath>".bright_cyan());
     println!();
 }
 
@@ -349,9 +357,13 @@ async fn main() -> Result<()> {
             continue;
         }
 
+        let expand_result = expand_file_refs(&input);
+        if !expand_result.attachments.is_empty() {
+            print_attachments(&expand_result.attachments);
+        }
         let result = stream_response(
             &agent,
-            &input,
+            &expand_result.expanded,
             &mut chat_history,
             &mut session_usage,
             &mut interrupt_rx,

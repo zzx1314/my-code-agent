@@ -8,6 +8,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 - **🔧 Tool-Augmented** — The agent can read files, write files, search code, and run shell commands
 - **📊 Token Usage Tracking** — Monitor token consumption per-turn and per-session
 - **⚡ Interrupt Handling** — Ctrl+C to interrupt a response, double-press to quit
+- **📎 File References** — Use `@<filepath>` to attach file contents directly into your message
 - **🎨 Colored Output** — Rich terminal UI with syntax-highlighted tool calls and usage stats
 
 ## Tools
@@ -65,6 +66,24 @@ Once started, you'll see the agent banner and a prompt:
 ❯ 
 ```
 
+### File References (`@filepath`)
+
+Prefix a file path with `@` to attach its contents directly into your message — the agent will see the file inline without needing a separate `file_read` tool call.
+
+```
+❯ explain @src/main.rs
+❯ compare @src/main.rs and @src/lib.rs
+❯ refactor @tools/shell_exec.rs to add retry logic
+```
+
+**Details:**
+- Works with relative or absolute paths
+- Supports multiple `@refs` in a single message
+- Trailing punctuation (`:`, `,`, `;`, `!`, `?`) is stripped from the path
+- Files over 500 lines or 50 KB are truncated with a notice
+- Works inside brackets: `(@src/main.rs)`
+- Email addresses like `user@example.com` are ignored
+
 ### Built-in Commands
 
 | Command | Description |
@@ -78,10 +97,12 @@ Once started, you'll see the agent banner and a prompt:
 
 ```
 ❯ Read the file src/main.rs and explain how it works
+❯ explain @src/main.rs                          # same as above, but file is attached inline
 ❯ Search for all usages of the TokenUsage struct
 ❯ Write a new module src/utils.rs with helper functions
 ❯ Run cargo test and show me the results
 ❯ Refactor the stream_response function to be shorter
+❯ compare @src/main.rs and @src/lib.rs           # attach multiple files
 ```
 
 ### Token Usage
@@ -114,6 +135,7 @@ Use the `usage` command for a detailed session report:
 src/
 ├── main.rs           # CLI entry point and interactive loop
 ├── lib.rs            # Library crate root
+├── context.rs        # @filepath parsing and expansion
 ├── token_usage.rs    # Token usage tracking and reporting
 └── tools/
     ├── mod.rs         # Tool registry (all_tools)
@@ -122,6 +144,7 @@ src/
     ├── file_write.rs  # File writing tool
     └── shell_exec.rs  # Shell command execution tool
 tests/
+├── context.rs        # Integration tests for @filepath expansion
 ├── code_search.rs    # Integration tests for code_search
 ├── file_read.rs      # Integration tests for file_read
 ├── file_write.rs     # Integration tests for file_write
