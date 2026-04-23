@@ -11,6 +11,7 @@ use std::io::Write;
 
 use my_code_agent::context::{expand_file_refs, print_attachments};
 use my_code_agent::token_usage::{print_turn_usage, TokenUsage};
+use termimad::MadSkin;
 
 type Agent = rig::agent::Agent<deepseek::CompletionModel>;
 
@@ -200,10 +201,28 @@ async fn stream_response(
     let mut full_response = String::new();
     let mut interrupted = false;
     let mut is_reasoning = false;
+    let mut is_generating_text = false;
+    let mut pending_md = String::new(); // buffered text to render as Markdown
+    let skin = MadSkin::default();
+
+    // Helper: flush buffered Markdown to the terminal, clearing the ⏳ indicator if present.
+    let flush_md = |pending_md: &mut String, is_generating_text: &mut bool| {
+        if !pending_md.is_empty() {
+            if *is_generating_text {
+                // ANSI escape: move cursor to start of line and erase entire line
+                print!("\r\x1b[2K");
+                let _ = std::io::stdout().flush();
+                *is_generating_text = false;
+            }
+            skin.print_text(pending_md);
+            pending_md.clear();
+        }
+    };
 
     loop {
         let item = tokio::select! {
             _ = interrupt_rx.recv() => {
+                flush_md(&mut pending_md, &mut is_generating_text);
                 println!(
                     "\n{} {}",
                     "⚠".bright_yellow(),
@@ -239,17 +258,23 @@ async fn stream_response(
                     is_reasoning = false;
                     println!();
                 }
-                print!("{}", text_content.text);
-                let _ = std::io::stdout().flush();
+                if !is_generating_text {
+                    is_generating_text = true;
+                    print!("  {} ", "⏳".bright_cyan());
+                    let _ = std::io::stdout().flush();
+                }
                 full_response.push_str(&text_content.text);
+                pending_md.push_str(&text_content.text);
             }
             Ok(MultiTurnStreamItem::StreamAssistantItem(
                 StreamedAssistantContent::ToolCall { tool_call, .. },
             )) => {
                 if is_reasoning {
                     is_reasoning = false;
-                    println!("\n");
+                    println!();
                 }
+                flush_md(&mut pending_md, &mut is_generating_text);
+                // Preserve blank line between reasoning/text and tool indicator
                 println!(
                     "\n  {} {}",
                     "⟳".bright_yellow(),
@@ -284,6 +309,7 @@ async fn stream_response(
                     is_reasoning = false;
                     println!();
                 }
+                flush_md(&mut pending_md, &mut is_generating_text);
                 if let Some(history) = final_res.history() {
                     *chat_history = history.to_vec();
                 }
@@ -293,6 +319,7 @@ async fn stream_response(
             }
             Ok(_) => {}
             Err(e) => {
+                flush_md(&mut pending_md, &mut is_generating_text);
                 let err_msg = e.to_string();
                 if err_msg.contains("MaxTurnError") || err_msg.contains("max turn limit") {
                     if full_response.is_empty() {
@@ -315,6 +342,9 @@ async fn stream_response(
             }
         }
     }
+
+    // Render any remaining buffered Markdown when stream ends
+    flush_md(&mut pending_md, &mut is_generating_text);
 
     StreamResult {
         full_response,
