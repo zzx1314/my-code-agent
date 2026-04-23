@@ -71,8 +71,7 @@ impl Tool for FileRead {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let content = std::fs::read_to_string(&args.path)
-            .map_err(|e| FileReadError::Io(e))?;
+        let content = std::fs::read_to_string(&args.path).map_err(|e| FileReadError::Io(e))?;
 
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();

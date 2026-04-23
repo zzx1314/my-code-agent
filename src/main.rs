@@ -1,13 +1,11 @@
-mod tools;
-
 use anyhow::Result;
 use colored::*;
 use futures::StreamExt;
 use rig::agent::MultiTurnStreamItem;
-use rig::streaming::StreamedAssistantContent;
 use rig::client::{CompletionClient, ProviderClient};
 use rig::completion::Message;
 use rig::providers::deepseek;
+use rig::streaming::StreamedAssistantContent;
 use rig::streaming::StreamingChat;
 use std::io::Write;
 
@@ -97,7 +95,7 @@ async fn main() -> Result<()> {
     }
 
     let client = deepseek::Client::from_env();
-    let tools = tools::all_tools();
+    let tools = my_deepseek_agent::tools::all_tools();
 
     let agent = client
         .agent(deepseek::DEEPSEEK_CHAT)
@@ -206,9 +204,9 @@ async fn main() -> Result<()> {
             };
 
             match item {
-                Ok(MultiTurnStreamItem::StreamAssistantItem(
-                    StreamedAssistantContent::Text(text_content),
-                )) => {
+                Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
+                    text_content,
+                ))) => {
                     print!("{}", text_content.text);
                     std::io::stdout().flush()?;
                     full_response.push_str(&text_content.text);
