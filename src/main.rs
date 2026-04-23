@@ -9,7 +9,7 @@ use rig::streaming::StreamedAssistantContent;
 use rig::streaming::StreamingChat;
 use std::io::Write;
 
-use my_deepseek_agent::token_usage::{print_turn_usage, TokenUsage};
+use my_code_agent::token_usage::{print_turn_usage, TokenUsage};
 
 type Agent = rig::agent::Agent<deepseek::CompletionModel>;
 
@@ -45,7 +45,7 @@ fn print_banner() {
     );
     println!(
         "{}",
-        "║     🤖  DeepSeek Code Agent v0.1.0       ║".bright_cyan()
+        "║     🤖  My Code Agent v0.1.0              ║".bright_cyan()
     );
     println!(
         "{}",
@@ -102,7 +102,7 @@ fn check_api_key() {
 /// Precondition: `DEEPSEEK_API_KEY` must be set (enforced by `check_api_key()`).
 fn build_agent() -> Agent {
     let client = deepseek::Client::from_env();
-    let tools = my_deepseek_agent::tools::all_tools();
+    let tools = my_code_agent::tools::all_tools();
 
     client
         .agent(deepseek::DEEPSEEK_CHAT)

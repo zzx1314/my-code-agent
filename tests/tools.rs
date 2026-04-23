@@ -1,4 +1,4 @@
-use my_deepseek_agent::tools::all_tools;
+use my_code_agent::tools::all_tools;
 
 #[test]
 fn test_all_tools_count() {

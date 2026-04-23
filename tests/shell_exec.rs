@@ -1,4 +1,4 @@
-use my_deepseek_agent::tools::shell_exec::{ShellExec, ShellExecArgs, ShellExecOutput};
+use my_code_agent::tools::shell_exec::{ShellExec, ShellExecArgs, ShellExecOutput};
 use rig::tool::Tool;
 
 async fn exec_cmd(command: &str, timeout_secs: u64, cwd: Option<&str>) -> ShellExecOutput {

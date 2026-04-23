@@ -1,4 +1,4 @@
-use my_deepseek_agent::tools::code_search::{
+use my_code_agent::tools::code_search::{
     CodeSearch, CodeSearchArgs, CodeSearchError, CodeSearchOutput,
 };
 use rig::tool::Tool;

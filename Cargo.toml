@@ -1,5 +1,5 @@
 [package]
-name = "my-deepseek-agent"
+name = "my-code-agent"
 version = "0.1.0"
 edition = "2024"
 
