@@ -205,17 +205,21 @@ async fn stream_response(
     let mut pending_md = String::new(); // buffered text to render as Markdown
     let skin = MadSkin::default();
 
-    // Helper: flush buffered Markdown to the terminal, clearing the ⏳ indicator if present.
     let flush_md = |pending_md: &mut String, is_generating_text: &mut bool| {
         if !pending_md.is_empty() {
             if *is_generating_text {
-                // ANSI escape: move cursor to start of line and erase entire line
                 print!("\r\x1b[2K");
                 let _ = std::io::stdout().flush();
                 *is_generating_text = false;
             }
             skin.print_text(pending_md);
             pending_md.clear();
+        }
+    };
+
+    let flush_on_newline = |pending_md: &mut String, is_generating_text: &mut bool| {
+        if pending_md.contains('\n') {
+            flush_md(pending_md, is_generating_text);
         }
     };
 
@@ -265,6 +269,7 @@ async fn stream_response(
                 }
                 full_response.push_str(&text_content.text);
                 pending_md.push_str(&text_content.text);
+                flush_on_newline(&mut pending_md, &mut is_generating_text);
             }
             Ok(MultiTurnStreamItem::StreamAssistantItem(
                 StreamedAssistantContent::ToolCall { tool_call, .. },
