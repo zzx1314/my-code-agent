@@ -95,9 +95,8 @@ async fn read_stdin_line() -> Option<String> {
 fn check_api_key() {
     if std::env::var("DEEPSEEK_API_KEY").is_err() {
         eprintln!(
-            "{} {}",
-            "✗".bright_red(),
-            "DEEPSEEK_API_KEY not set. Add it to .env or your environment."
+            "{} DEEPSEEK_API_KEY not set. Add it to .env or your environment.",
+            "✗".bright_red()
         );
         std::process::exit(1);
     }

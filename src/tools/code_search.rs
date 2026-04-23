@@ -122,14 +122,14 @@ impl Tool for CodeSearch {
 
             // Parse grep output format: path:line_num:content
             let parts: Vec<&str> = line.splitn(3, ':').collect();
-            if parts.len() == 3 {
-                if let Ok(line_num) = parts[1].parse::<usize>() {
-                    matches.push(SearchMatch {
-                        file: parts[0].to_string(),
-                        line_number: line_num,
-                        line: parts[2].to_string(),
-                    });
-                }
+            if parts.len() == 3
+                && let Ok(line_num) = parts[1].parse::<usize>()
+            {
+                matches.push(SearchMatch {
+                    file: parts[0].to_string(),
+                    line_number: line_num,
+                    line: parts[2].to_string(),
+                });
             }
         }
 

@@ -61,14 +61,14 @@ impl Tool for FileWrite {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        if args.create_dirs {
-            if let Some(parent) = std::path::Path::new(&args.path).parent() {
-                std::fs::create_dir_all(parent).map_err(|e| FileWriteError::Io(e))?;
-            }
+        if args.create_dirs
+            && let Some(parent) = std::path::Path::new(&args.path).parent()
+        {
+            std::fs::create_dir_all(parent).map_err(FileWriteError::Io)?;
         }
 
         let bytes_written = args.content.len();
-        std::fs::write(&args.path, &args.content).map_err(|e| FileWriteError::Io(e))?;
+        std::fs::write(&args.path, &args.content).map_err(FileWriteError::Io)?;
 
         Ok(FileWriteOutput {
             path: args.path,
