@@ -48,7 +48,7 @@ fn print_banner() {
     );
     println!(
         "{}",
-        "║     🤖  My Code Agent v0.1.0              ║".bright_cyan()
+        "║     🤖  My Code Agent v0.1.0 (reasoner)   ║".bright_cyan()
     );
     println!(
         "{}",
@@ -112,7 +112,7 @@ fn build_agent() -> Agent {
     let tools = my_code_agent::tools::all_tools();
 
     client
-        .agent(deepseek::DEEPSEEK_CHAT)
+        .agent(deepseek::DEEPSEEK_REASONER)
         .preamble(PREAMBLE)
         .tools(tools)
         .default_max_turns(10)
@@ -199,6 +199,7 @@ async fn stream_response(
 
     let mut full_response = String::new();
     let mut interrupted = false;
+    let mut is_reasoning = false;
 
     loop {
         let item = tokio::select! {
@@ -234,6 +235,10 @@ async fn stream_response(
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
                 text_content,
             ))) => {
+                if is_reasoning {
+                    is_reasoning = false;
+                    println!();
+                }
                 print!("{}", text_content.text);
                 let _ = std::io::stdout().flush();
                 full_response.push_str(&text_content.text);
@@ -241,6 +246,10 @@ async fn stream_response(
             Ok(MultiTurnStreamItem::StreamAssistantItem(
                 StreamedAssistantContent::ToolCall { tool_call, .. },
             )) => {
+                if is_reasoning {
+                    is_reasoning = false;
+                    println!("\n");
+                }
                 println!(
                     "\n  {} {}",
                     "⟳".bright_yellow(),
@@ -249,7 +258,32 @@ async fn stream_response(
                         .bold()
                 );
             }
+            Ok(MultiTurnStreamItem::StreamAssistantItem(
+                StreamedAssistantContent::Reasoning(reasoning),
+            )) => {
+                if !is_reasoning {
+                    is_reasoning = true;
+                    print!("\n{} ", "💭".bright_magenta());
+                }
+                let text = reasoning.display_text();
+                print!("{}", text.bright_magenta().dimmed());
+                let _ = std::io::stdout().flush();
+            }
+            Ok(MultiTurnStreamItem::StreamAssistantItem(
+                StreamedAssistantContent::ReasoningDelta { reasoning: delta, .. },
+            )) => {
+                if !is_reasoning {
+                    is_reasoning = true;
+                    print!("\n{} ", "💭".bright_magenta());
+                }
+                print!("{}", delta.bright_magenta().dimmed());
+                let _ = std::io::stdout().flush();
+            }
             Ok(MultiTurnStreamItem::FinalResponse(final_res)) => {
+                if is_reasoning {
+                    is_reasoning = false;
+                    println!();
+                }
                 if let Some(history) = final_res.history() {
                     *chat_history = history.to_vec();
                 }
