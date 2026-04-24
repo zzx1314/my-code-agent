@@ -11,7 +11,8 @@ async fn read_file(
         .call(FileReadArgs {
             path: path.to_string(),
             offset,
-            limit,
+            // Use a very large limit when not specified to preserve old test behavior
+            limit: limit.or(Some(100_000)),
         })
         .await
 }
@@ -125,4 +126,75 @@ async fn test_offset_beyond_file_length() {
         .unwrap();
     assert_eq!(output.lines, 1);
     assert_eq!(output.content, ""); // no lines selected
+}
+
+// ── Default limit (200 lines) and truncation tests ──
+
+#[tokio::test]
+async fn test_default_limit_200_lines() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("large.txt");
+    // Create a file with 300 lines — exceeds the 200-line default
+    let content: String = (0..300).map(|i| format!("line {}\n", i)).collect();
+    std::fs::write(&file_path, &content).unwrap();
+
+    // Call with limit=None, which defaults to 200
+    let output = FileRead
+        .call(FileReadArgs {
+            path: file_path.to_str().unwrap().to_string(),
+            offset: None,
+            limit: None, // uses DEFAULT_READ_LIMIT = 200
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(output.lines, 300); // total lines in file
+    assert!(output.truncated);
+    assert!(output.content.contains("line 0"));
+    assert!(output.content.contains("line 199"));
+    assert!(!output.content.contains("line 200")); // beyond limit
+    assert!(output.content.contains("showing 200 of 300 total lines"));
+    assert!(output.content.contains("offset=200 to read more"));
+}
+
+#[tokio::test]
+async fn test_explicit_limit_overrides_default() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("mid.txt");
+    let content: String = (0..50).map(|i| format!("line {}\n", i)).collect();
+    std::fs::write(&file_path, &content).unwrap();
+
+    // Explicitly request limit=10
+    let output = FileRead
+        .call(FileReadArgs {
+            path: file_path.to_str().unwrap().to_string(),
+            offset: None,
+            limit: Some(10),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(output.lines, 50);
+    assert!(output.truncated);
+    assert!(output.content.contains("showing 10 of 50 total lines"));
+}
+
+#[tokio::test]
+async fn test_small_file_not_truncated() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("small.txt");
+    std::fs::write(&file_path, "line1\nline2\nline3\n").unwrap();
+
+    let output = FileRead
+        .call(FileReadArgs {
+            path: file_path.to_str().unwrap().to_string(),
+            offset: None,
+            limit: None, // defaults to 200, but file is only 3 lines
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(output.lines, 3);
+    assert!(!output.truncated);
+    assert!(!output.content.contains("showing"));
 }
