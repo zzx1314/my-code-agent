@@ -3,6 +3,8 @@ use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::safety::{confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion};
+
 #[derive(Debug, thiserror::Error)]
 pub enum FileDeleteError {
     #[error("IO error: {0}")]
@@ -17,6 +19,8 @@ pub enum FileDeleteError {
     SnippetMultipleMatches { path: String, count: usize },
     #[error("Cannot use snippet mode on a directory: {path}")]
     SnippetOnDirectory { path: String },
+    #[error("Action cancelled by user: {path}")]
+    Cancelled { path: String },
 }
 
 #[derive(Deserialize, Serialize)]
@@ -30,6 +34,10 @@ pub struct FileDeleteArgs {
     /// If true, delete all occurrences of `snippet` in the file. Default: false (fails if snippet appears multiple times).
     #[serde(default)]
     pub allow_multiple: bool,
+    /// If true, skip the safety confirmation prompt for dangerous deletions.
+    /// Should only be set by the user, never by the agent.
+    #[serde(default)]
+    pub auto_approve: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -83,6 +91,10 @@ impl Tool for FileDelete {
                     "allow_multiple": {
                         "type": "boolean",
                         "description": "If true, delete all occurrences of `snippet` in the file. Default: false (fails if snippet appears multiple times)."
+                    },
+                    "auto_approve": {
+                        "type": "boolean",
+                        "description": "If true, skip the safety confirmation for dangerous deletions. Only set this if you are confident the deletion is safe. Default: false."
                     }
                 },
                 "required": ["path"]
@@ -91,7 +103,7 @@ impl Tool for FileDelete {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        // Snippet deletion mode
+        // ── Snippet deletion mode ──
         if let Some(snippet) = args.snippet {
             if snippet.is_empty() {
                 return Err(FileDeleteError::SnippetNotFound { path: args.path });
@@ -99,12 +111,24 @@ impl Tool for FileDelete {
 
             let path = std::path::Path::new(&args.path);
 
+            // Existence/type checks first — no point confirming deletion of a non-existent file
             if !path.exists() {
                 return Err(FileDeleteError::NotFound { path: args.path });
             }
-
             if path.is_dir() {
                 return Err(FileDeleteError::SnippetOnDirectory { path: args.path });
+            }
+
+            // Safety check — skip if auto_approve is set
+            if !args.auto_approve && let Some(reason) = is_dangerous_snippet_deletion(&args.path) {
+                let approved = confirm_action(
+                    reason,
+                    &format!("snippet deletion from: {}", args.path),
+                )
+                .await;
+                if !approved {
+                    return Err(FileDeleteError::Cancelled { path: args.path });
+                }
             }
 
             let content = std::fs::read_to_string(path).map_err(FileDeleteError::Io)?;
@@ -114,7 +138,6 @@ impl Tool for FileDelete {
             if count == 0 {
                 return Err(FileDeleteError::SnippetNotFound { path: args.path });
             }
-
             if count > 1 && !args.allow_multiple {
                 return Err(FileDeleteError::SnippetMultipleMatches {
                     path: args.path,
@@ -127,41 +150,55 @@ impl Tool for FileDelete {
 
             let diff = super::build_diff(&snippet, "", &content);
 
-            Ok(FileDeleteOutput {
+            return Ok(FileDeleteOutput {
                 path: args.path,
                 deleted_type: "snippet".to_string(),
                 deletions: Some(count),
                 diff: Some(diff),
-            })
-        } else {
-            // Whole file/directory deletion mode
-            let path = std::path::Path::new(&args.path);
-
-            if !path.exists() {
-                return Err(FileDeleteError::NotFound { path: args.path });
-            }
-
-            let deleted_type = if path.is_dir() {
-                if args.recursive {
-                    std::fs::remove_dir_all(path).map_err(FileDeleteError::Io)?;
-                    "directory".to_string()
-                } else {
-                    std::fs::remove_dir(path).map_err(FileDeleteError::Io)?;
-                    "directory".to_string()
-                }
-            } else if path.is_file() {
-                std::fs::remove_file(path).map_err(FileDeleteError::Io)?;
-                "file".to_string()
-            } else {
-                return Err(FileDeleteError::InvalidType { path: args.path });
-            };
-
-            Ok(FileDeleteOutput {
-                path: args.path,
-                deleted_type,
-                deletions: None,
-                diff: None,
-            })
+            });
         }
+
+        // ── Whole file/directory deletion mode ──
+        let path = std::path::Path::new(&args.path);
+
+        // Existence check first — no point confirming deletion of a non-existent path
+        if !path.exists() {
+            return Err(FileDeleteError::NotFound { path: args.path });
+        }
+
+        // Safety check — skip if auto_approve is set
+        if !args.auto_approve && let Some(reason) = is_dangerous_deletion(&args.path, args.recursive) {
+            let detail = if args.recursive {
+                format!("recursive deletion of: {}", args.path)
+            } else {
+                format!("deleting: {}", args.path)
+            };
+            let approved = confirm_action(reason, &detail).await;
+            if !approved {
+                return Err(FileDeleteError::Cancelled { path: args.path });
+            }
+        }
+
+        let deleted_type = if path.is_dir() {
+            if args.recursive {
+                std::fs::remove_dir_all(path).map_err(FileDeleteError::Io)?;
+                "directory".to_string()
+            } else {
+                std::fs::remove_dir(path).map_err(FileDeleteError::Io)?;
+                "directory".to_string()
+            }
+        } else if path.is_file() {
+            std::fs::remove_file(path).map_err(FileDeleteError::Io)?;
+            "file".to_string()
+        } else {
+            return Err(FileDeleteError::InvalidType { path: args.path });
+        };
+
+        Ok(FileDeleteOutput {
+            path: args.path,
+            deleted_type,
+            deletions: None,
+            diff: None,
+        })
     }
 }

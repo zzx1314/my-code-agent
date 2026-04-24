@@ -2,8 +2,17 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::convert::Infallible;
 use std::time::Duration;
+
+use super::safety::{confirm_action, is_dangerous_shell_command};
+
+#[derive(Debug, thiserror::Error)]
+pub enum ShellExecError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Action cancelled by user: {0}")]
+    Cancelled(String),
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct ShellExecArgs {
@@ -12,6 +21,10 @@ pub struct ShellExecArgs {
     pub timeout_secs: u64,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// If true, skip the safety confirmation prompt for dangerous commands.
+    /// Should only be set by the user, never by the agent.
+    #[serde(default)]
+    pub auto_approve: bool,
 }
 
 fn default_timeout() -> u64 {
@@ -32,7 +45,7 @@ pub struct ShellExec;
 
 impl Tool for ShellExec {
     const NAME: &'static str = "shell_exec";
-    type Error = Infallible;
+    type Error = ShellExecError;
     type Args = ShellExecArgs;
     type Output = ShellExecOutput;
 
@@ -57,6 +70,10 @@ impl Tool for ShellExec {
                     "cwd": {
                         "type": "string",
                         "description": "Working directory for the command. Default: current directory."
+                    },
+                    "auto_approve": {
+                        "type": "boolean",
+                        "description": "If true, skip the safety confirmation for dangerous commands. Only set this if you are confident the command is safe. Default: false."
                     }
                 },
                 "required": ["command"]
@@ -65,6 +82,18 @@ impl Tool for ShellExec {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        // Safety check: prompt for confirmation if the command matches a dangerous pattern
+        if !args.auto_approve && let Some(pattern) = is_dangerous_shell_command(&args.command) {
+            let approved = confirm_action(
+                "This command matches a dangerous pattern:",
+                &format!("matched '{}' in: {}", pattern, args.command),
+            )
+            .await;
+            if !approved {
+                return Err(ShellExecError::Cancelled(args.command));
+            }
+        }
+
         let timeout = Duration::from_secs(args.timeout_secs);
 
         let mut cmd = tokio::process::Command::new("bash");
@@ -92,13 +121,7 @@ impl Tool for ShellExec {
                     timed_out: false,
                 })
             }
-            Ok(Err(e)) => Ok(ShellExecOutput {
-                command: args.command,
-                exit_code: None,
-                stdout: String::new(),
-                stderr: format!("Failed to execute: {}", e),
-                timed_out: false,
-            }),
+            Ok(Err(e)) => Err(ShellExecError::Io(e)),
             Err(_) => Ok(ShellExecOutput {
                 command: args.command,
                 exit_code: None,
@@ -114,11 +137,13 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        let truncated = &s[..max_len];
+        // Find the nearest valid char boundary at or before max_len
+        let boundary = s.floor_char_boundary(max_len);
+        let truncated = &s[..boundary];
         format!(
             "{}\n\n... [output truncated, {} chars remaining]",
             truncated,
-            s.len() - max_len
+            s.len() - boundary
         )
     }
 }

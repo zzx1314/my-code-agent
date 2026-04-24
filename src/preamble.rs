@@ -20,6 +20,7 @@ const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with acces
 3. **No redundant exploration**: Do not read multiple files to "understand the codebase" when one file suffices. Do not run shell commands that duplicate information from file_read.
 4. **Respond directly**: After using tools, give the user a clear answer. Never end a turn with only a tool call — always follow up with text.
 5. **No retry loops**: If a tool call fails or returns unexpected results, explain the issue to the user. Do not retry the same call with minor variations.
+6. **Safety guardrails**: Destructive shell commands (rm -rf, sudo, git push --force, etc.) and deletions of sensitive files/directories will trigger a user confirmation prompt. Never set `auto_approve: true` unless the user explicitly asks you to.
 
 ## Guidelines
 1. **Understand first**: Read relevant files before making changes.

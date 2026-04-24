@@ -1,6 +1,5 @@
 use colored::*;
 use rig::completion::Message;
-use std::io::Write;
 
 use crate::preamble::KNOWLEDGE_FILE;
 use my_code_agent::token_usage::TokenUsage;
@@ -83,47 +82,6 @@ pub fn print_help() {
         "@<filepath>".bright_cyan()
     );
     println!();
-}
-
-/// Prints a collapsed summary of the reasoning content.
-/// Shows the first line of reasoning (or a truncation hint) so the user knows reasoning occurred
-/// without flooding the terminal. The full reasoning can be reviewed with the `think` command.
-pub fn print_reasoning_summary(reasoning: &str) {
-    if reasoning.is_empty() {
-        return;
-    }
-    // Erase the "Thinking..." line first
-    print!("\r\x1b[2K");
-    let _ = std::io::stdout().flush();
-
-    // Get first non-empty line as summary
-    let first_line = reasoning
-        .lines()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("");
-
-    let char_count = reasoning.len();
-    let line_count = reasoning.lines().count();
-
-    // Build display text, handling empty first line
-    let display_line = if first_line.is_empty() {
-        "(see full reasoning)".to_string()
-    } else if first_line.chars().count() > 80 {
-        // Truncate first line if too long (char-based to avoid UTF-8 panic)
-        let truncated: String = first_line.chars().take(77).collect();
-        format!("{}...", truncated)
-    } else {
-        first_line.to_string()
-    };
-
-    println!(
-        "  {} {} ({} chars, {} lines) {}",
-        "💭".bright_magenta(),
-        display_line.bright_magenta().dimmed(),
-        char_count.to_string().bright_magenta().dimmed(),
-        line_count.to_string().bright_magenta().dimmed(),
-        "[type 'think' to expand]".bright_black()
-    );
 }
 
 /// Prints the full reasoning content (expanded view).

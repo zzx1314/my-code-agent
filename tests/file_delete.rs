@@ -9,6 +9,7 @@ async fn call_delete(path: &str, recursive: bool) -> Result<<FileDelete as Tool>
             recursive,
             snippet: None,
             allow_multiple: false,
+            auto_approve: true, // skip confirmation prompts in tests
         })
         .await
 }
@@ -24,6 +25,7 @@ async fn call_delete_snippet(
             recursive: false,
             snippet: Some(snippet.to_string()),
             allow_multiple,
+            auto_approve: true, // skip confirmation prompts in tests
         })
         .await
 }

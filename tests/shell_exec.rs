@@ -7,6 +7,7 @@ async fn exec_cmd(command: &str, timeout_secs: u64, cwd: Option<&str>) -> ShellE
             command: command.to_string(),
             timeout_secs,
             cwd: cwd.map(|s| s.to_string()),
+            auto_approve: true, // skip confirmation prompts in tests
         })
         .await
         .unwrap()
