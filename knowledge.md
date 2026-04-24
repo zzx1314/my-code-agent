@@ -77,5 +77,5 @@ tests/               # Integration tests (one file per module/tool)
 - **Rust edition 2024** — Very new edition
 - **API key via `.env`** — `DEEPSEEK_API_KEY` must be set
 - **Tool registration** — Add to `src/tools/mod.rs`, then update README
-- **`@filepath` expansion** — Handled in `src/core/context.rs`; files >500 lines or 50KB truncated
+- **`@filepath` expansion** — Handled in `src/core/context.rs`; supports `@path:offset` syntax (e.g. `@src/main.rs:50` reads from line 50); files >500 lines or 50KB truncated, with a notice suggesting `@path:N` or `file_read` with offset to continue
 - **Ctrl+C once** = interrupt response; **Ctrl+C twice** = quit
