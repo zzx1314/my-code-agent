@@ -1,4 +1,4 @@
 pub mod render;
-pub mod ui;
+pub mod terminal;
 
-pub use ui::{parse_command, print_banner, print_interrupted_notice, run_command, Command};
+pub use terminal::{parse_command, print_banner, print_interrupted_notice, run_command, Command};

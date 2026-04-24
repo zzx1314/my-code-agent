@@ -21,7 +21,7 @@ pub const CONFIG_FILE: &str = "config.toml";
 ///
 /// Loaded from `config.toml` in the project root. Missing fields use sensible defaults.
 /// If the file doesn't exist, all defaults are used (no error).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Config {
     /// File reading / attachment settings.
     #[serde(default)]
@@ -87,17 +87,6 @@ pub struct AgentConfig {
     /// Default: 10.
     #[serde(default = "default_max_turns")]
     pub max_turns: usize,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            files: FileConfig::default(),
-            context: ContextConfig::default(),
-            shell: ShellConfig::default(),
-            agent: AgentConfig::default(),
-        }
-    }
 }
 
 impl Default for FileConfig {

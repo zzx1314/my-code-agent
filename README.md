@@ -8,7 +8,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 - **🔧 Tool-Augmented** — The agent can read files, write files, search code, and run shell commands
 - **📊 Token Usage Tracking** — Monitor token consumption per-turn and per-session
 - **⚡ Interrupt Handling** — Ctrl+C to interrupt a response, double-press to quit
-- **📎 File References** — Use `@<filepath>` to attach file contents directly into your message
+- **📎 File References** — Use `@<filepath>` to attach file contents directly into your message, with `@<filepath>:N` offset syntax for large files
 - **🎨 Colored Output** — Rich terminal UI with syntax-highlighted tool calls and usage stats
 - **💭 Collapsible Reasoning** — DeepSeek's reasoning (thinking) is collapsed into a one-line summary; use `think` to expand
 
@@ -86,11 +86,29 @@ Prefix a file path with `@` to attach its contents directly into your message �
 ❯ refactor @tools/shell_exec.rs to add retry logic
 ```
 
+#### Offset Syntax (`@filepath:N`)
+
+Append `:N` to a file path to start reading from a specific line (0-indexed). This is useful for continuing to read a truncated file:
+
+```
+❯ explain @src/main.rs:100       # start reading from line 100
+❯ read @src/main.rs:500         # continue reading where truncation left off
+```
+
+When a file is truncated, the notice shows the offset to use for the next chunk:
+
+```
+... (file truncated: showing 500 of 1200 total lines. Use @src/main.rs:500 or the file_read tool with offset=500 to read the rest)
+```
+
+The agent is instructed to use `file_read` with the suggested offset when it encounters a truncated attachment and needs more information.
+
 **Details:**
 - Works with relative or absolute paths
 - Supports multiple `@refs` in a single message
-- Trailing punctuation (`:`, `,`, `;`, `!`, `?`) is stripped from the path
-- Files over 500 lines or 50 KB are truncated with a notice
+- `@path:N` offset syntax starts reading from line N (0-indexed)
+- Trailing punctuation (`,`, `;`, `!`, `?`) is stripped from the path; bare `:` (no digits) is also stripped
+- Files over 500 lines or 50 KB are truncated with a continuation hint
 - Works inside brackets: `(@src/main.rs)`
 - Email addresses like `user@example.com` are ignored
 
@@ -109,6 +127,7 @@ Prefix a file path with `@` to attach its contents directly into your message �
 ```
 ❯ Read the file src/main.rs and explain how it works
 ❯ explain @src/main.rs                          # same as above, but file is attached inline
+❯ explain @src/main.rs:200                     # attach starting from line 200
 ❯ Search for all usages of the TokenUsage struct
 ❯ Write a new module src/utils.rs with helper functions
 ❯ Run cargo test and show me the results
@@ -176,7 +195,7 @@ src/
 │   └── token_usage.rs # Token usage tracking
 ├── ui/              # Terminal UI
 │   ├── render.rs   # Markdown renderer
-│   └── ui.rs      # Banner, help, commands
+│   └── terminal.rs # Banner, help, commands
 └── tools/          # Tool implementations
     ├── mod.rs      # Tool registry (all_tools)
     ├── code_search.rs

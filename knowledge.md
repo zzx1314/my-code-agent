@@ -25,9 +25,9 @@ src/
 │   ├── streaming.rs# Streaming response handling
 │   └── token_usage.rs # Token usage tracking and reporting
 ├── ui/              # Terminal UI
-│   ├── mod.rs       # Re-exports: render, ui
+│   ├── mod.rs       # Re-exports: render, terminal
 │   ├── render.rs   # Markdown renderer, reasoning tracker
-│   └── ui.rs       # Terminal UI components (prompt, banner, help, commands)
+│   └── terminal.rs # Terminal UI components (prompt, banner, help, commands)
 └── tools/           # Tool implementations
     ├── mod.rs       # Tool registry — all_tools()
     └── *.rs        # Individual tool implementations
@@ -43,7 +43,7 @@ tests/               # Integration tests (one file per module/tool)
 | `src/core/context.rs` | `@filepath` parsing and inline file expansion |
 | `src/core/token_usage.rs` | Token usage tracking and reporting |
 | `src/core/streaming.rs` | Streaming response handling |
-| `src/ui/ui.rs` | Terminal UI components (banner, help, commands) |
+| `src/ui/terminal.rs` | Terminal UI components (banner, help, commands) |
 | `src/ui/render.rs` | Markdown rendering, reasoning tracking |
 | `src/tools/mod.rs` | Tool registry — `all_tools()` |
 | `src/tools/*.rs` | Individual tool implementations |
