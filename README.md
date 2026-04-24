@@ -59,12 +59,17 @@ cargo run --release
 Once started, you'll see the agent banner and a prompt:
 
 ```
-╔══════════════════════════════════════════╗
-║     🤖  My Code Agent v0.1.0 (reasoner)   ║
-╚══════════════════════════════════════════╝
+ _                               _   
+  _ __ ___  _   _    ___ ___   __| | ___    __ _  __ _  ___ _ __ | |_ 
+ | '_ ` _ \| | | |  / __/ _ \ / _` |/ _ \  / _` |/ _` |/ _ \ '_ \| __|
+ | | | | | | |_| | | (_| (_) | (_| |  __/ | (_| | (_| |  __/ | | | |_ 
+ |_| |_| |_|\__, |  \___\___/ \__,_|\___|  \__,_|\__, |\___|_| |_|\__|
+            |___/                                |___/ 
+
+  🤖 My Code Agent v0.1.0 (reasoner)
 
   Tools: file_read · file_write · file_update · file_delete · shell_exec · code_search
-  Type: your request to get started, 'quit' to exit
+  Type: your request to get started, 'help' for commands
 
 ❯ 
 ```
@@ -162,26 +167,23 @@ To view the full reasoning content, type `think`:
 src/
 ├── main.rs           # CLI entry point and interactive loop
 ├── lib.rs            # Library crate root
-├── context.rs        # @filepath parsing and expansion
-├── token_usage.rs    # Token usage tracking and reporting
-└── tools/
-    ├── mod.rs         # Tool registry (all_tools)
-    ├── code_search.rs # Grep-based code search tool
-    ├── file_read.rs   # File reading tool
-    ├── file_write.rs  # File writing tool
-    ├── file_update.rs # File editing tool (find & replace)
-    ├── file_delete.rs # File/directory deletion tool
-    └── shell_exec.rs  # Shell command execution tool
-tests/
-├── context.rs        # Integration tests for @filepath expansion
-├── code_search.rs    # Integration tests for code_search
-├── file_read.rs      # Integration tests for file_read
-├── file_write.rs     # Integration tests for file_write
-├── file_update.rs    # Integration tests for file_update
-├── file_delete.rs    # Integration tests for file_delete
-├── shell_exec.rs     # Integration tests for shell_exec
-├── token_usage.rs    # Integration tests for token_usage
-└── tools.rs          # Integration tests for tool registry
+├── core/            # Core functionality
+│   ├── context.rs   # @filepath parsing and expansion
+│   ├── preamble.rs # Agent builder, preamble template
+│   ├── streaming.rs# Streaming response handling
+│   └── token_usage.rs # Token usage tracking
+├── ui/              # Terminal UI
+│   ├── render.rs   # Markdown renderer
+│   └── ui.rs      # Banner, help, commands
+└── tools/          # Tool implementations
+    ├── mod.rs      # Tool registry (all_tools)
+    ├── code_search.rs
+    ├── file_read.rs
+    ├── file_write.rs
+    ├── file_update.rs
+    ├── file_delete.rs
+    └── shell_exec.rs
+tests/               # Integration tests
 ```
 
 ## Running Tests
