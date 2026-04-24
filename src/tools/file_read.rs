@@ -1,3 +1,4 @@
+use crate::core::config::Config;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
@@ -10,8 +11,7 @@ pub enum FileReadError {
 }
 
 /// Default number of lines returned when `limit` is not specified.
-/// Prevents reading excessively large files into context when the agent
-/// doesn't need the entire content.
+/// Used as a fallback when no config is provided.
 ///
 /// This is intentionally lower than the `@filepath` expansion limit (500 lines)
 /// because `file_read` is agent-initiated (may read many files in a single turn)
@@ -41,8 +41,28 @@ pub struct FileReadOutput {
     pub truncated: bool,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct FileRead;
+#[derive(Debug, Clone)]
+pub struct FileRead {
+    /// Maximum lines returned when the agent doesn't specify a limit.
+    default_read_limit: usize,
+}
+
+impl Default for FileRead {
+    fn default() -> Self {
+        Self {
+            default_read_limit: DEFAULT_READ_LIMIT,
+        }
+    }
+}
+
+impl FileRead {
+    /// Creates a `FileRead` with config-specified limits.
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            default_read_limit: config.files.default_read_limit,
+        }
+    }
+}
 
 impl Tool for FileRead {
     const NAME: &'static str = "file_read";
@@ -87,7 +107,7 @@ impl Tool for FileRead {
         let total_lines = lines.len();
 
         let offset = args.offset.unwrap_or(0);
-        let limit = args.limit.unwrap_or(DEFAULT_READ_LIMIT);
+        let limit = args.limit.unwrap_or(self.default_read_limit);
 
         let start = offset.min(total_lines);
         let end = (start + limit).min(total_lines);

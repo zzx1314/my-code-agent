@@ -1,4 +1,5 @@
 use my_code_agent::context::{expand_file_refs, AttachStatus};
+use my_code_agent::config::Config;
 use std::fs;
 
 #[test]
@@ -9,7 +10,8 @@ fn test_expand_single_file() {
 
     let path = file_path.to_str().unwrap();
     let input = format!("explain @{}", path);
-    let result = expand_file_refs(&input);
+    let config = Config::default();
+    let result = expand_file_refs(&input, &config);
 
     assert!(result.expanded.contains("hello world"));
     assert!(result.expanded.contains("<file"));
@@ -28,7 +30,8 @@ fn test_expand_multiple_files() {
     let p1 = f1.to_str().unwrap();
     let p2 = f2.to_str().unwrap();
     let input = format!("compare @{} and @{}", p1, p2);
-    let result = expand_file_refs(&input);
+    let config = Config::default();
+    let result = expand_file_refs(&input, &config);
 
     assert!(result.expanded.contains("file A"));
     assert!(result.expanded.contains("fn main()"));
@@ -37,7 +40,8 @@ fn test_expand_multiple_files() {
 
 #[test]
 fn test_expand_missing_file() {
-    let result = expand_file_refs("read @/nonexistent/path/to/file.txt");
+    let config = Config::default();
+    let result = expand_file_refs("read @/nonexistent/path/to/file.txt", &config);
     assert!(result.expanded.contains("error="));
     assert!(result.expanded.contains("<file"));
     assert_eq!(result.attachments.len(), 1);
@@ -46,7 +50,8 @@ fn test_expand_missing_file() {
 
 #[test]
 fn test_expand_no_refs() {
-    let result = expand_file_refs("just a normal message");
+    let config = Config::default();
+    let result = expand_file_refs("just a normal message", &config);
     assert_eq!(result.expanded, "just a normal message");
     assert!(result.attachments.is_empty());
 }
@@ -59,7 +64,8 @@ fn test_expand_trailing_punctuation_preserved() {
 
     let path = file_path.to_str().unwrap();
     let input = format!("look at @{}, please", path);
-    let result = expand_file_refs(&input);
+    let config = Config::default();
+    let result = expand_file_refs(&input, &config);
 
     // The trailing comma should remain in the output
     assert!(result.expanded.contains(", please"));
@@ -74,7 +80,8 @@ fn test_expand_in_brackets() {
 
     let path = file_path.to_str().unwrap();
     let input = format!("see (@{}) for details", path);
-    let result = expand_file_refs(&input);
+    let config = Config::default();
+    let result = expand_file_refs(&input, &config);
 
     assert!(result.expanded.contains("content"));
     assert_eq!(result.attachments.len(), 1);

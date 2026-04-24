@@ -19,16 +19,18 @@ pub use list_dir::ListDir;
 pub use safety::{is_dangerous_deletion, is_dangerous_shell_command, is_dangerous_snippet_deletion};
 pub use shell_exec::ShellExec;
 
+use crate::core::config::Config;
 use rig::tool::ToolDyn;
 
 /// Returns all tools boxed as `Box<dyn ToolDyn>` for registration with the agent builder.
-pub fn all_tools() -> Vec<Box<dyn ToolDyn>> {
+/// Config values are passed through to tool structs that need them.
+pub fn all_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
     vec![
-        Box::new(FileRead),
+        Box::new(FileRead::from_config(config)),
         Box::new(FileWrite),
         Box::new(FileUpdate),
         Box::new(FileDelete),
-        Box::new(ShellExec),
+        Box::new(ShellExec::from_config(config)),
         Box::new(CodeSearch),
         Box::new(ListDir),
         Box::new(GlobSearch),

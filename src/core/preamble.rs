@@ -1,6 +1,7 @@
 use colored::*;
 use rig::client::{CompletionClient, ProviderClient};
 
+use crate::core::config::Config;
 use crate::tools;
 
 pub type Agent = rig::agent::Agent<rig::providers::deepseek::CompletionModel>;
@@ -87,15 +88,15 @@ pub fn check_api_key() {
 /// Builds the DeepSeek agent with tools and preamble.
 ///
 /// Precondition: `DEEPSEEK_API_KEY` must be set (enforced by `check_api_key()`).
-pub fn build_agent() -> Agent {
+pub fn build_agent(config: &Config) -> Agent {
     let client = rig::providers::deepseek::Client::from_env();
-    let all_tools = tools::all_tools();
+    let all_tools = tools::all_tools(config);
     let preamble = build_preamble();
 
     client
         .agent(rig::providers::deepseek::DEEPSEEK_REASONER)
         .preamble(&preamble)
         .tools(all_tools)
-        .default_max_turns(10)
+        .default_max_turns(config.agent.max_turns)
         .build()
 }

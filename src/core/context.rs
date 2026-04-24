@@ -1,10 +1,6 @@
+use crate::core::config::Config;
 use colored::*;
 use std::path::Path;
-
-/// Maximum number of lines to include from a single attached file.
-const MAX_FILE_LINES: usize = 500;
-/// Maximum number of bytes to include from a single attached file.
-const MAX_FILE_BYTES: usize = 50 * 1024; // 50 KB
 
 /// A parsed `@file` reference found in user input.
 #[derive(Debug)]
@@ -82,8 +78,8 @@ fn parse_file_refs(input: &str) -> Vec<FileRef> {
 }
 
 /// Reads a file and formats its content as a fenced code block.
-/// Truncates files exceeding `MAX_FILE_LINES` lines.
-fn format_file_content(path: &str) -> Result<(String, usize, bool), std::io::Error> {
+/// Truncates files exceeding the configured line/byte limits.
+fn format_file_content(path: &str, max_lines: usize, max_bytes: usize) -> Result<(String, usize, bool), std::io::Error> {
     let content = std::fs::read_to_string(path)?;
     let extension = Path::new(path)
         .extension()
@@ -94,11 +90,11 @@ fn format_file_content(path: &str) -> Result<(String, usize, bool), std::io::Err
     let mut truncated = false;
 
     // Truncate by lines
-    let mut display_content = if total_lines > MAX_FILE_LINES {
+    let mut display_content = if total_lines > max_lines {
         truncated = true;
         content
             .lines()
-            .take(MAX_FILE_LINES)
+            .take(max_lines)
             .collect::<Vec<_>>()
             .join("\n")
     } else {
@@ -106,9 +102,9 @@ fn format_file_content(path: &str) -> Result<(String, usize, bool), std::io::Err
     };
 
     // Truncate by bytes if still too large
-    if display_content.len() > MAX_FILE_BYTES {
+    if display_content.len() > max_bytes {
         truncated = true;
-        display_content.truncate(MAX_FILE_BYTES);
+        display_content.truncate(max_bytes);
         // Avoid cutting in the middle of a line
         if let Some(last_newline) = display_content.rfind('\n') {
             display_content.truncate(last_newline);
@@ -144,7 +140,7 @@ fn format_file_content(path: &str) -> Result<(String, usize, bool), std::io::Err
 /// Input:  "explain @src/main.rs"
 /// Output: "explain <file path=\"src/main.rs\" lines=\"373\">\n```rust\n...\n```\n</file>"
 /// ```
-pub fn expand_file_refs(input: &str) -> ExpandResult {
+pub fn expand_file_refs(input: &str, config: &Config) -> ExpandResult {
     let refs = parse_file_refs(input);
 
     if refs.is_empty() {
@@ -154,12 +150,14 @@ pub fn expand_file_refs(input: &str) -> ExpandResult {
         };
     }
 
+    let max_lines = config.files.attach_max_lines;
+    let max_bytes = config.files.attach_max_bytes;
     let mut attachments = Vec::new();
 
     // Process refs in reverse order so byte offsets remain valid
     let mut result = input.to_string();
     for file_ref in refs.into_iter().rev() {
-        let replacement = match format_file_content(&file_ref.path) {
+        let replacement = match format_file_content(&file_ref.path, max_lines, max_bytes) {
             Ok((content, lines, truncated)) => {
                 attachments.push((file_ref.path.clone(), AttachStatus::Attached { lines, truncated }));
                 content
@@ -191,7 +189,7 @@ pub fn print_attachments(attachments: &[(String, AttachStatus)]) {
                     println!(
                         "  {} {}",
                         "📎".bright_cyan(),
-                        format!("attached: {} ({} lines, truncated to {})", path, lines, MAX_FILE_LINES).dimmed()
+                        format!("attached: {} ({} lines, truncated)", path, lines).dimmed()
                     );
                 } else {
                     println!(
@@ -284,9 +282,10 @@ mod tests {
         let file_path = dir.path().join("test.txt");
         fs::write(&file_path, "hello world").unwrap();
 
+        let config = Config::default();
         let rel_path = file_path.to_str().unwrap();
         let input = format!("read @{}", rel_path);
-        let result = expand_file_refs(&input);
+        let result = expand_file_refs(&input, &config);
         assert!(result.expanded.contains("hello world"));
         assert!(result.expanded.contains("<file"));
         assert_eq!(result.attachments.len(), 1);
@@ -294,7 +293,8 @@ mod tests {
 
     #[test]
     fn test_expand_missing_file() {
-        let result = expand_file_refs("read @nonexistent/file.txt");
+        let config = Config::default();
+        let result = expand_file_refs("read @nonexistent/file.txt", &config);
         assert!(result.expanded.contains("error="));
         assert!(result.expanded.contains("<file"));
         assert_eq!(result.attachments.len(), 1);
@@ -307,9 +307,10 @@ mod tests {
         let content: String = (0..600).map(|i| format!("line {}\n", i)).collect();
         fs::write(&file_path, &content).unwrap();
 
+        let config = Config::default();
         let rel_path = file_path.to_str().unwrap();
         let input = format!("read @{}", rel_path);
-        let result = expand_file_refs(&input);
+        let result = expand_file_refs(&input, &config);
         assert!(result.expanded.contains("file truncated"));
         assert_eq!(result.attachments.len(), 1);
         match &result.attachments[0].1 {
@@ -320,7 +321,8 @@ mod tests {
 
     #[test]
     fn test_expand_no_refs_unchanged() {
-        let result = expand_file_refs("just a normal message");
+        let config = Config::default();
+        let result = expand_file_refs("just a normal message", &config);
         assert_eq!(result.expanded, "just a normal message");
         assert!(result.attachments.is_empty());
     }

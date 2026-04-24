@@ -1,3 +1,4 @@
+use crate::core::config::Config;
 use colored::*;
 use rig::completion::Usage;
 
@@ -24,6 +25,14 @@ impl TokenUsage {
         Self {
             usage: Usage::default(),
             context_window: CONTEXT_WINDOW_SIZE,
+        }
+    }
+
+    /// Creates a `TokenUsage` from the given config, using `config.context.window_size`.
+    pub fn with_config(config: &Config) -> Self {
+        Self {
+            usage: Usage::default(),
+            context_window: config.context.window_size,
         }
     }
 

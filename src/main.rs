@@ -2,6 +2,7 @@ use anyhow::Result;
 use colored::*;
 use std::io::Write;
 
+use my_code_agent::core::config::Config;
 use my_code_agent::core::context::{expand_file_refs, print_attachments};
 use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::core::preamble::{build_agent, check_api_key};
@@ -30,11 +31,13 @@ async fn main() -> Result<()> {
     dotenv::dotenv().ok();
     check_api_key();
 
+    let config = Config::load();
+
     print_banner();
-    let agent = build_agent();
+    let agent = build_agent(&config);
 
     let mut chat_history: Vec<rig::completion::Message> = Vec::new();
-    let mut session_usage = TokenUsage::new();
+    let mut session_usage = TokenUsage::with_config(&config);
     let mut last_reasoning = String::new();
 
     let (interrupt_tx, mut interrupt_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -80,7 +83,7 @@ async fn main() -> Result<()> {
             continue;
         }
 
-        let expand_result = expand_file_refs(&input);
+        let expand_result = expand_file_refs(&input, &config);
         if !expand_result.attachments.is_empty() {
             print_attachments(&expand_result.attachments);
         }

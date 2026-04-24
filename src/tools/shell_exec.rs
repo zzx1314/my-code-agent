@@ -1,3 +1,4 @@
+use crate::core::config::Config;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
@@ -17,18 +18,14 @@ pub enum ShellExecError {
 #[derive(Deserialize, Serialize)]
 pub struct ShellExecArgs {
     pub command: String,
-    #[serde(default = "default_timeout")]
-    pub timeout_secs: u64,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
     #[serde(default)]
     pub cwd: Option<String>,
     /// If true, skip the safety confirmation prompt for dangerous commands.
     /// Should only be set by the user, never by the agent.
     #[serde(default)]
     pub auto_approve: bool,
-}
-
-fn default_timeout() -> u64 {
-    30
 }
 
 #[derive(Deserialize, Serialize)]
@@ -40,8 +37,28 @@ pub struct ShellExecOutput {
     pub timed_out: bool,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ShellExec;
+#[derive(Debug, Clone)]
+pub struct ShellExec {
+    /// Default command timeout in seconds (from config).
+    default_timeout_secs: u64,
+}
+
+impl Default for ShellExec {
+    fn default() -> Self {
+        Self {
+            default_timeout_secs: 30,
+        }
+    }
+}
+
+impl ShellExec {
+    /// Creates a `ShellExec` with config-specified defaults.
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            default_timeout_secs: config.shell.default_timeout_secs,
+        }
+    }
+}
 
 impl Tool for ShellExec {
     const NAME: &'static str = "shell_exec";
@@ -65,7 +82,7 @@ impl Tool for ShellExec {
                     },
                     "timeout_secs": {
                         "type": "integer",
-                        "description": "Maximum execution time in seconds. Default: 30."
+                        "description": "Maximum execution time in seconds. Defaults to the value in config.toml (default: 30)."
                     },
                     "cwd": {
                         "type": "string",
@@ -94,7 +111,7 @@ impl Tool for ShellExec {
             }
         }
 
-        let timeout = Duration::from_secs(args.timeout_secs);
+        let timeout = Duration::from_secs(args.timeout_secs.unwrap_or(self.default_timeout_secs));
 
         let mut cmd = tokio::process::Command::new("bash");
         cmd.arg("-c").arg(&args.command);
