@@ -62,11 +62,13 @@ impl TokenUsage {
 
     /// Returns the percentage of the context window that has been used
     /// based on input tokens consumed (output tokens don't consume context window space).
+    /// Uses ceiling division so that e.g. 49,151/65,536 ≈ 75.0% rounds up to 75%
+    /// rather than truncating to 74%, ensuring warnings fire at the correct boundary.
     pub fn context_usage_percent(&self) -> u64 {
         if self.context_window == 0 {
             return 0;
         }
-        (self.usage.input_tokens * 100) / self.context_window
+        (self.usage.input_tokens * 100).div_ceil(self.context_window)
     }
 
     /// Returns the context window warning level, if any.
