@@ -3,7 +3,7 @@ use my_code_agent::tools::all_tools;
 #[test]
 fn test_all_tools_count() {
     let tools = all_tools();
-    assert_eq!(tools.len(), 6);
+    assert_eq!(tools.len(), 8);
 }
 
 #[test]
@@ -16,4 +16,6 @@ fn test_all_tools_names() {
     assert!(names.contains(&"code_search".to_string()));
     assert!(names.contains(&"file_update".to_string()));
     assert!(names.contains(&"file_delete".to_string()));
+    assert!(names.contains(&"list_dir".to_string()));
+    assert!(names.contains(&"glob".to_string()));
 }

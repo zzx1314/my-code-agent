@@ -1081,6 +1081,7 @@ dependencies = [
  "colored",
  "dotenv",
  "futures",
+ "glob",
  "rig-core",
  "serde",
  "serde_json",

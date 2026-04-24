@@ -37,7 +37,7 @@ pub fn print_banner() {
     println!(
         "  {} {}",
         "Tools:".bright_white().bold(),
-        "file_read · file_write · file_update · file_delete · shell_exec · code_search"
+        "file_read · file_write · file_update · file_delete · shell_exec · code_search · list_dir · glob"
             .bright_green()
     );
     println!(
@@ -78,6 +78,8 @@ pub fn print_help() {
     );
     println!("  {}  Run shell commands", "shell_exec".bright_yellow());
     println!("  {}  Search code patterns", "code_search".bright_yellow());
+    println!("  {}  List directory contents", "list_dir".bright_yellow());
+    println!("  {}  Find files by glob pattern", "glob".bright_yellow());
     println!();
     println!("  {}  Show token usage statistics", "usage".dimmed());
     println!("  {}  Clear conversation history", "clear".dimmed());

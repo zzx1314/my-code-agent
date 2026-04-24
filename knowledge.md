@@ -47,9 +47,11 @@ tests/               # Integration tests (one file per module/tool)
 | `src/ui/render.rs` | Markdown rendering, reasoning tracking |
 | `src/tools/mod.rs` | Tool registry — `all_tools()` |
 | `src/tools/*.rs` | Individual tool implementations |
+| `src/tools/list_dir.rs` | Directory listing with recursive depth |
+| `src/tools/glob.rs` | File pattern matching (glob syntax) |
 
-## Tools (6 total)
-`file_read` · `file_write` · `file_update` · `file_delete` · `shell_exec` · `code_search`
+## Tools (8 total)
+`file_read` · `file_write` · `file_update` · `file_delete` · `shell_exec` · `code_search` · `list_dir` · `glob`
 
 ## Commands
 

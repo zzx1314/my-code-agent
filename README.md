@@ -22,6 +22,8 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 | `file_delete` | Delete files or directories from the filesystem |
 | `shell_exec` | Execute shell commands with timeout and working directory support |
 | `code_search` | Search for text patterns in source code using grep |
+| `list_dir` | List files and directories with configurable recursion depth |
+| `glob` | Find files matching a glob pattern (`**/*.rs`, `src/**/*.ts`, etc.) |
 
 ## Getting Started
 
@@ -68,7 +70,7 @@ Once started, you'll see the agent banner and a prompt:
 
   🤖 My Code Agent v0.1.0 (reasoner)
 
-  Tools: file_read · file_write · file_update · file_delete · shell_exec · code_search
+  Tools: file_read · file_write · file_update · file_delete · shell_exec · code_search · list_dir · glob
   Type: your request to get started, 'help' for commands
 
 ❯ 
@@ -182,7 +184,9 @@ src/
     ├── file_write.rs
     ├── file_update.rs
     ├── file_delete.rs
-    └── shell_exec.rs
+    ├── shell_exec.rs
+    ├── list_dir.rs
+    └── glob.rs
 tests/               # Integration tests
 ```
 
@@ -204,6 +208,7 @@ cargo test
 | [thiserror](https://crates.io/crates/thiserror) | Derived error types |
 | [dotenv](https://crates.io/crates/dotenv) | .env file loading |
 | [futures](https://crates.io/crates/futures) | Stream utilities |
+| [glob](https://crates.io/crates/glob) | File pattern matching for the glob tool |
 
 ## License
 
