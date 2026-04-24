@@ -1,8 +1,14 @@
+use my_code_agent::core::config::Config;
 use my_code_agent::tools::shell_exec::{ShellExec, ShellExecArgs, ShellExecOutput};
 use rig::tool::Tool;
 
+fn make_exec() -> ShellExec {
+    let config = Config::default();
+    ShellExec::from_config(&config)
+}
+
 async fn exec_cmd(command: &str, timeout_secs: Option<u64>, cwd: Option<&str>) -> ShellExecOutput {
-    ShellExec
+    make_exec()
         .call(ShellExecArgs {
             command: command.to_string(),
             timeout_secs,

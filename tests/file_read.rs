@@ -1,13 +1,19 @@
+use my_code_agent::core::config::Config;
 use my_code_agent::tools::file_read::{FileRead, FileReadArgs, FileReadError, FileReadOutput};
 use rig::tool::Tool;
 use tempfile::TempDir;
+
+fn make_reader() -> FileRead {
+    let config = Config::default();
+    FileRead::from_config(&config)
+}
 
 async fn read_file(
     path: &str,
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> Result<FileReadOutput, FileReadError> {
-    FileRead
+    make_reader()
         .call(FileReadArgs {
             path: path.to_string(),
             offset,
@@ -139,7 +145,7 @@ async fn test_default_limit_200_lines() {
     std::fs::write(&file_path, &content).unwrap();
 
     // Call with limit=None, which defaults to 200
-    let output = FileRead
+    let output = make_reader()
         .call(FileReadArgs {
             path: file_path.to_str().unwrap().to_string(),
             offset: None,
@@ -165,7 +171,7 @@ async fn test_explicit_limit_overrides_default() {
     std::fs::write(&file_path, &content).unwrap();
 
     // Explicitly request limit=10
-    let output = FileRead
+    let output = make_reader()
         .call(FileReadArgs {
             path: file_path.to_str().unwrap().to_string(),
             offset: None,
@@ -185,7 +191,7 @@ async fn test_small_file_not_truncated() {
     let file_path = tmp.path().join("small.txt");
     std::fs::write(&file_path, "line1\nline2\nline3\n").unwrap();
 
-    let output = FileRead
+    let output = make_reader()
         .call(FileReadArgs {
             path: file_path.to_str().unwrap().to_string(),
             offset: None,

@@ -2,6 +2,18 @@ use colored::*;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+// ── Serde default functions ──
+// Each must be a visible fn() -> T matching the field type.
+
+fn default_read_limit() -> usize { 200 }
+fn default_attach_max_lines() -> usize { 500 }
+fn default_attach_max_bytes() -> usize { 50 * 1024 }
+fn default_window_size() -> u64 { 65_536 }
+fn default_warn_threshold_percent() -> u64 { 75 }
+fn default_critical_threshold_percent() -> u64 { 90 }
+fn default_timeout_secs() -> u64 { 30 }
+fn default_max_turns() -> usize { 10 }
+
 /// Configuration file name (looked up in the current directory).
 pub const CONFIG_FILE: &str = "config.toml";
 
@@ -30,12 +42,15 @@ pub struct Config {
 pub struct FileConfig {
     /// Maximum lines returned by `file_read` when `limit` is not specified.
     /// Default: 200.
+    #[serde(default = "default_read_limit")]
     pub default_read_limit: usize,
     /// Maximum lines included from a single `@filepath` attachment.
     /// Default: 500.
+    #[serde(default = "default_attach_max_lines")]
     pub attach_max_lines: usize,
     /// Maximum bytes included from a single `@filepath` attachment.
     /// Default: 51200 (50 KB).
+    #[serde(default = "default_attach_max_bytes")]
     pub attach_max_bytes: usize,
 }
 
@@ -44,12 +59,15 @@ pub struct FileConfig {
 pub struct ContextConfig {
     /// Model context window size in tokens.
     /// Default: 65536 (64K).
+    #[serde(default = "default_window_size")]
     pub window_size: u64,
     /// Percentage at which to warn about context usage.
     /// Default: 75.
+    #[serde(default = "default_warn_threshold_percent")]
     pub warn_threshold_percent: u64,
     /// Percentage at which to issue a critical context warning.
     /// Default: 90.
+    #[serde(default = "default_critical_threshold_percent")]
     pub critical_threshold_percent: u64,
 }
 
@@ -58,6 +76,7 @@ pub struct ContextConfig {
 pub struct ShellConfig {
     /// Default command timeout in seconds.
     /// Default: 30.
+    #[serde(default = "default_timeout_secs")]
     pub default_timeout_secs: u64,
 }
 
@@ -66,6 +85,7 @@ pub struct ShellConfig {
 pub struct AgentConfig {
     /// Maximum number of tool-call turns per response.
     /// Default: 10.
+    #[serde(default = "default_max_turns")]
     pub max_turns: usize,
 }
 
@@ -151,82 +171,5 @@ impl Config {
             }
             Err(_) => Self::default(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    #[test]
-    fn test_default_config() {
-        let config = Config::default();
-        assert_eq!(config.files.default_read_limit, 200);
-        assert_eq!(config.files.attach_max_lines, 500);
-        assert_eq!(config.files.attach_max_bytes, 50 * 1024);
-        assert_eq!(config.context.window_size, 65_536);
-        assert_eq!(config.context.warn_threshold_percent, 75);
-        assert_eq!(config.context.critical_threshold_percent, 90);
-        assert_eq!(config.shell.default_timeout_secs, 30);
-        assert_eq!(config.agent.max_turns, 10);
-    }
-
-    #[test]
-    fn test_load_missing_file_uses_defaults() {
-        let config = Config::load_from("/nonexistent/config.toml");
-        assert_eq!(config.files.default_read_limit, 200);
-        assert_eq!(config.agent.max_turns, 10);
-    }
-
-    #[test]
-    fn test_load_valid_toml() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        fs::write(
-            &path,
-            "[files]\ndefault_read_limit = 100\n[context]\nwindow_size = 128000\n[shell]\ndefault_timeout_secs = 60\n[agent]\nmax_turns = 15\n",
-        )
-        .unwrap();
-
-        let config = Config::load_from(&path);
-        assert_eq!(config.files.default_read_limit, 100);
-        assert_eq!(config.files.attach_max_lines, 500); // default
-        assert_eq!(config.context.window_size, 128_000);
-        assert_eq!(config.shell.default_timeout_secs, 60);
-        assert_eq!(config.agent.max_turns, 15);
-    }
-
-    #[test]
-    fn test_load_partial_toml_fills_defaults() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        fs::write(&path, "[files]\ndefault_read_limit = 50\n").unwrap();
-
-        let config = Config::load_from(&path);
-        assert_eq!(config.files.default_read_limit, 50);
-        assert_eq!(config.files.attach_max_lines, 500); // default
-        assert_eq!(config.context.window_size, 65_536); // default
-        assert_eq!(config.shell.default_timeout_secs, 30); // default
-    }
-
-    #[test]
-    fn test_load_invalid_toml_uses_defaults() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        fs::write(&path, "this is not valid toml [[[[").unwrap();
-
-        let config = Config::load_from(&path);
-        assert_eq!(config.files.default_read_limit, 200); // default
-    }
-
-    #[test]
-    fn test_toml_roundtrip() {
-        let config = Config::default();
-        let toml_str = toml::to_string_pretty(&config).unwrap();
-        let parsed: Config = toml::from_str(&toml_str).unwrap();
-        assert_eq!(parsed.files.default_read_limit, config.files.default_read_limit);
-        assert_eq!(parsed.context.window_size, config.context.window_size);
-        assert_eq!(parsed.agent.max_turns, config.agent.max_turns);
     }
 }

@@ -4,11 +4,11 @@ use std::path::Path;
 
 /// A parsed `@file` reference found in user input.
 #[derive(Debug)]
-struct FileRef {
+pub struct FileRef {
     /// The byte range in the original input where the `@path` appears (start, end).
-    span: (usize, usize),
+    pub span: (usize, usize),
     /// The resolved file path (as written by the user, after stripping the leading `@`).
-    path: String,
+    pub path: String,
 }
 
 /// Status of a single file attachment.
@@ -33,7 +33,7 @@ pub struct ExpandResult {
 /// and continues until a whitespace character or end of string. Trailing
 /// punctuation characters (`:`, `,`, `;`, `!`, `?`, `)`, `]`, `}`) are
 /// stripped from the path. Email-like patterns (`user@host`) are excluded.
-fn parse_file_refs(input: &str) -> Vec<FileRef> {
+pub fn parse_file_refs(input: &str) -> Vec<FileRef> {
     let mut refs = Vec::new();
     let chars: Vec<char> = input.chars().collect();
     let mut i = 0;
@@ -210,120 +210,3 @@ pub fn print_attachments(attachments: &[(String, AttachStatus)]) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    #[test]
-    fn test_parse_simple_ref() {
-        let refs = parse_file_refs("explain @src/main.rs");
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].path, "src/main.rs");
-    }
-
-    #[test]
-    fn test_parse_multiple_refs() {
-        let refs = parse_file_refs("compare @src/main.rs and @src/lib.rs");
-        assert_eq!(refs.len(), 2);
-        assert_eq!(refs[0].path, "src/main.rs");
-        assert_eq!(refs[1].path, "src/lib.rs");
-    }
-
-    #[test]
-    fn test_parse_trailing_punctuation() {
-        let refs = parse_file_refs("look at @src/main.rs,");
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].path, "src/main.rs");
-    }
-
-    #[test]
-    fn test_parse_trailing_punctuation_variants() {
-        assert_eq!(parse_file_refs("@foo.rs:")[0].path, "foo.rs");
-        assert_eq!(parse_file_refs("@foo.rs;")[0].path, "foo.rs");
-        assert_eq!(parse_file_refs("@foo.rs!")[0].path, "foo.rs");
-        assert_eq!(parse_file_refs("@foo.rs?")[0].path, "foo.rs");
-        // @ inside opening brackets IS treated as a ref
-        assert_eq!(parse_file_refs("(@foo.rs)")[0].path, "foo.rs");
-        assert_eq!(parse_file_refs("[@foo.rs]")[0].path, "foo.rs");
-        assert_eq!(parse_file_refs("{@foo.rs}")[0].path, "foo.rs");
-    }
-
-    #[test]
-    fn test_parse_no_refs() {
-        let refs = parse_file_refs("just a normal message");
-        assert_eq!(refs.len(), 0);
-    }
-
-    #[test]
-    fn test_parse_email_not_treated_as_ref() {
-        let refs = parse_file_refs("send to user@example.com");
-        assert_eq!(refs.len(), 0);
-    }
-
-    #[test]
-    fn test_parse_at_start() {
-        let refs = parse_file_refs("@README.md what is this");
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].path, "README.md");
-    }
-
-    #[test]
-    fn test_parse_dot_in_extension() {
-        let refs = parse_file_refs("check @src/main.rs and @Cargo.toml");
-        assert_eq!(refs.len(), 2);
-        assert_eq!(refs[0].path, "src/main.rs");
-        assert_eq!(refs[1].path, "Cargo.toml");
-    }
-
-    #[test]
-    fn test_expand_reads_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("test.txt");
-        fs::write(&file_path, "hello world").unwrap();
-
-        let config = Config::default();
-        let rel_path = file_path.to_str().unwrap();
-        let input = format!("read @{}", rel_path);
-        let result = expand_file_refs(&input, &config);
-        assert!(result.expanded.contains("hello world"));
-        assert!(result.expanded.contains("<file"));
-        assert_eq!(result.attachments.len(), 1);
-    }
-
-    #[test]
-    fn test_expand_missing_file() {
-        let config = Config::default();
-        let result = expand_file_refs("read @nonexistent/file.txt", &config);
-        assert!(result.expanded.contains("error="));
-        assert!(result.expanded.contains("<file"));
-        assert_eq!(result.attachments.len(), 1);
-    }
-
-    #[test]
-    fn test_expand_truncates_large_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("big.txt");
-        let content: String = (0..600).map(|i| format!("line {}\n", i)).collect();
-        fs::write(&file_path, &content).unwrap();
-
-        let config = Config::default();
-        let rel_path = file_path.to_str().unwrap();
-        let input = format!("read @{}", rel_path);
-        let result = expand_file_refs(&input, &config);
-        assert!(result.expanded.contains("file truncated"));
-        assert_eq!(result.attachments.len(), 1);
-        match &result.attachments[0].1 {
-            AttachStatus::Attached { truncated, .. } => assert!(truncated),
-            _ => panic!("expected Attached status"),
-        }
-    }
-
-    #[test]
-    fn test_expand_no_refs_unchanged() {
-        let config = Config::default();
-        let result = expand_file_refs("just a normal message", &config);
-        assert_eq!(result.expanded, "just a normal message");
-        assert!(result.attachments.is_empty());
-    }
-}
