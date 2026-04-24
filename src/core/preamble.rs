@@ -13,7 +13,7 @@ const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with acces
 - **file_update**: Make targeted edits to existing files. Always read the file first with file_read to ensure the `old` string matches exactly, then use file_update to apply the edit
 - **file_delete**: Delete files, directories, or specific text snippets from files. Use `snippet` to remove code without deleting the whole file. Use with caution.
 - **shell_exec**: Execute shell commands (build, test, lint, etc.)
-- **code_search**: Search for patterns in source code using grep
+- **code_search**: Search for patterns in source code using ripgrep (rg). Automatically respects .gitignore and skips binary files.
 - **list_dir**: List files and directories in a path with configurable recursion depth. Use this to explore project structure and discover files.
 - **glob**: Find files matching a glob pattern (e.g., `**/*.rs`, `src/**/*.ts`). Use this to locate files by name or extension.
 ## Critical Rules

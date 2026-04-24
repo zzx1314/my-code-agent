@@ -51,7 +51,7 @@ tests/               # Integration tests (one file per module/tool)
 | `src/tools/glob.rs` | File pattern matching (glob syntax) |
 
 ## Tools (8 total)
-`file_read` · `file_write` · `file_update` · `file_delete` · `shell_exec` · `code_search` · `list_dir` · `glob`
+`file_read` · `file_write` · `file_update` · `file_delete` · `shell_exec` · `code_search` (ripgrep) · `list_dir` · `glob`
 
 ## Commands
 

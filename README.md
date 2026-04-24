@@ -21,7 +21,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 | `file_update` | Make targeted edits to existing files (find & replace) |
 | `file_delete` | Delete files or directories from the filesystem |
 | `shell_exec` | Execute shell commands with timeout and working directory support |
-| `code_search` | Search for text patterns in source code using grep |
+| `code_search` | Search for text patterns in source code using ripgrep (respects .gitignore) |
 | `list_dir` | List files and directories with configurable recursion depth |
 | `glob` | Find files matching a glob pattern (`**/*.rs`, `src/**/*.ts`, etc.) |
 

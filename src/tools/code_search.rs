@@ -52,8 +52,9 @@ impl Tool for CodeSearch {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Search for a text pattern in source code files using grep. \
+            description: "Search for a text pattern in source code files using ripgrep (rg). \
                 Returns matching lines with file paths and line numbers. \
+                Automatically respects .gitignore and skips binary files. \
                 Useful for finding function definitions, imports, usages, etc."
                 .to_string(),
             parameters: json!({
@@ -86,20 +87,18 @@ impl Tool for CodeSearch {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, CodeSearchError> {
-        let mut cmd = tokio::process::Command::new("grep");
+        let mut cmd = tokio::process::Command::new("rg");
 
-        cmd.arg("-rn")
-            .arg("--binary-files=without-match")
-            .arg("--exclude-dir=.git")
-            .arg("--exclude-dir=node_modules")
-            .arg("--exclude-dir=target");
+        cmd.arg("-n")          // line numbers
+            .arg("--no-heading") // don't group by file
+            .arg("--color=never"); // plain text output
 
         if args.case_insensitive {
             cmd.arg("-i");
         }
 
         if let Some(ref ext) = args.file_type {
-            cmd.arg(format!("--include=*.{}", ext));
+            cmd.arg("-g").arg(format!("*.{}", ext));
         }
 
         cmd.arg(&args.pattern);
@@ -112,7 +111,16 @@ impl Tool for CodeSearch {
 
         let output = cmd.output().await?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        // rg exits with code 1 when no matches found — treat as empty result, not error
+        let stdout = if output.status.success() || output.status.code() == Some(1) {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(CodeSearchError::Io(std::io::Error::other(
+                format!("rg failed: {}", stderr.trim()),
+            )));
+        };
+
         let mut matches: Vec<SearchMatch> = Vec::new();
 
         for line in stdout.lines() {
@@ -120,7 +128,7 @@ impl Tool for CodeSearch {
                 break;
             }
 
-            // Parse grep output format: path:line_num:content
+            // Parse rg output format (same as grep): path:line_num:content
             let parts: Vec<&str> = line.splitn(3, ':').collect();
             if parts.len() == 3
                 && let Ok(line_num) = parts[1].parse::<usize>()
