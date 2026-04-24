@@ -66,8 +66,9 @@ async fn main() -> Result<()> {
                 trimmed
             }
             Err(ReadlineError::Interrupted) => {
-                // Ctrl+C during input — cancel current line, show new prompt
-                continue;
+                // Ctrl+C during input — exit the program
+                println!("{}", "Goodbye! 👋".dimmed());
+                break;
             }
             Err(ReadlineError::Eof) => {
                 // Ctrl+D during input — exit
