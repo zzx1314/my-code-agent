@@ -1,6 +1,8 @@
 use anyhow::Result;
 use colored::*;
-use std::io::Write;
+use rustyline::error::ReadlineError;
+use rustyline::history::DefaultHistory;
+use rustyline::{Config as RustylineConfig, Editor};
 
 use my_code_agent::core::config::Config;
 use my_code_agent::core::context::{expand_file_refs, print_attachments};
@@ -10,21 +12,6 @@ use my_code_agent::core::streaming::stream_response;
 use my_code_agent::ui::{
     parse_command, print_banner, print_interrupted_notice, run_command, Command,
 };
-
-/// Reads a line from stdin on a blocking thread so it can be cancelled via `tokio::select!`.
-async fn read_stdin_line() -> Option<String> {
-    tokio::task::spawn_blocking(|| {
-        let mut buf = String::new();
-        match std::io::stdin().read_line(&mut buf) {
-            Ok(0) => None, // EOF
-            Ok(_) => Some(buf),
-            Err(_) => None,
-        }
-    })
-    .await
-    .ok()
-    .flatten()
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -40,6 +27,13 @@ async fn main() -> Result<()> {
     let mut session_usage = TokenUsage::with_config(&config);
     let mut last_reasoning = String::new();
 
+    // Line editor with proper backspace, arrow keys, and history support
+    let rl_config = RustylineConfig::builder()
+        .color_mode(rustyline::ColorMode::Forced)
+        .build();
+    let mut rl: Editor<(), DefaultHistory> = Editor::with_config(rl_config)?;
+
+    // Interrupt channel for Ctrl+C during streaming
     let (interrupt_tx, mut interrupt_rx) = tokio::sync::mpsc::channel::<()>(1);
     tokio::spawn(async move {
         loop {
@@ -49,22 +43,39 @@ async fn main() -> Result<()> {
     });
 
     loop {
-        print!("{} ", "❯".bright_green().bold());
-        std::io::stdout().flush()?;
+        let prompt = format!("{} ", "❯".bright_green().bold());
 
-        let input: Option<String> = tokio::select! {
-            _ = interrupt_rx.recv() => {
-                println!("\n{}", "Goodbye! 👋".dimmed());
-                return Ok(());
+        // Read input using rustyline on a blocking thread
+        let (returned_rl, readline) = tokio::task::spawn_blocking(move || {
+            let readline = rl.readline(&prompt);
+            (rl, readline)
+        })
+        .await?;
+
+        rl = returned_rl;
+
+        // Drain stale interrupt signals (Ctrl+C during input also triggers the signal handler)
+        while interrupt_rx.try_recv().is_ok() {}
+
+        let input = match readline {
+            Ok(line) => {
+                let trimmed = line.trim().to_string();
+                if !trimmed.is_empty() {
+                    let _ = rl.add_history_entry(line.as_str());
+                }
+                trimmed
             }
-            line = read_stdin_line() => line,
-        };
-
-        let input = match input {
-            Some(line) => line.trim().to_string(),
-            None => {
+            Err(ReadlineError::Interrupted) => {
+                // Ctrl+C during input — cancel current line, show new prompt
+                continue;
+            }
+            Err(ReadlineError::Eof) => {
+                // Ctrl+D during input — exit
                 println!("{}", "Goodbye! 👋".dimmed());
                 break;
+            }
+            Err(err) => {
+                anyhow::bail!("readline error: {}", err);
             }
         };
 
