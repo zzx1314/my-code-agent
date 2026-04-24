@@ -6,10 +6,13 @@ An interactive terminal-based AI coding assistant powered by **DeepSeek** with t
 ## Key Code Locations
 | Path | Purpose |
 |------|---------|
-| `src/main.rs` | CLI entry point, interactive loop, system prompt, banner/help text |
+| `src/main.rs` | CLI entry point, interactive loop, banner/help text |
 | `src/lib.rs` | Library crate root (re-exports modules) |
+| `src/preamble.rs` | Agent builder, preamble template, knowledge loading, API key check |
 | `src/context.rs` | `@filepath` parsing and inline file expansion |
 | `src/token_usage.rs` | Token usage tracking and reporting |
+| `src/streaming.rs` | Streaming response handling |
+| `src/ui.rs` | Terminal UI components (prompt, spinner, etc.) |
 | `src/tools/mod.rs` | Tool registry — `all_tools()` returns all tool implementations |
 | `src/tools/*.rs` | Individual tool implementations (one file per tool) |
 | `tests/*.rs` | Integration tests (one file per module/tool) |
