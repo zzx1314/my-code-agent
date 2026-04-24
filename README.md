@@ -8,6 +8,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 - **🔧 Tool-Augmented** — The agent can read files, write files, search code, and run shell commands
 - **📊 Token Usage Tracking** — Monitor token consumption per-turn and per-session
 - **⚡ Interrupt Handling** — Ctrl+C to interrupt a response, double-press to quit
+- **💾 Session Persistence** — Conversation auto-saves on exit and resumes on next launch
 - **📎 File References** — Use `@<filepath>` to attach file contents directly into your message, with `@<filepath>:N` offset syntax for large files
 - **🎨 Colored Output** — Rich terminal UI with syntax-highlighted tool calls and usage stats
 - **💭 Collapsible Reasoning** — DeepSeek's reasoning (thinking) is collapsed into a one-line summary; use `think` to expand
@@ -118,9 +119,10 @@ The agent is instructed to use `file_read` with the suggested offset when it enc
 |---------|-------------|
 | `help` | Show available tools and commands |
 | `usage` | Display session token usage statistics |
+| `save` | Save conversation session to disk |
 | `think` | Expand the last collapsed reasoning content |
-| `clear` | Clear conversation history |
-| `quit` / `exit` / `q` | Exit the agent |
+| `clear` | Clear conversation history (also deletes saved session) |
+| `quit` / `exit` / `q` | Exit the agent (auto-saves session) |
 
 ### Examples
 
@@ -176,6 +178,23 @@ To view the full reasoning content, type `think`:
 - The `think` command shows the **most recent** reasoning from the last response
 - `clear` also clears the stored reasoning
 
+### Session Persistence
+
+The agent automatically saves your conversation when you quit, so you can pick up where you left off:
+
+- **Auto-save on exit**: When you quit (`quit`, Ctrl+C, Ctrl+D), the session is saved to `.session.json`
+- **Auto-resume on start**: If a saved session exists, the agent restores your chat history, token usage, and reasoning state
+- **`save` command**: Explicitly save the current session without quitting
+- **`clear` command**: Clears history **and** deletes the saved session file, so it won't resume on next launch
+- **Double Ctrl+C during streaming**: Saves prior conversation history (the interrupted turn is discarded, but earlier turns are preserved)
+
+The session file is gitignored by default. You can configure the save path in `config.toml`:
+
+```toml
+[session]
+save_file = ".my-session.json"   # default: .session.json
+```
+
 ### Interrupting Responses
 
 - Press **Ctrl+C** once to interrupt the current response
@@ -189,6 +208,7 @@ src/
 ├── main.rs           # CLI entry point and interactive loop
 ├── lib.rs            # Library crate root
 ├── core/            # Core functionality
+│   ├── config.rs   # Configuration (TOML) with defaults
 │   ├── context.rs   # @filepath parsing and expansion
 │   ├── preamble.rs # Agent builder, preamble template
 │   ├── streaming.rs# Streaming response handling

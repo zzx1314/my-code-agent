@@ -19,9 +19,11 @@ src/
 ├── main.rs           # CLI entry point, interactive loop, banner/help text
 ├── lib.rs           # Library crate root (re-exports core, ui, tools)
 ├── core/            # Core functionality
-│   ├── mod.rs      # Re-exports: context, preamble, streaming, token_usage
+│   ├── mod.rs      # Re-exports: config, context, preamble, session, streaming, token_usage
+│   ├── config.rs   # Configuration (TOML) with serde defaults
 │   ├── context.rs  # @filepath parsing and inline file expansion
 │   ├── preamble.rs # Agent builder, preamble template, knowledge loading, API key check
+│   ├── session.rs  # Session persistence (save/load/resume conversation)
 │   ├── streaming.rs# Streaming response handling
 │   └── token_usage.rs # Token usage tracking and reporting
 ├── ui/              # Terminal UI
@@ -42,6 +44,7 @@ tests/               # Integration tests (one file per module/tool)
 | `src/core/preamble.rs` | Agent builder, preamble template, API key check |
 | `src/core/context.rs` | `@filepath` parsing and inline file expansion |
 | `src/core/token_usage.rs` | Token usage tracking and reporting |
+| `src/core/session.rs` | Session persistence (save/load/delete/resume) |
 | `src/core/streaming.rs` | Streaming response handling |
 | `src/ui/terminal.rs` | Terminal UI components (banner, help, commands) |
 | `src/ui/render.rs` | Markdown rendering, reasoning tracking |
@@ -49,6 +52,7 @@ tests/               # Integration tests (one file per module/tool)
 | `src/tools/*.rs` | Individual tool implementations |
 | `src/tools/list_dir.rs` | Directory listing with recursive depth |
 | `src/tools/glob.rs` | File pattern matching (glob syntax) |
+| `src/tools/safety.rs` | Safety guardrails for destructive operations |
 
 ## Tools (8 total)
 `file_read` · `file_write` · `file_update` · `file_delete` · `shell_exec` · `code_search` (ripgrep) · `list_dir` · `glob`
@@ -78,4 +82,5 @@ tests/               # Integration tests (one file per module/tool)
 - **API key via `.env`** — `DEEPSEEK_API_KEY` must be set
 - **Tool registration** — Add to `src/tools/mod.rs`, then update README
 - **`@filepath` expansion** — Handled in `src/core/context.rs`; supports `@path:offset` syntax (e.g. `@src/main.rs:50` reads from line 50); files >500 lines or 50KB truncated, with a notice suggesting `@path:N` or `file_read` with offset to continue
-- **Ctrl+C once** = interrupt response; **Ctrl+C twice** = quit
+- **Session persistence** — Session auto-saves to `.session.json` on quit/interrupt; auto-resumes on next start; `save` command for explicit save; `clear` also deletes the session file. Configurable via `config.toml` `session.save_file`.
+- **Ctrl+C once** = interrupt response; **Ctrl+C twice** = quit (auto-saves session)

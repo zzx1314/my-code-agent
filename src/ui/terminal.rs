@@ -1,5 +1,4 @@
 use colored::*;
-use rig::completion::Message;
 
 use crate::core::preamble::KNOWLEDGE_FILE;
 use crate::core::token_usage::TokenUsage;
@@ -82,12 +81,13 @@ pub fn print_help() {
     println!("  {}  Find files by glob pattern", "glob".bright_yellow());
     println!();
     println!("  {}  Show token usage statistics", "usage".dimmed());
+    println!("  {}  Save conversation session", "save".bright_green());
     println!("  {}  Clear conversation history", "clear".dimmed());
     println!(
         "  {}  Expand last reasoning content",
         "think".bright_magenta()
     );
-    println!("  {}  Exit the agent", "quit".dimmed());
+    println!("  {}  Exit the agent (auto-saves session)", "quit".dimmed());
     println!();
     println!(
         "  {}  Auto-loaded into every conversation",
@@ -158,6 +158,7 @@ pub enum Command {
     Clear,
     Quit,
     Think,
+    Save,
 }
 
 /// Checks whether the input is a built-in command.
@@ -169,31 +170,30 @@ pub fn parse_command(input: &str) -> Option<Command> {
         "clear" => Some(Command::Clear),
         "quit" | "exit" | "q" => Some(Command::Quit),
         "think" => Some(Command::Think),
+        "save" => Some(Command::Save),
         _ => None,
     }
 }
 
 /// Executes a built-in command. Returns true if the main loop should break.
+///
+/// Note: `Clear`, `Quit`, and `Save` are handled directly in `main.rs` because
+/// they need access to session persistence logic. This function only handles
+/// `Help`, `Usage`, and `Think`.
 pub fn run_command(
     cmd: Command,
-    chat_history: &mut Vec<Message>,
     session_usage: &mut TokenUsage,
     last_reasoning: &str,
 ) -> bool {
     match cmd {
         Command::Help => print_help(),
         Command::Usage => session_usage.print_session_report(),
-        Command::Clear => {
-            chat_history.clear();
-            println!("{}", "Conversation history cleared 🗑️".dimmed());
-        }
-        Command::Quit => {
-            println!("{}", "Goodbye! 👋".dimmed());
-            return true;
-        }
         Command::Think => {
             print_reasoning_full(last_reasoning);
         }
+        // Clear, Quit, Save are handled in main.rs before this function is called.
+        // These branches are unreachable but required for exhaustiveness.
+        Command::Clear | Command::Quit | Command::Save => {}
     }
     false
 }

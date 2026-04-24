@@ -35,6 +35,9 @@ pub struct Config {
     /// Agent behavior settings.
     #[serde(default)]
     pub agent: AgentConfig,
+    /// Session persistence settings.
+    #[serde(default)]
+    pub session: SessionConfig,
 }
 
 /// File reading and attachment limits.
@@ -87,6 +90,16 @@ pub struct AgentConfig {
     /// Default: 10.
     #[serde(default = "default_max_turns")]
     pub max_turns: usize,
+}
+
+/// Session persistence settings.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SessionConfig {
+    /// File path for session persistence.
+    /// Default: `.session.json` (in the current directory).
+    /// Set to `""` or omit to use the default.
+    #[serde(default)]
+    pub save_file: Option<String>,
 }
 
 impl Default for FileConfig {

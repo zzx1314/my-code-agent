@@ -1,6 +1,7 @@
 use crate::core::config::Config;
 use colored::*;
 use rig::completion::Usage;
+use serde::{Deserialize, Serialize};
 
 /// Default context window size for DeepSeek Reasoner (64K = 65,536 tokens).
 pub const CONTEXT_WINDOW_SIZE: u64 = 65_536;
@@ -13,7 +14,7 @@ const CRITICAL_THRESHOLD_PERCENT: u64 = 90;
 
 /// Tracks cumulative token usage across an entire session.
 /// Wraps [`rig::completion::Usage`] which implements `AddAssign` for easy accumulation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenUsage {
     usage: Usage,
     /// The model's context window size in tokens.
