@@ -1,4 +1,4 @@
-use my_code_agent::render::{MarkdownRenderer, ReasoningTracker};
+use my_code_agent::ui::render::{MarkdownRenderer, ReasoningTracker};
 
 // ── MarkdownRenderer state tests ──
 

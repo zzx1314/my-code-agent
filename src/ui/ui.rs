@@ -1,24 +1,38 @@
 use colored::*;
 use rig::completion::Message;
 
-use crate::preamble::KNOWLEDGE_FILE;
-use my_code_agent::token_usage::TokenUsage;
+use crate::core::preamble::KNOWLEDGE_FILE;
+use crate::core::token_usage::TokenUsage;
 
 /// Prints the startup banner.
 pub fn print_banner() {
     println!();
     println!(
         "{}",
-        "╔══════════════════════════════════════════╗".bright_cyan()
+        " _                               _   ".bright_cyan()
     );
     println!(
         "{}",
-        "║     🤖  My Code Agent v0.1.0 (reasoner) ║".bright_cyan()
+        "  _ __ ___  _   _    ___ ___   __| | ___    __ _  __ _  ___ _ __ | |_ ".bright_cyan()
     );
     println!(
         "{}",
-        "╚══════════════════════════════════════════╝".bright_cyan()
+        " | '_ ` _ \\ | | | |  / __/ _ \\ / _` |/ _ \\  / _` |/ _` |/ _ \\ '_ \\| __|".bright_cyan()
     );
+    println!(
+        "{}",
+        " | | | | | | |_| | | (_| (_) | (_| |  __/ | (_| | (_| |  __/ | | | |_ ".bright_cyan()
+    );
+    println!(
+        "{}",
+        " |_| |_| |_|\\__, |  \\___\\___/ \\__,_|\\___|  \\__,_|\\__, |\\___|_| |_|\\__|".bright_cyan()
+    );
+    println!(
+        "{}",
+        "            |___/                                |___/".bright_cyan()
+    );
+    println!();
+    println!("  {}", "🤖 My Code Agent v0.1.0 (reasoner)".bright_white().bold());
     println!();
     println!(
         "  {} {}",

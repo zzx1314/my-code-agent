@@ -4,9 +4,9 @@ use rig::agent::MultiTurnStreamItem;
 use rig::completion::Message;
 use rig::streaming::StreamedAssistantContent;
 
-use crate::preamble::Agent;
-use my_code_agent::render::{MarkdownRenderer, ReasoningTracker};
-use my_code_agent::token_usage::{print_context_warning, print_turn_usage, TokenUsage};
+use super::preamble::Agent;
+use super::token_usage::{print_context_warning, print_turn_usage, TokenUsage};
+use crate::ui::render::{MarkdownRenderer, ReasoningTracker};
 use rig::streaming::StreamingChat;
 
 // ─────────────────────────────────────────────────────────────────────────────

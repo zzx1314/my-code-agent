@@ -1,7 +1,7 @@
 use colored::*;
 use rig::client::{CompletionClient, ProviderClient};
 
-use my_code_agent::tools;
+use crate::tools;
 
 pub type Agent = rig::agent::Agent<rig::providers::deepseek::CompletionModel>;
 

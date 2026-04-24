@@ -1,17 +1,14 @@
-mod preamble;
-mod streaming;
-mod ui;
-
 use anyhow::Result;
 use colored::*;
 use std::io::Write;
 
-use my_code_agent::context::{expand_file_refs, print_attachments};
-use my_code_agent::token_usage::TokenUsage;
-
-use preamble::{build_agent, check_api_key};
-use streaming::stream_response;
-use ui::{parse_command, print_banner, print_interrupted_notice, run_command, Command};
+use my_code_agent::core::context::{expand_file_refs, print_attachments};
+use my_code_agent::core::token_usage::TokenUsage;
+use my_code_agent::core::preamble::{build_agent, check_api_key};
+use my_code_agent::core::streaming::stream_response;
+use my_code_agent::ui::{
+    parse_command, print_banner, print_interrupted_notice, run_command, Command,
+};
 
 /// Reads a line from stdin on a blocking thread so it can be cancelled via `tokio::select!`.
 async fn read_stdin_line() -> Option<String> {
