@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
             Self { default_completer }
         }
 
-        fn complete_file_path(&self, path_prefix: &str) -> Vec<Suggestion> {
+        fn complete_file_path(&self, path_prefix: &str, word_start: usize) -> Vec<Suggestion> {
             let path_part = path_prefix.strip_prefix('@').unwrap_or(path_prefix);
             let (base_dir, pattern) = if let Some(last_slash) = path_part.rfind('/') {
                 (&path_part[..last_slash + 1], &path_part[last_slash + 1..])
@@ -97,13 +97,13 @@ async fn main() -> Result<()> {
                         let full_path = if base_dir.is_empty() {
                             format!("@{}", display_name)
                         } else {
-                            format!("@{}/{}", base_dir.trim_end_matches('/'), display_name)
+                            format!("@{}{}", base_dir, display_name)
                         };
                         matches.push(Suggestion {
                             value: full_path,
                             description: None,
                             extra: None,
-                            span: Span::new(0, path_prefix.len()),
+                            span: Span::new(word_start, word_start + path_prefix.len()),
                             append_whitespace: is_dir,
                             ..Default::default()
                         });
@@ -120,12 +120,16 @@ async fn main() -> Result<()> {
         fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
             let line = if line.len() > pos { &line[..pos] } else { line };
 
-            // If line starts with @, do file path completion
-            if line.starts_with('@') && !line.contains(' ') {
-                let mut suggestions = self.complete_file_path(line);
+            // Find the word being completed (after last space or from start)
+            let word_start = line.rfind(' ').map(|i| i + 1).unwrap_or(0);
+            let word = &line[word_start..];
+
+            // If word starts with @, do file path completion
+            if word.starts_with('@') {
+                let mut suggestions = self.complete_file_path(word, word_start);
                 // If no file matches, still try default completions (tools like @file_read)
                 if suggestions.is_empty() {
-                    suggestions = self.default_completer.complete(line, pos);
+                    suggestions = self.default_completer.complete(word, word.len());
                 }
                 return suggestions;
             }
