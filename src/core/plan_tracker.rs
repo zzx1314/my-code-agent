@@ -162,11 +162,7 @@ impl PlanTracker {
         println!(
             "  {} {}",
             "?".bright_yellow(),
-            "Confirm plan? (y/n)".dimmed()
-        );
-        println!(
-            "    {} Auto-proceed in 5s unless cancelled",
-            "💡".dimmed()
+            "Confirm plan? [ENTER=proceed, n=cancel]:".dimmed()
         );
     }
 

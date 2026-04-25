@@ -1,0 +1,60 @@
+# ── My Code Agent Configuration ──
+#
+# This file is optional. All fields have sensible defaults.
+# If config.toml doesn't exist, defaults are used silently.
+# Only override the sections/values you need to change.
+
+# ── File Reading / Attachment Settings ──
+[files]
+# Maximum lines returned by `file_read` when `limit` is not specified.
+# Default: 200
+# default_read_limit = 200
+
+# Maximum lines included from a single `@filepath` attachment.
+# Default: 500
+# attach_max_lines = 500
+
+# Maximum bytes included from a single `@filepath` attachment.
+# Default: 51200 (50 KB)
+# attach_max_bytes = 51200
+
+# ── Context Window / Token Usage Settings ──
+[context]
+# Model context window size in tokens.
+# Default: 65536 (64K)
+# window_size = 65536
+
+# Percentage at which to warn about context usage.
+# Default: 75
+# warn_threshold_percent = 75
+
+# Percentage at which to issue a critical context warning.
+# Default: 90
+# critical_threshold_percent = 90
+
+# ── Shell Execution Settings ──
+[shell]
+# Default command timeout in seconds.
+# Default: 30
+# default_timeout_secs = 30
+
+# ── Agent Behavior Settings ──
+[agent]
+# Maximum number of tool-call turns per response.
+# Default: 10
+# max_turns = 10
+
+# ── Plan Confirmation Settings ──
+[plan]
+# Timeout in seconds for plan confirmation prompt.
+# After this many seconds without input, the plan auto-proceeds.
+# Set to 0 to disable timeout (wait indefinitely for user input).
+# Default: 0 (disabled — wait indefinitely)
+# timeout_secs = 5
+
+# ── Session Persistence Settings ──
+[session]
+# File path for session persistence.
+# Default: `.session.json` (in the current directory).
+# Set to "" or omit to use the default.
+# save_file = ".session.json"
