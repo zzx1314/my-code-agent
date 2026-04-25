@@ -47,6 +47,8 @@ impl FilePathCompleter {
             "/help".into(),
             "/usage".into(),
             "/save".into(),
+            "/sessions".into(),
+            "/load".into(),
             "/clear".into(),
             "/think".into(),
             "/quit".into(),
@@ -261,6 +263,7 @@ impl Completer for FilePathCompleter {
                             println!("{}", "Conversation history cleared 🗑️".dimmed());
                         }
                         Command::Quit => {
+                            let auto_save = current_session_name.is_none() && !chat_history.is_empty();
                             if let Some(ref name) = current_session_name {
                                 let data = SessionData::with_name(
                                     chat_history.clone(),
@@ -271,6 +274,18 @@ impl Completer for FilePathCompleter {
                                 if let Err(e) = data.save_with_name(name) {
                                     eprintln!("  {} {}", "⚠".bright_yellow(), e);
                                 }
+                            } else if auto_save {
+                                let name = "default".to_string();
+                                let data = SessionData::with_name(
+                                    chat_history.clone(),
+                                    session_usage.clone(),
+                                    last_reasoning.clone(),
+                                    name.clone(),
+                                );
+                                if let Err(e) = data.save_with_name(&name) {
+                                    eprintln!("  {} {}", "⚠".bright_yellow(), e);
+                                }
+                                println!("  {} Auto-saved as 'default'", "💾".bright_green());
                             }
                             println!("{}", "Goodbye! 👋".dimmed());
                             break;
@@ -311,6 +326,7 @@ impl Completer for FilePathCompleter {
                 .await;
 
                 if result.should_exit {
+                    let auto_save = current_session_name.is_none() && !chat_history.is_empty();
                     if let Some(ref name) = current_session_name {
                         let data = SessionData::with_name(
                             chat_history.clone(),
@@ -321,6 +337,18 @@ impl Completer for FilePathCompleter {
                         if let Err(e) = data.save_with_name(name) {
                             eprintln!("  {} {}", "⚠".bright_yellow(), e);
                         }
+                    } else if auto_save {
+                        let name = "default".to_string();
+                        let data = SessionData::with_name(
+                            chat_history.clone(),
+                            session_usage.clone(),
+                            last_reasoning.clone(),
+                            name.clone(),
+                        );
+                        if let Err(e) = data.save_with_name(&name) {
+                            eprintln!("  {} {}", "⚠".bright_yellow(), e);
+                        }
+                        println!("  {} Auto-saved as 'default'", "💾".bright_green());
                     }
                     println!("{}", "Goodbye! 👋".dimmed());
                     return Ok(());
@@ -333,6 +361,7 @@ impl Completer for FilePathCompleter {
                 print_interrupted_notice(&result.full_response, result.interrupted);
             }
             Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => {
+                let auto_save = current_session_name.is_none() && !chat_history.is_empty();
                 if let Some(ref name) = current_session_name {
                     let data = SessionData::with_name(
                         chat_history.clone(),
@@ -343,6 +372,18 @@ impl Completer for FilePathCompleter {
                     if let Err(e) = data.save_with_name(name) {
                         eprintln!("  {} {}", "⚠".bright_yellow(), e);
                     }
+                } else if auto_save {
+                    let name = "default".to_string();
+                    let data = SessionData::with_name(
+                        chat_history.clone(),
+                        session_usage.clone(),
+                        last_reasoning.clone(),
+                        name.clone(),
+                    );
+                    if let Err(e) = data.save_with_name(&name) {
+                        eprintln!("  {} {}", "⚠".bright_yellow(), e);
+                    }
+                    println!("  {} Auto-saved as 'default'", "💾".bright_green());
                 }
                 println!("{}", "Goodbye! 👋".dimmed());
                 break;

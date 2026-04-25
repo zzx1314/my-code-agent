@@ -1,5 +1,4 @@
-use my_code_agent::core::config::Config;
-use my_code_agent::core::session::{SessionData, DEFAULT_SESSION_FILE, format_timestamp};
+use my_code_agent::core::session::{SessionData, format_timestamp, SESSION_DIR};
 use my_code_agent::core::token_usage::TokenUsage;
 use rig::completion::Message;
 
@@ -139,16 +138,14 @@ fn test_delete_nonexistent_is_ok() {
 // ── Session path from config ──
 
 #[test]
-fn test_session_path_default() {
-    let config = Config::default();
-    assert_eq!(SessionData::session_path(&config), DEFAULT_SESSION_FILE);
+fn test_session_dir_path() {
+    assert_eq!(SessionData::session_dir_path(), SESSION_DIR);
 }
 
 #[test]
-fn test_session_path_custom() {
-    let mut config = Config::default();
-    config.session.save_file = Some(".my-session.json".to_string());
-    assert_eq!(SessionData::session_path(&config), ".my-session.json");
+fn test_session_file_path() {
+    assert_eq!(SessionData::session_file_path("my-session"), ".sessions/my-session.json");
+    assert_eq!(SessionData::session_file_path("bugfix-123"), ".sessions/bugfix-123.json");
 }
 
 // ── format_timestamp ──

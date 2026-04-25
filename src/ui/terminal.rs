@@ -78,7 +78,9 @@ pub fn print_help() {
     println!("  {}  Find files by glob pattern", "glob".bright_yellow());
     println!();
     println!("  {}  Show token usage statistics", "usage".dimmed());
-    println!("  {}  Save conversation session", "save".bright_green());
+    println!("  {}  Save conversation session as <name>", "save".bright_green());
+    println!("  {}  List saved sessions", "sessions".dimmed());
+    println!("  {}  Load a saved session by name", "load".dimmed());
     println!("  {}  Clear conversation history", "clear".dimmed());
     println!(
         "  {}  Expand last reasoning content",
