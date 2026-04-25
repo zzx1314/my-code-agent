@@ -1,9 +1,7 @@
 use colored::*;
-
 use crate::core::preamble::KNOWLEDGE_FILE;
 use crate::core::token_usage::TokenUsage;
 
-/// Prints the startup banner.
 pub fn print_banner() {
     println!();
     println!(
@@ -62,7 +60,6 @@ pub fn print_banner() {
     println!();
 }
 
-/// Prints the help menu.
 pub fn print_help() {
     println!();
     println!("  {}  Read file contents", "file_read".bright_yellow());
@@ -95,13 +92,12 @@ pub fn print_help() {
     );
     println!(
         "  {}  Attach file contents to your message",
-        "@<filepath>".bright_cyan()
+        "@".bright_cyan()
     );
     println!();
 }
 
-/// Prints the full reasoning content (expanded view).
-fn print_reasoning_full(reasoning: &str) {
+pub fn print_reasoning_full(reasoning: &str) {
     if reasoning.is_empty() {
         println!("  {}", "No reasoning content available.".dimmed());
         return;
@@ -130,7 +126,6 @@ fn print_reasoning_full(reasoning: &str) {
     println!();
 }
 
-/// Prints a notice if the response was interrupted.
 pub fn print_interrupted_notice(full_response: &str, interrupted: bool) {
     if !full_response.is_empty() {
         println!();
@@ -151,7 +146,6 @@ pub fn print_interrupted_notice(full_response: &str, interrupted: bool) {
     }
 }
 
-/// Built-in commands that don't require an agent response.
 pub enum Command {
     Help,
     Usage,
@@ -161,9 +155,8 @@ pub enum Command {
     Save,
 }
 
-/// Checks whether the input is a built-in command.
-/// Returns `Some(Command)` if recognized, `None` otherwise.
 pub fn parse_command(input: &str) -> Option<Command> {
+    let input = input.strip_prefix('/').unwrap_or(input);
     match input {
         "help" => Some(Command::Help),
         "usage" => Some(Command::Usage),
@@ -175,11 +168,6 @@ pub fn parse_command(input: &str) -> Option<Command> {
     }
 }
 
-/// Executes a built-in command. Returns true if the main loop should break.
-///
-/// Note: `Clear`, `Quit`, and `Save` are handled directly in `main.rs` because
-/// they need access to session persistence logic. This function only handles
-/// `Help`, `Usage`, and `Think`.
 pub fn run_command(
     cmd: Command,
     session_usage: &mut TokenUsage,
@@ -191,8 +179,6 @@ pub fn run_command(
         Command::Think => {
             print_reasoning_full(last_reasoning);
         }
-        // Clear, Quit, Save are handled in main.rs before this function is called.
-        // These branches are unreachable but required for exhaustiveness.
         Command::Clear | Command::Quit | Command::Save => {}
     }
     false
