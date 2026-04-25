@@ -9,9 +9,8 @@ use super::plan_tracker::PlanTracker;
 use super::token_usage::{TokenUsage, print_context_warning, print_turn_usage};
 use crate::ui::render::{MarkdownRenderer, ReasoningTracker};
 
+use crate::core::preamble::Agent;
 use rig::streaming::StreamingChat;
-
-type Agent = rig::agent::Agent<rig::providers::deepseek::CompletionModel>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // StreamResult & stream_response

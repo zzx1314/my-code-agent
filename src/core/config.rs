@@ -35,6 +35,9 @@ fn default_provider_name() -> String {
 fn default_api_key_env() -> String {
     String::new() // Empty means use provider default
 }
+fn default_base_url() -> Option<String> {
+    None
+}
 
 /// Configuration file name (looked up in the current directory).
 pub const CONFIG_FILE: &str = "config.toml";
@@ -120,7 +123,7 @@ pub struct AgentConfig {
 /// LLM provider settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LLMConfig {
-    /// Provider name: "deepseek", "openai", "anthropic", "cohere"
+    /// Provider name: "deepseek", "openai", "anthropic", "cohere", "custom"
     /// Default: "deepseek"
     #[serde(default = "default_provider_name")]
     pub provider: String,
@@ -132,6 +135,10 @@ pub struct LLMConfig {
     /// Default: "DEEPSEEK_API_KEY"
     #[serde(default = "default_api_key_env")]
     pub api_key_env: String,
+    /// Custom base URL for OpenAI-compatible providers (e.g., "http://localhost:8080/v1")
+    /// Used when provider is "custom" or any provider with a custom endpoint
+    #[serde(default = "default_base_url")]
+    pub base_url: Option<String>,
 }
 
 /// Session persistence settings.
@@ -184,6 +191,7 @@ impl Default for LLMConfig {
             provider: "deepseek".to_string(),
             model: None,
             api_key_env: String::new(), // Empty means use provider default
+            base_url: None,
         }
     }
 }

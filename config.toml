@@ -6,7 +6,7 @@
 
 # ── LLM Provider Settings ──
 [llm]
-# Provider: "deepseek", "openai", "anthropic", "cohere"
+# Provider: "deepseek", "openai", "anthropic", "cohere", "custom"
 # Default: "deepseek"
 # provider = "deepseek"
 
@@ -19,6 +19,11 @@
 
 # API key environment variable (leave empty for provider default)
 # api_key_env = "DEEPSEEK_API_KEY"
+
+# Custom base URL for OpenAI-compatible providers
+# Use with provider = "custom" or to override any provider's endpoint
+# Supports: LocalAI, Ollama, vLLM, LiteLLM, etc.
+# base_url = "http://localhost:8080/v1"
 
 # ── File Reading / Attachment Settings ──
 [files]

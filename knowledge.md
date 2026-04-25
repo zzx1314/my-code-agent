@@ -12,16 +12,32 @@ Supports multiple LLM providers configured via `config.toml`:
 | OpenAI | `OPENAI_API_KEY` | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo` |
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-20241022`, `claude-3-haiku-20240307` |
 | Cohere | `COHERE_API_KEY` | `command-r-plus`, `command-r` |
+| Custom | (configurable) | Any OpenAI-compatible model |
 
 **Configuration** (`config.toml`):
 ```toml
 [llm]
-provider = "deepseek"      # deepseek, openai, anthropic, cohere
+provider = "deepseek"      # deepseek, openai, anthropic, cohere, custom
 model = "deepseek-reasoner"  # leave empty for provider default
 api_key_env = "DEEPSEEK_API_KEY"  # or OPENAI_API_KEY, etc.
+
+# Custom OpenAI-compatible endpoint (LocalAI, Ollama, vLLM, etc.)
+# base_url = "http://localhost:8080/v1"
 ```
 
-**Note:** Currently configured for DeepSeek. Infrastructure ready for all 4 providers — additional providers can be enabled by updating `src/core/preamble.rs`.
+**Custom Providers** — Use `provider = "custom"` with `base_url` to connect to any OpenAI-compatible API:
+- LocalAI, Ollama, vLLM, LiteLLM, etc.
+- Works with any model that accepts the OpenAI `/v1/chat/completions` format
+- Set `api_key_env` if your endpoint requires authentication
+
+Example for Ollama:
+```toml
+[llm]
+provider = "custom"
+model = "llama3"
+base_url = "http://localhost:11434/v1"
+api_key_env = ""  # Ollama doesn't need API key by default
+```
 
 ## Banner (ASCII)
 ```

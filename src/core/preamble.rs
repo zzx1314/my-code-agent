@@ -42,14 +42,14 @@ This plan helps:
 
 ## Your Capabilities
 - **file_read**: Read file contents from the local filesystem. Returns up to 200 lines by default - use offset and limit to paginate through large files. If a file is truncated and you have not found the information you need, continue reading with offset rather than guessing based on partial content.
-- **User file attachments (`@filepath`)**: Users can attach files inline using `@path` (e.g. `@src/main.rs`). The `@path:N` syntax is for users only — do not reference it in your own messages. Large files are truncated with a notice like `showing 500 of 1200 total lines. Use @src/main.rs:500 or the file_read tool with offset=500 to read the rest`. When you see this notice, use the `file_read` tool with the suggested offset to continue reading.
+- **User file attachments (`@filepath`)**: Users can attach files inline using `@path` (e.g. `@src/main.rs`). The `@path:N` syntax is for users only - do not reference it in your own messages. Large files are truncated with a notice like `showing 500 of 1200 total lines. Use @src/main.rs:500 or the file_read tool with offset=500 to read the rest`. When you see this notice, use the `file_read` tool with the suggested offset to continue reading.
 - **file_write**: Create new files on the local filesystem (for editing existing files, use file_update instead)
 - **file_update**: Make targeted edits to existing files. Always read the file first with file_read to ensure the old string matches exactly, then use file_update to apply the edit
 - **file_delete**: Delete files, directories, or specific text snippets from files. Use snippet to remove code without deleting the whole file. Use with caution.
 - **shell_exec**: Execute shell commands (build, test, lint, etc.)
 - **code_search**: Search for patterns in source code using ripgrep (rg). Automatically respects .gitignore and skips binary files.
 - **list_dir**: List files and directories in a path with configurable recursion depth. Use this to explore project structure and discover files.
-- **glob**: Find files matching a glob pattern (e.g., **/*.rs, src/**/*.ts). Use this to locate files by name or extension.
+- **glob**: Find files matching a glob pattern (e.g. **/*.rs, src/**/*.ts). Use this to locate files by name or extension.
 ## Critical Rules
 1. **STOP after answering**: Once you have gathered enough information to answer the user's question, provide a text response immediately. Do NOT call more tools.
 2. **Minimum tools**: Use the fewest tool calls possible. Typically 1-3 calls per question is sufficient. Do not chain tool calls unnecessarily.
@@ -57,7 +57,7 @@ This plan helps:
 4. **Respond directly**: After using tools, give the user a clear answer. Never end a turn with only a tool call - always follow up with text.
 5. **No retry loops**: If a tool call fails or returns unexpected results, explain the issue to the user. Do not retry the same call with minor variations.
 6. **Safety guardrails**: Destructive shell commands (rm -rf, sudo, git push --force, etc.) and deletions of sensitive files/directories will trigger a user confirmation prompt. Never set auto_approve: true unless the user explicitly asks you to.
-7. **Read fully before modifying**: Before using file_update or file_write on an existing file, you MUST have read the complete file content. If file_read returns `truncated: true`, or if a user-attached `@filepath` shows a truncation notice, continue reading with offset until you have seen every line. Never edit a file you have not fully read — partial knowledge leads to incorrect edits.
+7. **Read fully before modifying**: Before using file_update or file_write on an existing file, you MUST have read the complete file content. If file_read returns `truncated: true`, or if a user-attached `@filepath` shows a truncation notice, continue reading with offset until you have seen every line. Never edit a file you have not fully read - partial knowledge leads to incorrect edits.
 
 ## Guidelines
 1. **Understand first**: Read relevant files before making changes.
@@ -115,13 +115,14 @@ fn check_api_key(provider_name: &str, api_key_env: &str) {
     eprintln!("[ok] {} ({})", api_key_env, provider_name);
 }
 
-/// Supported LLM providers (infrastructure ready, implementation pending)
+/// Supported LLM providers
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Provider {
     DeepSeek,
     OpenAI,
     Anthropic,
     Cohere,
+    Custom,
 }
 
 impl Provider {
@@ -131,6 +132,7 @@ impl Provider {
             "openai" => Some(Provider::OpenAI),
             "anthropic" => Some(Provider::Anthropic),
             "cohere" => Some(Provider::Cohere),
+            "custom" => Some(Provider::Custom),
             _ => None,
         }
     }
@@ -141,6 +143,7 @@ impl Provider {
             Provider::OpenAI => "gpt-4o",
             Provider::Anthropic => "claude-3-5-sonnet-20241022",
             Provider::Cohere => "command-r-plus",
+            Provider::Custom => "gpt-4o",
         }
     }
 
@@ -150,6 +153,7 @@ impl Provider {
             Provider::OpenAI => "OPENAI_API_KEY",
             Provider::Anthropic => "ANTHROPIC_API_KEY",
             Provider::Cohere => "COHERE_API_KEY",
+            Provider::Custom => "OPENAI_API_KEY",
         }
     }
 
@@ -159,15 +163,17 @@ impl Provider {
             Provider::OpenAI => "OpenAI",
             Provider::Anthropic => "Anthropic",
             Provider::Cohere => "Cohere",
+            Provider::Custom => "Custom",
         }
     }
 }
 
+/// Agent type alias - uses OpenAI Completions API for compatibility with custom endpoints.
+pub type Agent = rig::agent::Agent<rig::providers::openai::CompletionModel>;
+
 /// Builds an agent using the configured LLM provider.
-/// Currently only DeepSeek is fully implemented.
-pub fn build_agent(
-    config: &Config,
-) -> rig::agent::Agent<rig::providers::deepseek::CompletionModel> {
+/// Uses OpenAI Completions API client for compatibility with custom endpoints.
+pub fn build_agent(config: &Config) -> Agent {
     let provider = Provider::from_str(&config.llm.provider).unwrap_or(Provider::DeepSeek);
     let model = config
         .llm
@@ -182,18 +188,65 @@ pub fn build_agent(
     };
 
     check_api_key(provider.display_name(), api_key_env);
-    eprintln!("[model] {} ({})", model, provider.display_name());
 
     let preamble = build_preamble();
     let all_tools = tools::all_tools(config);
 
-    // Currently only DeepSeek is fully implemented
-    // Other providers require additional type handling due to rig-core API differences
     match provider {
-        Provider::DeepSeek | Provider::OpenAI | Provider::Anthropic | Provider::Cohere => {
-            // All providers use the same DeepSeek client for now
-            // OpenAI/Anthropic/Cohere support requires additional implementation
-            let client = rig::providers::deepseek::Client::from_env();
+        Provider::DeepSeek => {
+            eprintln!("[model] {} (DeepSeek)", model);
+            unsafe { std::env::set_var("OPENAI_BASE_URL", "https://api.deepseek.com/v1") };
+            let api_key = std::env::var(api_key_env).unwrap_or_default();
+            let client = rig::providers::openai::CompletionsClient::new(&api_key)
+                .ok()
+                .expect("Failed to create DeepSeek client");
+            client
+                .agent(&model)
+                .preamble(&preamble)
+                .tools(all_tools)
+                .default_max_turns(config.agent.max_turns)
+                .build()
+        }
+        Provider::Custom => {
+            let base_url = match config.llm.base_url.as_ref() {
+                Some(url) => url.clone(),
+                None => {
+                    eprintln!("[error] Custom provider requires base_url in config.toml");
+                    eprintln!("Example:");
+                    eprintln!("  [llm]");
+                    eprintln!("  provider = \"custom\"");
+                    eprintln!("  model = \"llama3\"");
+                    eprintln!("  base_url = \"http://localhost:11434/v1\"");
+                    std::process::exit(1);
+                }
+            };
+            eprintln!("[model] {} (Custom: {})", model, base_url);
+            unsafe { std::env::set_var("OPENAI_BASE_URL", &base_url) };
+            let api_key = std::env::var(api_key_env).unwrap_or_default();
+            let client = match rig::providers::openai::CompletionsClient::new(&api_key) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[error] Failed to create OpenAI client: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            client
+                .agent(&model)
+                .preamble(&preamble)
+                .tools(all_tools)
+                .default_max_turns(config.agent.max_turns)
+                .build()
+        }
+        _ => {
+            eprintln!(
+                "[warn] Provider '{}' not fully implemented, using DeepSeek",
+                provider.display_name()
+            );
+            unsafe { std::env::set_var("OPENAI_BASE_URL", "https://api.deepseek.com/v1") };
+            let api_key = std::env::var(api_key_env).unwrap_or_default();
+            let client = rig::providers::openai::CompletionsClient::new(&api_key)
+                .ok()
+                .expect("Failed to create DeepSeek client");
             client
                 .agent(&model)
                 .preamble(&preamble)
