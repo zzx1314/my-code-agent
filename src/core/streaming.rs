@@ -5,6 +5,7 @@ use rig::completion::Message;
 use rig::streaming::StreamedAssistantContent;
 
 use super::context_manager::ContextManager;
+use super::plan_tracker::PlanTracker;
 use super::preamble::Agent;
 use super::token_usage::{TokenUsage, print_context_warning, print_turn_usage};
 use crate::ui::render::{MarkdownRenderer, ReasoningTracker};
@@ -20,6 +21,27 @@ pub struct StreamResult {
     pub interrupted: bool,
     pub should_exit: bool,
     pub last_reasoning: String,
+    pub plan_tracker: PlanTracker,
+}
+
+/// Detects if the text contains a task plan header (not in code blocks)
+pub fn detect_task_plan(text: &str) -> bool {
+    // Skip if we're inside a code block (between ``` and ```)
+    if text.contains("```") {
+        // Simple heuristic: if code block marker appears before the header,
+        // we're likely inside a code block
+        let first_code = text.find("```").unwrap_or(usize::MAX);
+        let first_header = text.find("##").unwrap_or(usize::MAX);
+        if first_code < first_header {
+            return false;
+        }
+    }
+    
+    // Check for common task plan patterns (markdown headers)
+    text.contains("## 📋 Task Plan")
+        || text.contains("## Task Plan")
+        || text.contains("## Plan")
+        || text.contains("### Plan")
 }
 
 /// Streams a response from the agent, handling Ctrl+C interrupts.
@@ -45,6 +67,9 @@ pub async fn stream_response(
     let mut interrupted = false;
     let mut renderer = MarkdownRenderer::new();
     let mut reasoning = ReasoningTracker::new();
+    let mut plan_tracker = PlanTracker::new();
+    let mut plan_detected = false;
+    let mut plan_text = String::new();
 
     loop {
         let item = tokio::select! {
@@ -61,12 +86,13 @@ pub async fn stream_response(
                 };
                 reasoning.flush_unfinished();
                 if second_interrupt {
-                    return StreamResult {
-                        full_response,
-                        interrupted: true,
-                        should_exit: true,
-                        last_reasoning: reasoning.into_total_reasoning(),
-                    };
+                return StreamResult {
+                    full_response,
+                    interrupted: true,
+                    should_exit: true,
+                    last_reasoning: reasoning.into_total_reasoning(),
+                    plan_tracker,
+                };
                 }
                 interrupted = true;
                 break;
@@ -86,8 +112,47 @@ pub async fn stream_response(
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
                 }
+                
+                // Detect task plan header
+                if !plan_detected && detect_task_plan(&text_content.text) {
+                    plan_detected = true;
+                    plan_text.clear();
+                    renderer.flush();
+                    println!("\n  {} {}", "📋".bright_green(), "Task Plan".bold());
+                }
+                
+                // Track plan text and highlight steps
+                if plan_detected {
+                    plan_text.push_str(&text_content.text);
+                    let mut in_plan = true;
+                    for line in text_content.text.lines() {
+                        let trimmed = line.trim();
+                        // Check if this is a numbered step
+                        let is_numbered = trimmed.len() > 2
+                            && trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+                            && trimmed.chars().nth(1) == Some('.');
+                        
+                        if is_numbered && in_plan {
+                            println!("    {} {}", "→".bright_cyan(), trimmed.bright_white());
+                        } else {
+                            if in_plan && !trimmed.is_empty() && !is_numbered {
+                                // End of plan section, print confirmation prompt
+                                plan_tracker.parse_plan(&plan_text);
+                                plan_tracker.print_with_confirmation();
+                                plan_text.clear(); // We parsed it, clear to avoid double parsing
+                                in_plan = false;
+                            }
+                            renderer.push_text(line);
+                            if !line.is_empty() {
+                                renderer.push_text("\n");
+                            }
+                        }
+                    }
+                } else {
+                    renderer.push_text(&text_content.text);
+                }
+                
                 full_response.push_str(&text_content.text);
-                renderer.push_text(&text_content.text);
             }
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
                 tool_call,
@@ -96,6 +161,14 @@ pub async fn stream_response(
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
                 }
+                
+                // Update plan progress when tool is called
+                if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
+                    plan_tracker.complete_current_step();
+                    plan_tracker.print_progress();
+                    println!(); // newline after progress
+                }
+                
                 renderer.flush();
                 println!(
                     "\n  {} {}",
@@ -122,6 +195,12 @@ pub async fn stream_response(
                     reasoning.end_segment();
                 }
                 renderer.flush();
+                
+                // Print plan completion if applicable
+                if plan_tracker.has_active_plan() {
+                    plan_tracker.print_completion();
+                }
+                
                 if let Some(history) = final_res.history() {
                     *chat_history = history.to_vec();
                 }
@@ -189,5 +268,6 @@ pub async fn stream_response(
         interrupted,
         should_exit: false,
         last_reasoning: reasoning.into_total_reasoning(),
+        plan_tracker,
     }
 }

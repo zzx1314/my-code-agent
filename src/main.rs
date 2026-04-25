@@ -38,6 +38,7 @@ async fn main() -> Result<()> {
     // Initialize context manager and file cache
     let mut context_manager = ContextManager::new(&config);
     let mut file_cache = FileCache::new(50, 300);
+    
     struct FilePathCompleter {
         default_completer: reedline::DefaultCompleter,
     }
@@ -337,6 +338,34 @@ async fn main() -> Result<()> {
                     &mut context_manager,
                 )
                 .await;
+
+                // Handle plan confirmation
+                let mut plan_tracker = result.plan_tracker;
+                if plan_tracker.needs_confirmation() {
+                    plan_tracker.print_with_confirmation();
+                    
+                    // Read user confirmation
+                    match rl.read_line(&DefaultPrompt::default()) {
+                        Ok(Signal::Success(confirm_input)) => {
+                            let confirm = confirm_input.trim().to_lowercase();
+                            if confirm == "y" || confirm == "yes" || confirm.is_empty() {
+                                plan_tracker.confirm();
+                            } else {
+                                plan_tracker.cancel();
+                                println!("\n  {} Plan execution cancelled.\n", "✗".bright_red());
+                                continue;
+                            }
+                        }
+                        Ok(Signal::CtrlC) | Ok(Signal::CtrlD) => {
+                            plan_tracker.cancel();
+                            continue;
+                        }
+                        Err(_) => {
+                            plan_tracker.cancel();
+                            continue;
+                        }
+                    }
+                }
 
                 if result.should_exit {
                     let auto_save = current_session_name.is_none() && !chat_history.is_empty();

@@ -3,6 +3,7 @@ pub mod context;
 pub mod context_cache;
 pub mod context_manager;
 pub mod file_cache;
+pub mod plan_tracker;
 pub mod preamble;
 pub mod session;
 pub mod streaming;
