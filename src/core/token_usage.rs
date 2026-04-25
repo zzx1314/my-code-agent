@@ -3,8 +3,8 @@ use colored::*;
 use rig::completion::Usage;
 use serde::{Deserialize, Serialize};
 
-/// Default context window size for DeepSeek Reasoner (64K = 65,536 tokens).
-pub const CONTEXT_WINDOW_SIZE: u64 = 65_536;
+/// Default context window size for DeepSeek V3/R1 (128K = 131,072 tokens).
+pub const CONTEXT_WINDOW_SIZE: u64 = 131_072;
 
 /// Warn when session usage exceeds this percentage of the context window.
 const WARN_THRESHOLD_PERCENT: u64 = 75;

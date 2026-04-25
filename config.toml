@@ -21,8 +21,8 @@
 # ── Context Window / Token Usage Settings ──
 [context]
 # Model context window size in tokens.
-# Default: 65536 (64K)
-# window_size = 65536
+# Default: 131072 (128K for DeepSeek V3/R1)
+# window_size = 131072
 
 # Percentage at which to warn about context usage.
 # Default: 75

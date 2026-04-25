@@ -15,7 +15,7 @@ fn default_attach_max_bytes() -> usize {
     50 * 1024
 }
 fn default_window_size() -> u64 {
-    65_536
+    131_072 // 128K tokens for DeepSeek V3/R1
 }
 fn default_warn_threshold_percent() -> u64 {
     75

@@ -105,7 +105,7 @@ fn test_print_turn_usage_does_not_panic() {
 fn test_context_window_default() {
     let tu = TokenUsage::new();
     assert_eq!(tu.context_window(), CONTEXT_WINDOW_SIZE);
-    assert_eq!(tu.context_window(), 65_536);
+    assert_eq!(tu.context_window(), 131_072); // 128K tokens
 }
 
 #[test]
