@@ -72,8 +72,7 @@ impl SessionData {
             Ok(c) => c,
             Err(_) => return None,
         };
-        let result = serde_json::from_str(&content)
-            .map_err(|e| format!("parse {}: {}", path, e));
+        let result = serde_json::from_str(&content).map_err(|e| format!("parse {}: {}", path, e));
         Some(result)
     }
 
@@ -97,12 +96,12 @@ impl SessionData {
 
     pub fn list_sessions() -> Vec<SessionInfo> {
         let mut sessions = Vec::new();
-        
+
         let dir_path = std::path::Path::new(SESSION_DIR);
         if !dir_path.is_dir() {
             return sessions;
         }
-        
+
         if let Ok(entries) = std::fs::read_dir(dir_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -113,7 +112,9 @@ impl SessionData {
                             if let Ok(data) = data {
                                 sessions.push(SessionInfo {
                                     name: name_str,
-                                    turns: data.chat_history.iter()
+                                    turns: data
+                                        .chat_history
+                                        .iter()
                                         .filter(|m| matches!(m, Message::User { .. }))
                                         .count(),
                                     saved_at: data.saved_at,
@@ -125,7 +126,7 @@ impl SessionData {
                 }
             }
         }
-        
+
         sessions.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
         sessions
     }

@@ -1,20 +1,18 @@
-use colored::*;
 use crate::core::preamble::KNOWLEDGE_FILE;
 use crate::core::token_usage::TokenUsage;
+use colored::*;
 
 pub fn print_banner() {
     println!();
-    println!(
-        "{}",
-        " _                               _   ".bright_cyan()
-    );
+    println!("{}", " _                               _   ".bright_cyan());
     println!(
         "{}",
         "  _ __ ___  _   _    ___ ___   __| | ___    __ _  __ _  ___ _ __ | |_ ".bright_cyan()
     );
     println!(
         "{}",
-        " | '_ ` _ \\ | | | |  / __/ _ \\ / _` |/ _ \\  / _` |/ _` |/ _ \\ '_ \\| __|".bright_cyan()
+        " | '_ ` _ \\ | | | |  / __/ _ \\ / _` |/ _ \\  / _` |/ _` |/ _ \\ '_ \\| __|"
+            .bright_cyan()
     );
     println!(
         "{}",
@@ -22,14 +20,18 @@ pub fn print_banner() {
     );
     println!(
         "{}",
-        " |_| |_| |_|\\__, |  \\___\\___/ \\__,_|\\___|  \\__,_|\\__, |\\___|_| |_|\\__|".bright_cyan()
+        " |_| |_| |_|\\__, |  \\___\\___/ \\__,_|\\___|  \\__,_|\\__, |\\___|_| |_|\\__|"
+            .bright_cyan()
     );
     println!(
         "{}",
         "            |___/                                |___/".bright_cyan()
     );
     println!();
-    println!("  {}", "🤖 My Code Agent v0.1.0 (reasoner)".bright_white().bold());
+    println!(
+        "  {}",
+        "🤖 My Code Agent v0.1.0 (reasoner)".bright_white().bold()
+    );
     println!();
     println!(
         "  {} {}",
@@ -78,7 +80,10 @@ pub fn print_help() {
     println!("  {}  Find files by glob pattern", "glob".bright_yellow());
     println!();
     println!("  {}  Show token usage statistics", "usage".dimmed());
-    println!("  {}  Save conversation session as <name>", "save".bright_green());
+    println!(
+        "  {}  Save conversation session as <name>",
+        "save".bright_green()
+    );
     println!("  {}  List saved sessions", "sessions".dimmed());
     println!("  {}  Load a saved session by name", "load".dimmed());
     println!("  {}  Clear conversation history", "clear".dimmed());
@@ -130,9 +135,13 @@ pub fn print_reasoning_full(reasoning: &str) {
 
 pub fn print_sessions_list(sessions: &[crate::core::session::SessionInfo]) {
     println!();
-    println!("  {} {}", "📂".bright_cyan(), "Saved Sessions".bright_white().bold());
+    println!(
+        "  {} {}",
+        "📂".bright_cyan(),
+        "Saved Sessions".bright_white().bold()
+    );
     println!("  {}", "─".repeat(50).dimmed());
-    
+
     if sessions.is_empty() {
         println!("  {}", "No saved sessions.".dimmed());
         println!("  {}", "Use /save <name> to save current session.".dimmed());
@@ -199,11 +208,7 @@ pub fn parse_command(input: &str) -> Option<Command> {
     }
 }
 
-pub fn run_command(
-    cmd: Command,
-    session_usage: &mut TokenUsage,
-    last_reasoning: &str,
-) -> bool {
+pub fn run_command(cmd: Command, session_usage: &mut TokenUsage, last_reasoning: &str) -> bool {
     match cmd {
         Command::Help => print_help(),
         Command::Usage => session_usage.print_session_report(),

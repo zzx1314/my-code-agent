@@ -9,7 +9,9 @@ pub enum FileUpdateError {
     Io(#[from] std::io::Error),
     #[error("Old string not found in file: {path}")]
     NotFound { path: String },
-    #[error("Old string found multiple times in file: {path} ({count} occurrences). Use `allow_multiple` to replace all.")]
+    #[error(
+        "Old string found multiple times in file: {path} ({count} occurrences). Use `allow_multiple` to replace all."
+    )]
     MultipleMatches { path: String, count: usize },
 }
 
@@ -142,4 +144,3 @@ pub fn build_diff(old: &str, new: &str, content: &str) -> String {
 
     diff
 }
-

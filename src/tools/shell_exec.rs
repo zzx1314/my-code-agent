@@ -100,7 +100,9 @@ impl Tool for ShellExec {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         // Safety check: prompt for confirmation if the command matches a dangerous pattern
-        if !args.auto_approve && let Some(pattern) = is_dangerous_shell_command(&args.command) {
+        if !args.auto_approve
+            && let Some(pattern) = is_dangerous_shell_command(&args.command)
+        {
             let approved = confirm_action(
                 "This command matches a dangerous pattern:",
                 &format!("matched '{}' in: {}", pattern, args.command),

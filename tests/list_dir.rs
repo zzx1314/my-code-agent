@@ -3,10 +3,7 @@ use rig::tool::Tool;
 use std::fs;
 use tempfile::TempDir;
 
-async fn list_dir(
-    path: &str,
-    max_depth: usize,
-) -> Result<ListDirOutput, ListDirError> {
+async fn list_dir(path: &str, max_depth: usize) -> Result<ListDirOutput, ListDirError> {
     ListDir
         .call(ListDirArgs {
             path: path.to_string(),
@@ -22,9 +19,7 @@ async fn test_list_dir_flat() {
     fs::write(tmp.path().join("file2.rs"), "fn main() {}").unwrap();
     fs::create_dir(tmp.path().join("subdir")).unwrap();
 
-    let output = list_dir(tmp.path().to_str().unwrap(), 1)
-        .await
-        .unwrap();
+    let output = list_dir(tmp.path().to_str().unwrap(), 1).await.unwrap();
 
     assert_eq!(output.total_files, 2);
     assert_eq!(output.total_dirs, 1);
@@ -45,9 +40,7 @@ async fn test_list_dir_with_depth() {
     fs::write(subdir.join("main.rs"), "fn main() {}").unwrap();
     fs::write(subdir.join("lib.rs"), "pub mod foo;").unwrap();
 
-    let output = list_dir(tmp.path().to_str().unwrap(), 2)
-        .await
-        .unwrap();
+    let output = list_dir(tmp.path().to_str().unwrap(), 2).await.unwrap();
 
     assert_eq!(output.total_files, 2);
     assert_eq!(output.total_dirs, 1);
@@ -73,9 +66,7 @@ async fn test_list_dir_not_a_directory() {
     let file_path = tmp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    let err = list_dir(file_path.to_str().unwrap(), 1)
-        .await
-        .unwrap_err();
+    let err = list_dir(file_path.to_str().unwrap(), 1).await.unwrap_err();
     assert!(err.to_string().contains("not a directory"));
 }
 
@@ -85,9 +76,7 @@ async fn test_list_dir_empty_directory() {
     let empty = tmp.path().join("empty");
     fs::create_dir(&empty).unwrap();
 
-    let output = list_dir(empty.to_str().unwrap(), 1)
-        .await
-        .unwrap();
+    let output = list_dir(empty.to_str().unwrap(), 1).await.unwrap();
 
     assert_eq!(output.total_files, 0);
     assert_eq!(output.total_dirs, 0);
@@ -102,9 +91,7 @@ async fn test_list_dir_sorted_directories_first() {
     fs::write(tmp.path().join("m_file.rs"), "").unwrap();
     fs::create_dir(tmp.path().join("a_dir")).unwrap();
 
-    let output = list_dir(tmp.path().to_str().unwrap(), 1)
-        .await
-        .unwrap();
+    let output = list_dir(tmp.path().to_str().unwrap(), 1).await.unwrap();
 
     // Directories first, sorted alphabetically
     assert_eq!(output.entries[0].name, "a_dir");
@@ -124,24 +111,18 @@ async fn test_list_dir_deep_nesting() {
     fs::write(l3.join("deep.txt"), "found me").unwrap();
 
     // Depth 1: only see l1
-    let output1 = list_dir(tmp.path().to_str().unwrap(), 1)
-        .await
-        .unwrap();
+    let output1 = list_dir(tmp.path().to_str().unwrap(), 1).await.unwrap();
     assert_eq!(output1.total_dirs, 1);
     let l1_entry = &output1.entries[0];
     assert!(l1_entry.children.is_none()); // not recursed
 
     // Depth 3: recurse two levels (see l1, l2, but not inside l3)
-    let output3 = list_dir(tmp.path().to_str().unwrap(), 3)
-        .await
-        .unwrap();
+    let output3 = list_dir(tmp.path().to_str().unwrap(), 3).await.unwrap();
     assert_eq!(output3.total_dirs, 3); // l1, l2, l3 counted
     assert_eq!(output3.total_files, 0); // deep.txt is inside l3, not reached
 
     // Depth 4: recurse three levels — reach deep.txt inside l3
-    let output4 = list_dir(tmp.path().to_str().unwrap(), 4)
-        .await
-        .unwrap();
+    let output4 = list_dir(tmp.path().to_str().unwrap(), 4).await.unwrap();
     assert_eq!(output4.total_dirs, 3);
     assert_eq!(output4.total_files, 1);
 }

@@ -94,7 +94,8 @@ impl Tool for ListDir {
         let mut total_files = 0usize;
         let mut total_dirs = 0usize;
 
-        let entries = list_dir_recursive(path, args.max_depth, 1, &mut total_files, &mut total_dirs);
+        let entries =
+            list_dir_recursive(path, args.max_depth, 1, &mut total_files, &mut total_dirs);
 
         Ok(ListDirOutput {
             path: args.path,
@@ -147,11 +148,7 @@ fn list_dir_recursive(
                     total_files,
                     total_dirs,
                 );
-                if kids.is_empty() {
-                    None
-                } else {
-                    Some(kids)
-                }
+                if kids.is_empty() { None } else { Some(kids) }
             } else {
                 None
             };

@@ -58,17 +58,7 @@ pub fn is_dangerous_deletion(path: &str, recursive: bool) -> Option<&'static str
 
     // Critical system directories
     let critical_dirs = [
-        "/etc",
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/lib",
-        "/var",
-        "/sys",
-        "/proc",
-        "/dev",
-        "/boot",
-        "/opt",
+        "/etc", "/usr", "/bin", "/sbin", "/lib", "/var", "/sys", "/proc", "/dev", "/boot", "/opt",
         "/snap",
     ];
     for dir in &critical_dirs {
@@ -90,7 +80,11 @@ pub fn is_dangerous_deletion(path: &str, recursive: bool) -> Option<&'static str
 
     // Hidden files/directories (often contain config)
     let filename = p.rsplit('/').next().unwrap_or(p);
-    if filename.starts_with('.') && !filename.ends_with("_test") && !filename.ends_with(".tmp") && !filename.ends_with("_tmp") {
+    if filename.starts_with('.')
+        && !filename.ends_with("_test")
+        && !filename.ends_with(".tmp")
+        && !filename.ends_with("_tmp")
+    {
         return Some("deleting hidden/config file — please confirm");
     }
 
@@ -156,11 +150,7 @@ pub async fn confirm_action(reason: &str, detail: &str) -> bool {
             "Proceeding with action.".dimmed()
         );
     } else {
-        println!(
-            "  {} {}",
-            "✗".bright_red(),
-            "Action cancelled.".dimmed()
-        );
+        println!("  {} {}", "✗".bright_red(), "Action cancelled.".dimmed());
     }
 
     response
@@ -181,4 +171,3 @@ async fn read_confirmation() -> bool {
     .await
     .unwrap_or(false)
 }
-

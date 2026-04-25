@@ -58,8 +58,14 @@ fn test_preamble_read_fully_before_modifying() {
 #[test]
 fn test_preamble_has_all_tools() {
     let tools = [
-        "file_read", "file_write", "file_update", "file_delete",
-        "shell_exec", "code_search", "list_dir", "glob",
+        "file_read",
+        "file_write",
+        "file_update",
+        "file_delete",
+        "shell_exec",
+        "code_search",
+        "list_dir",
+        "glob",
     ];
     for tool in &tools {
         assert!(

@@ -96,10 +96,7 @@ impl TokenUsage {
     /// Print a detailed session usage report.
     pub fn print_session_report(&self) {
         println!();
-        println!(
-            "{}",
-            "  ──────── Token Usage ────────".bright_cyan()
-        );
+        println!("{}", "  ──────── Token Usage ────────".bright_cyan());
         println!(
             "  {} Input tokens:              {}",
             "→".bright_blue(),
@@ -151,13 +148,13 @@ impl TokenUsage {
             println!(
                 "  {} Cache creation tokens:     {}",
                 "⚙".bright_green(),
-                self.usage.cache_creation_input_tokens.to_string().bright_green()
+                self.usage
+                    .cache_creation_input_tokens
+                    .to_string()
+                    .bright_green()
             );
         }
-        println!(
-            "{}",
-            "  ────────────────────────────".bright_cyan()
-        );
+        println!("{}", "  ────────────────────────────".bright_cyan());
 
         // Print warning if approaching or exceeding context limit
         if let Some(warning) = self.context_warning() {

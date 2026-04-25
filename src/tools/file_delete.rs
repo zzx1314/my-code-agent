@@ -15,7 +15,9 @@ pub enum FileDeleteError {
     InvalidType { path: String },
     #[error("Snippet not found in file: {path}")]
     SnippetNotFound { path: String },
-    #[error("Snippet found multiple times in file: {path} ({count} occurrences). Use `allow_multiple` to delete all.")]
+    #[error(
+        "Snippet found multiple times in file: {path} ({count} occurrences). Use `allow_multiple` to delete all."
+    )]
     SnippetMultipleMatches { path: String, count: usize },
     #[error("Cannot use snippet mode on a directory: {path}")]
     SnippetOnDirectory { path: String },
@@ -120,12 +122,11 @@ impl Tool for FileDelete {
             }
 
             // Safety check — skip if auto_approve is set
-            if !args.auto_approve && let Some(reason) = is_dangerous_snippet_deletion(&args.path) {
-                let approved = confirm_action(
-                    reason,
-                    &format!("snippet deletion from: {}", args.path),
-                )
-                .await;
+            if !args.auto_approve
+                && let Some(reason) = is_dangerous_snippet_deletion(&args.path)
+            {
+                let approved =
+                    confirm_action(reason, &format!("snippet deletion from: {}", args.path)).await;
                 if !approved {
                     return Err(FileDeleteError::Cancelled { path: args.path });
                 }
@@ -167,7 +168,9 @@ impl Tool for FileDelete {
         }
 
         // Safety check — skip if auto_approve is set
-        if !args.auto_approve && let Some(reason) = is_dangerous_deletion(&args.path, args.recursive) {
+        if !args.auto_approve
+            && let Some(reason) = is_dangerous_deletion(&args.path, args.recursive)
+        {
             let detail = if args.recursive {
                 format!("recursive deletion of: {}", args.path)
             } else {

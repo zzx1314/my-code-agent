@@ -31,7 +31,7 @@ impl FileCache {
 
     pub fn get(&mut self, path: &str) -> Option<FileCacheEntry> {
         let path = PathBuf::from(path);
-        
+
         if let Some(entry) = self.entries.get(&path) {
             let is_valid = self.is_entry_valid(&path, entry);
             if is_valid {
@@ -40,7 +40,7 @@ impl FileCache {
                 return Some(entry_clone);
             }
         }
-        
+
         None
     }
 
@@ -48,23 +48,34 @@ impl FileCache {
         let path = PathBuf::from(path);
         let size = content.len() as u64;
         let lines = content.lines().count();
-        
+
         let mtime = std::fs::metadata(&path)
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        
+
         if self.entries.len() >= self.max_entries {
             self.evict_lru();
         }
-        
-        let entry = FileCacheEntry { content, mtime, size, lines };
+
+        let entry = FileCacheEntry {
+            content,
+            mtime,
+            size,
+            lines,
+        };
         self.entries.insert(path.clone(), entry);
         self.update_access(&path);
     }
 
-    pub fn read_file(&mut self, path: &str, offset: usize, limit: usize) -> Option<(String, FileCacheEntry)> {
+    pub fn read_file(
+        &mut self,
+        path: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Option<(String, FileCacheEntry)> {
         if let Some(entry) = self.get(path) {
-            let slice = entry.content
+            let slice = entry
+                .content
                 .lines()
                 .skip(offset)
                 .take(limit)
@@ -72,12 +83,13 @@ impl FileCache {
                 .join("\n");
             return Some((slice, entry));
         }
-        
+
         let content = std::fs::read_to_string(path).ok()?;
-        
+
         self.insert(path, content.clone());
         self.get(path).map(|entry| {
-            let slice = entry.content
+            let slice = entry
+                .content
                 .lines()
                 .skip(offset)
                 .take(limit)

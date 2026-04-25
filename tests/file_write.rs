@@ -1,6 +1,4 @@
-use my_code_agent::tools::file_write::{
-    FileWrite, FileWriteArgs, FileWriteError, FileWriteOutput,
-};
+use my_code_agent::tools::file_write::{FileWrite, FileWriteArgs, FileWriteError, FileWriteOutput};
 use rig::tool::Tool;
 use tempfile::TempDir;
 

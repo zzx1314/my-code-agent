@@ -22,9 +22,9 @@ fn test_prune_messages() {
     let mut config = Config::default();
     config.context.window_size = 1000;
     config.context.warn_threshold_percent = 75;
-    
+
     let manager = ContextManager::new(&config);
-    
+
     let messages = vec![
         make_user_message("First message with some content"),
         make_assistant_message("First response with content"),
@@ -33,9 +33,9 @@ fn test_prune_messages() {
         make_user_message("Third message"),
         make_assistant_message("Third response"),
     ];
-    
+
     let pruned = manager.prune_messages(&messages);
-    
+
     assert!(!pruned.is_empty());
     assert!(pruned.len() <= messages.len());
 }
@@ -46,9 +46,9 @@ fn test_should_compact() {
     config.context.window_size = 1000;
     config.context.warn_threshold_percent = 75;
     config.context.critical_threshold_percent = 90;
-    
+
     let manager = ContextManager::new(&config);
-    
+
     assert!(!manager.should_compact(500));
     assert!(manager.should_compact(950));
 }
@@ -59,9 +59,9 @@ fn test_should_warn() {
     config.context.window_size = 1000;
     config.context.warn_threshold_percent = 75;
     config.context.critical_threshold_percent = 90;
-    
+
     let manager = ContextManager::new(&config);
-    
+
     assert!(!manager.should_warn(500));
     assert!(manager.should_warn(800));
     assert!(!manager.should_warn(950));

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Layer 1: Preamble cache for static content
-/// 
+///
 /// DeepSeek KV cache automatically caches repeated prefixes.
 /// This module helps structure prompts for optimal cache hits.
 pub mod preamble_cache {
@@ -28,7 +28,9 @@ pub mod preamble_cache {
             let mut hasher = DefaultHasher::new();
             preamble.hash(&mut hasher);
             knowledge.hash(&mut hasher);
-            Self { hash: hasher.finish() }
+            Self {
+                hash: hasher.finish(),
+            }
         }
     }
 
@@ -97,17 +99,17 @@ impl CacheMetrics {
     /// Print cache statistics
     pub fn print_report(&self) {
         use colored::*;
-        
+
         println!();
         println!("  {}", "─────── Cache Stats ───────".bright_cyan());
-        
+
         let hit_rate_pct = self.hit_rate() * 100.0;
         println!(
             "  {} Hit rate: {:.1}%",
             "◈".bright_cyan(),
             hit_rate_pct.to_string().bright_white()
         );
-        
+
         if self.cache_hits > 0 {
             println!(
                 "  {} Cache hits: {} tokens",
@@ -115,7 +117,7 @@ impl CacheMetrics {
                 self.cache_hits.to_string().bright_green()
             );
         }
-        
+
         if self.cache_misses > 0 {
             println!(
                 "  {} Cache misses: {} tokens",
@@ -123,7 +125,7 @@ impl CacheMetrics {
                 self.cache_misses.to_string().bright_yellow()
             );
         }
-        
+
         if self.savings_usd > 0.0 {
             println!(
                 "  {} Estimated savings: ${:.4}",
@@ -131,7 +133,7 @@ impl CacheMetrics {
                 self.savings_usd
             );
         }
-        
+
         println!("  {}", "──────────────────────────".bright_cyan());
     }
 }
@@ -154,18 +156,18 @@ impl ContextCache {
     /// Get or create preamble cache entry
     pub async fn get_preamble(&self, preamble: &str, knowledge: &str) -> String {
         let mut cache = self.preamble.write().await;
-        
+
         if let Some(ref entry) = *cache {
             if entry.is_valid(preamble, knowledge) {
                 return entry.content.clone();
             }
         }
-        
+
         // Cache miss or invalid - create new entry
         let entry = preamble_cache::PreambleCacheEntry::new(preamble, knowledge);
         let content = entry.content.clone();
         *cache = Some(entry);
-        
+
         content
     }
 

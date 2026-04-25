@@ -16,7 +16,9 @@ pub use file_update::build_diff;
 pub use file_write::FileWrite;
 pub use glob::GlobSearch;
 pub use list_dir::ListDir;
-pub use safety::{is_dangerous_deletion, is_dangerous_shell_command, is_dangerous_snippet_deletion};
+pub use safety::{
+    is_dangerous_deletion, is_dangerous_shell_command, is_dangerous_snippet_deletion,
+};
 pub use shell_exec::ShellExec;
 
 use crate::core::config::Config;

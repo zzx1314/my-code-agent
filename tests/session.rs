@@ -1,4 +1,4 @@
-use my_code_agent::core::session::{SessionData, format_timestamp, SESSION_DIR};
+use my_code_agent::core::session::{SESSION_DIR, SessionData, format_timestamp};
 use my_code_agent::core::token_usage::TokenUsage;
 use rig::completion::Message;
 
@@ -144,8 +144,14 @@ fn test_session_dir_path() {
 
 #[test]
 fn test_session_file_path() {
-    assert_eq!(SessionData::session_file_path("my-session"), ".sessions/my-session.json");
-    assert_eq!(SessionData::session_file_path("bugfix-123"), ".sessions/bugfix-123.json");
+    assert_eq!(
+        SessionData::session_file_path("my-session"),
+        ".sessions/my-session.json"
+    );
+    assert_eq!(
+        SessionData::session_file_path("bugfix-123"),
+        ".sessions/bugfix-123.json"
+    );
 }
 
 // ── format_timestamp ──

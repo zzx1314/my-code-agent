@@ -5,14 +5,30 @@ use std::path::Path;
 // ── Serde default functions ──
 // Each must be a visible fn() -> T matching the field type.
 
-fn default_read_limit() -> usize { 200 }
-fn default_attach_max_lines() -> usize { 500 }
-fn default_attach_max_bytes() -> usize { 50 * 1024 }
-fn default_window_size() -> u64 { 65_536 }
-fn default_warn_threshold_percent() -> u64 { 75 }
-fn default_critical_threshold_percent() -> u64 { 90 }
-fn default_timeout_secs() -> u64 { 30 }
-fn default_max_turns() -> usize { 100 }
+fn default_read_limit() -> usize {
+    200
+}
+fn default_attach_max_lines() -> usize {
+    500
+}
+fn default_attach_max_bytes() -> usize {
+    50 * 1024
+}
+fn default_window_size() -> u64 {
+    65_536
+}
+fn default_warn_threshold_percent() -> u64 {
+    75
+}
+fn default_critical_threshold_percent() -> u64 {
+    90
+}
+fn default_timeout_secs() -> u64 {
+    30
+}
+fn default_max_turns() -> usize {
+    100
+}
 
 /// Configuration file name (looked up in the current directory).
 pub const CONFIG_FILE: &str = "config.toml";
@@ -132,9 +148,7 @@ impl Default for ShellConfig {
 
 impl Default for AgentConfig {
     fn default() -> Self {
-        Self {
-            max_turns: 10,
-        }
+        Self { max_turns: 10 }
     }
 }
 

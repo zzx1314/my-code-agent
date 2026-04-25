@@ -1,4 +1,6 @@
-use my_code_agent::token_usage::{ContextWarning, TokenUsage, print_context_warning, print_turn_usage, CONTEXT_WINDOW_SIZE};
+use my_code_agent::token_usage::{
+    CONTEXT_WINDOW_SIZE, ContextWarning, TokenUsage, print_context_warning, print_turn_usage,
+};
 use rig::completion::Usage;
 
 fn make_usage(input: u64, output: u64, total: u64) -> Usage {

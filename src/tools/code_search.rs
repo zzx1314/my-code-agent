@@ -89,7 +89,7 @@ impl Tool for CodeSearch {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, CodeSearchError> {
         let mut cmd = tokio::process::Command::new("rg");
 
-        cmd.arg("-n")          // line numbers
+        cmd.arg("-n") // line numbers
             .arg("--no-heading") // don't group by file
             .arg("--color=never"); // plain text output
 
@@ -116,9 +116,10 @@ impl Tool for CodeSearch {
             String::from_utf8_lossy(&output.stdout).to_string()
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(CodeSearchError::Io(std::io::Error::other(
-                format!("rg failed: {}", stderr.trim()),
-            )));
+            return Err(CodeSearchError::Io(std::io::Error::other(format!(
+                "rg failed: {}",
+                stderr.trim()
+            ))));
         };
 
         let mut matches: Vec<SearchMatch> = Vec::new();

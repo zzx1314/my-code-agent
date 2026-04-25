@@ -2,7 +2,12 @@ use my_code_agent::tools::FileUpdate;
 use rig::tool::Tool;
 use std::fs;
 
-async fn call_update(path: &str, old: &str, new: &str, allow_multiple: bool) -> Result<<FileUpdate as Tool>::Output, <FileUpdate as Tool>::Error> {
+async fn call_update(
+    path: &str,
+    old: &str,
+    new: &str,
+    allow_multiple: bool,
+) -> Result<<FileUpdate as Tool>::Output, <FileUpdate as Tool>::Error> {
     FileUpdate
         .call(my_code_agent::tools::file_update::FileUpdateArgs {
             path: path.to_string(),

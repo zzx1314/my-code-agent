@@ -6,7 +6,7 @@ use rig::streaming::StreamedAssistantContent;
 
 use super::context_manager::ContextManager;
 use super::preamble::Agent;
-use super::token_usage::{print_context_warning, print_turn_usage, TokenUsage};
+use super::token_usage::{TokenUsage, print_context_warning, print_turn_usage};
 use crate::ui::render::{MarkdownRenderer, ReasoningTracker};
 use rig::streaming::StreamingChat;
 
@@ -89,9 +89,10 @@ pub async fn stream_response(
                 full_response.push_str(&text_content.text);
                 renderer.push_text(&text_content.text);
             }
-            Ok(MultiTurnStreamItem::StreamAssistantItem(
-                StreamedAssistantContent::ToolCall { tool_call, .. },
-            )) => {
+            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
+                tool_call,
+                ..
+            })) => {
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
                 }
@@ -104,13 +105,15 @@ pub async fn stream_response(
                         .bold()
                 );
             }
-            Ok(MultiTurnStreamItem::StreamAssistantItem(
-                StreamedAssistantContent::Reasoning(r),
-            )) => {
+            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Reasoning(
+                r,
+            ))) => {
                 reasoning.append(&r.display_text());
             }
             Ok(MultiTurnStreamItem::StreamAssistantItem(
-                StreamedAssistantContent::ReasoningDelta { reasoning: delta, .. },
+                StreamedAssistantContent::ReasoningDelta {
+                    reasoning: delta, ..
+                },
             )) => {
                 reasoning.append(&delta);
             }
@@ -126,7 +129,7 @@ pub async fn stream_response(
                 print_turn_usage(&turn_usage);
                 session_usage.add(turn_usage);
                 print_context_warning(session_usage);
-                
+
                 // Check if context pruning is needed
                 let input_tokens = session_usage.input_tokens();
                 if context_manager.should_compact(input_tokens) {

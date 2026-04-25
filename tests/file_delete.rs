@@ -2,7 +2,10 @@ use my_code_agent::tools::FileDelete;
 use rig::tool::Tool;
 use std::fs;
 
-async fn call_delete(path: &str, recursive: bool) -> Result<<FileDelete as Tool>::Output, <FileDelete as Tool>::Error> {
+async fn call_delete(
+    path: &str,
+    recursive: bool,
+) -> Result<<FileDelete as Tool>::Output, <FileDelete as Tool>::Error> {
     FileDelete
         .call(my_code_agent::tools::file_delete::FileDeleteArgs {
             path: path.to_string(),
@@ -38,9 +41,7 @@ async fn test_delete_file() {
     let path = dir.path().join("test.txt");
     fs::write(&path, "hello").unwrap();
 
-    let result = call_delete(path.to_str().unwrap(), false)
-        .await
-        .unwrap();
+    let result = call_delete(path.to_str().unwrap(), false).await.unwrap();
 
     assert_eq!(result.deleted_type, "file");
     assert!(!path.exists());
@@ -52,9 +53,7 @@ async fn test_delete_empty_directory() {
     let subdir = dir.path().join("empty_dir");
     fs::create_dir(&subdir).unwrap();
 
-    let result = call_delete(subdir.to_str().unwrap(), false)
-        .await
-        .unwrap();
+    let result = call_delete(subdir.to_str().unwrap(), false).await.unwrap();
 
     assert_eq!(result.deleted_type, "directory");
     assert!(!subdir.exists());
@@ -69,9 +68,7 @@ async fn test_delete_directory_recursive() {
     fs::create_dir(subdir.join("nested")).unwrap();
     fs::write(subdir.join("nested/file2.txt"), "content2").unwrap();
 
-    let result = call_delete(subdir.to_str().unwrap(), true)
-        .await
-        .unwrap();
+    let result = call_delete(subdir.to_str().unwrap(), true).await.unwrap();
 
     assert_eq!(result.deleted_type, "directory");
     assert!(!subdir.exists());
@@ -140,7 +137,11 @@ async fn test_delete_snippet_single_line() {
 async fn test_delete_snippet_multiline() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("code.rs");
-    fs::write(&path, "fn foo() {\n    let x = 1;\n    let y = 2;\n    x + y\n}\n").unwrap();
+    fs::write(
+        &path,
+        "fn foo() {\n    let x = 1;\n    let y = 2;\n    x + y\n}\n",
+    )
+    .unwrap();
 
     let snippet = "    let x = 1;\n    let y = 2;\n    x + y\n";
     let result = call_delete_snippet(path.to_str().unwrap(), snippet, false)

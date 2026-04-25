@@ -54,7 +54,9 @@ pub fn parse_file_refs(input: &str) -> Vec<FileRef> {
     let mut i = 0;
 
     while i < chars.len() {
-        if chars[i] == '@' && (i == 0 || chars[i - 1].is_whitespace() || matches!(chars[i - 1], '(' | '[' | '{')) {
+        if chars[i] == '@'
+            && (i == 0 || chars[i - 1].is_whitespace() || matches!(chars[i - 1], '(' | '[' | '{'))
+        {
             let at_pos = i;
             let start = i + 1; // skip '@'
             let mut end = start;
@@ -113,9 +115,9 @@ pub fn parse_file_refs(input: &str) -> Vec<FileRef> {
 /// Starts reading from `offset` (0-indexed line number) and truncates if the
 /// remaining content exceeds the configured line/byte limits.
 fn format_file_content_with_cache(
-    path: &str, 
-    offset: usize, 
-    max_lines: usize, 
+    path: &str,
+    offset: usize,
+    max_lines: usize,
     max_bytes: usize,
     file_cache: Option<&mut FileCache>,
 ) -> Result<(String, usize, bool, usize), std::io::Error> {
@@ -128,7 +130,7 @@ fn format_file_content_with_cache(
     } else {
         std::fs::read_to_string(path)?
     };
-    
+
     let extension = Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -173,7 +175,11 @@ fn format_file_content_with_cache(
         if offset > 0 {
             format!(
                 "\n... (showing lines {}–{} of {} total. Use @{}:{} to read the next chunk)",
-                start + 1, next_offset, total_lines, path, next_offset
+                start + 1,
+                next_offset,
+                total_lines,
+                path,
+                next_offset
             )
         } else {
             format!(
@@ -184,7 +190,9 @@ fn format_file_content_with_cache(
     } else if offset > 0 && shown_lines > 0 {
         format!(
             "\n... (showing lines {}–{} of {} total, end of file)",
-            start + 1, next_offset, total_lines
+            start + 1,
+            next_offset,
+            total_lines
         )
     } else if offset > 0 {
         // Offset beyond file end — no lines to show
@@ -227,7 +235,11 @@ pub fn expand_file_refs(input: &str, config: &Config) -> ExpandResult {
 }
 
 /// Expands all `@filepath` references with optional file caching.
-pub fn expand_file_refs_with_cache(input: &str, config: &Config, mut file_cache: Option<&mut FileCache>) -> ExpandResult {
+pub fn expand_file_refs_with_cache(
+    input: &str,
+    config: &Config,
+    mut file_cache: Option<&mut FileCache>,
+) -> ExpandResult {
     let refs = parse_file_refs(input);
 
     if refs.is_empty() {
@@ -245,9 +257,23 @@ pub fn expand_file_refs_with_cache(input: &str, config: &Config, mut file_cache:
     let mut result = input.to_string();
     for file_ref in refs.into_iter().rev() {
         let cache_for_call = file_cache.as_mut().map(|c| c as &mut FileCache);
-        let replacement = match format_file_content_with_cache(&file_ref.path, file_ref.offset, max_lines, max_bytes, cache_for_call) {
+        let replacement = match format_file_content_with_cache(
+            &file_ref.path,
+            file_ref.offset,
+            max_lines,
+            max_bytes,
+            cache_for_call,
+        ) {
             Ok((content, lines, truncated, shown)) => {
-                attachments.push((file_ref.path.clone(), AttachStatus::Attached { lines, truncated, offset: file_ref.offset, shown }));
+                attachments.push((
+                    file_ref.path.clone(),
+                    AttachStatus::Attached {
+                        lines,
+                        truncated,
+                        offset: file_ref.offset,
+                        shown,
+                    },
+                ));
                 content
             }
             Err(e) => {
@@ -272,33 +298,62 @@ pub fn expand_file_refs_with_cache(input: &str, config: &Config, mut file_cache:
 pub fn print_attachments(attachments: &[(String, AttachStatus)]) {
     for (path, status) in attachments {
         match status {
-            AttachStatus::Attached { lines, truncated, offset, shown } => {
+            AttachStatus::Attached {
+                lines,
+                truncated,
+                offset,
+                shown,
+            } => {
                 if *offset > 0 && *shown == 0 {
                     // Offset beyond file end
                     println!(
                         "  {} {}",
                         "📎".bright_cyan(),
-                        format!("attached: {}:{} (offset beyond end of file with {} lines)", path, offset, lines).dimmed()
+                        format!(
+                            "attached: {}:{} (offset beyond end of file with {} lines)",
+                            path, offset, lines
+                        )
+                        .dimmed()
                     );
                 } else if *offset > 0 {
                     if *truncated {
                         println!(
                             "  {} {}",
                             "📎".bright_cyan(),
-                            format!("attached: {}:{} (lines {}–{} of {}, truncated)", path, offset, offset + 1, offset + shown, lines).dimmed()
+                            format!(
+                                "attached: {}:{} (lines {}–{} of {}, truncated)",
+                                path,
+                                offset,
+                                offset + 1,
+                                offset + shown,
+                                lines
+                            )
+                            .dimmed()
                         );
                     } else {
                         println!(
                             "  {} {}",
                             "📎".bright_cyan(),
-                            format!("attached: {}:{} (lines {}–{} of {})", path, offset, offset + 1, offset + shown, lines).dimmed()
+                            format!(
+                                "attached: {}:{} (lines {}–{} of {})",
+                                path,
+                                offset,
+                                offset + 1,
+                                offset + shown,
+                                lines
+                            )
+                            .dimmed()
                         );
                     }
                 } else if *truncated {
                     println!(
                         "  {} {}",
                         "📎".bright_cyan(),
-                        format!("attached: {} ({} of {} lines, truncated)", path, shown, lines).dimmed()
+                        format!(
+                            "attached: {} ({} of {} lines, truncated)",
+                            path, shown, lines
+                        )
+                        .dimmed()
                     );
                 } else {
                     println!(
@@ -318,4 +373,3 @@ pub fn print_attachments(attachments: &[(String, AttachStatus)]) {
         }
     }
 }
-

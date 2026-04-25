@@ -67,7 +67,10 @@ fn test_toml_roundtrip() {
     let config = Config::default();
     let toml_str = toml::to_string_pretty(&config).unwrap();
     let parsed: Config = toml::from_str(&toml_str).unwrap();
-    assert_eq!(parsed.files.default_read_limit, config.files.default_read_limit);
+    assert_eq!(
+        parsed.files.default_read_limit,
+        config.files.default_read_limit
+    );
     assert_eq!(parsed.context.window_size, config.context.window_size);
     assert_eq!(parsed.agent.max_turns, config.agent.max_turns);
 }

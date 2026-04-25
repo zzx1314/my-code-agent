@@ -52,7 +52,7 @@ impl ContextManager {
 
     pub fn prune_messages(&self, messages: &[Message]) -> Vec<Message> {
         let max_tokens = self.estimate_max_tokens();
-        
+
         if messages.is_empty() {
             return vec![];
         }
@@ -62,11 +62,11 @@ impl ContextManager {
 
         for msg in messages.iter().rev() {
             let msg_tokens = self.estimate_message_tokens(msg);
-            
+
             if token_count + msg_tokens > max_tokens && !kept.is_empty() {
                 break;
             }
-            
+
             token_count += msg_tokens;
             kept.insert(0, msg.clone());
         }
@@ -80,7 +80,7 @@ impl ContextManager {
 
     pub fn find_compact_point(&self, messages: &[Message]) -> Option<usize> {
         let retain_tokens = self.config.context.window_size * 30 / 100;
-        
+
         let mut token_count = 0;
         for (i, msg) in messages.iter().enumerate().rev() {
             let msg_tokens = self.estimate_message_tokens(msg);
@@ -89,7 +89,7 @@ impl ContextManager {
             }
             token_count += msg_tokens;
         }
-        
+
         None
     }
 
@@ -99,10 +99,11 @@ impl ContextManager {
         }
 
         let compact_point = self.find_compact_point(messages);
-        
-        let mut new_messages = vec![
-            Message::user(format!("Previous conversation summary:\n{}", summary))
-        ];
+
+        let mut new_messages = vec![Message::user(format!(
+            "Previous conversation summary:\n{}",
+            summary
+        ))];
 
         if let Some(point) = compact_point {
             new_messages.extend_from_slice(&messages[point..]);
@@ -114,7 +115,7 @@ impl ContextManager {
     fn estimate_max_tokens(&self) -> u64 {
         let window_size = self.config.context.window_size;
         let warn_threshold = self.config.context.warn_threshold_percent;
-        
+
         window_size * (100 - warn_threshold) / 100
     }
 
@@ -124,7 +125,7 @@ impl ContextManager {
             Message::Assistant { content, .. } => format!("{:?}", content),
             Message::System { content, .. } => format!("{:?}", content),
         };
-        
+
         (content.len() as u64 / 4).max(1)
     }
 
@@ -157,7 +158,7 @@ pub fn format_messages_for_context(messages: &[Message]) -> String {
     }
 
     let mut output = String::new();
-    
+
     for msg in messages {
         match msg {
             Message::User { content, .. } => {

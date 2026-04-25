@@ -67,9 +67,16 @@ fn build_preamble() -> String {
             println!(
                 "  {} {}",
                 "⚠".bright_yellow(),
-                format!("{} not found — project knowledge unavailable", KNOWLEDGE_FILE).dimmed()
+                format!(
+                    "{} not found — project knowledge unavailable",
+                    KNOWLEDGE_FILE
+                )
+                .dimmed()
             );
-            format!("({} not found — no project knowledge loaded)", KNOWLEDGE_FILE)
+            format!(
+                "({} not found — no project knowledge loaded)",
+                KNOWLEDGE_FILE
+            )
         }
     };
     PREAMBLE_TEMPLATE.replace("{knowledge}", &knowledge)
