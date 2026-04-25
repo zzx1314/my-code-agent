@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct FileCacheEntry {
     content: String,
     mtime: SystemTime,
@@ -10,6 +11,7 @@ pub struct FileCacheEntry {
     lines: usize,
 }
 
+#[allow(dead_code)]
 pub struct FileCache {
     entries: HashMap<PathBuf, FileCacheEntry>,
     access_order: VecDeque<PathBuf>,

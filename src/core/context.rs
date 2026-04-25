@@ -109,14 +109,9 @@ pub fn parse_file_refs(input: &str) -> Vec<FileRef> {
     refs
 }
 
-/// Reads a file and formats its content as a fenced code block.
+/// Reads a file with optional caching and formats its content as a fenced code block.
 /// Starts reading from `offset` (0-indexed line number) and truncates if the
 /// remaining content exceeds the configured line/byte limits.
-fn format_file_content(path: &str, offset: usize, max_lines: usize, max_bytes: usize) -> Result<(String, usize, bool, usize), std::io::Error> {
-    format_file_content_with_cache(path, offset, max_lines, max_bytes, None)
-}
-
-/// Reads a file with optional caching and formats its content as a fenced code block.
 fn format_file_content_with_cache(
     path: &str, 
     offset: usize, 
