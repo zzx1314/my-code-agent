@@ -12,7 +12,7 @@ fn default_window_size() -> u64 { 65_536 }
 fn default_warn_threshold_percent() -> u64 { 75 }
 fn default_critical_threshold_percent() -> u64 { 90 }
 fn default_timeout_secs() -> u64 { 30 }
-fn default_max_turns() -> usize { 10 }
+fn default_max_turns() -> usize { 20 }
 
 /// Configuration file name (looked up in the current directory).
 pub const CONFIG_FILE: &str = "config.toml";
