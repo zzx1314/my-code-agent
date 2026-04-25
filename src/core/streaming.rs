@@ -78,7 +78,7 @@ pub async fn stream_response(
                 println!(
                     "\n  {} {}",
                     "⚠".bright_yellow(),
-                    "Interrupted — press Ctrl+C again to quit".dimmed()
+                    "Interrupt response — press Ctrl+C again to quit".dimmed()
                 );
                 let second_interrupt = tokio::select! {
                     _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => false,
