@@ -3,31 +3,20 @@ use rig::completion::Message;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::config::Config;
 use super::token_usage::TokenUsage;
 
-/// Default session file name (looked up in the current directory).
-pub const DEFAULT_SESSION_FILE: &str = ".session.json";
+pub const SESSION_DIR: &str = ".sessions";
 
-/// Serializable representation of a conversation session.
-///
-/// Contains everything needed to restore the agent to its previous state
-/// after a restart: the full chat history, cumulative token usage, and
-/// the last reasoning content (so `think` still works after resume).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionData {
-    /// The conversation history (user + assistant messages).
     pub chat_history: Vec<Message>,
-    /// Cumulative token usage for the session.
     pub token_usage: TokenUsage,
-    /// The last reasoning content from DeepSeek Reasoner.
     pub last_reasoning: String,
-    /// Unix timestamp (seconds since epoch) of when the session was saved.
     pub saved_at: u64,
+    pub name: Option<String>,
 }
 
 impl SessionData {
-    /// Creates a new `SessionData` from the current session state.
     pub fn new(
         chat_history: Vec<Message>,
         token_usage: TokenUsage,
@@ -38,30 +27,61 @@ impl SessionData {
             token_usage,
             last_reasoning,
             saved_at: unix_epoch_secs(),
+            name: None,
         }
     }
 
-    /// Saves the session data to a JSON file at the given path.
+    pub fn with_name(
+        chat_history: Vec<Message>,
+        token_usage: TokenUsage,
+        last_reasoning: String,
+        name: String,
+    ) -> Self {
+        Self {
+            chat_history,
+            token_usage,
+            last_reasoning,
+            saved_at: unix_epoch_secs(),
+            name: Some(name),
+        }
+    }
+
+    pub fn session_file_path(name: &str) -> String {
+        format!("{}/{}.json", SESSION_DIR, name)
+    }
+
+    pub fn session_dir_path() -> String {
+        SESSION_DIR.to_string()
+    }
+
     pub fn save_to_file(&self, path: &str) -> Result<(), String> {
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("create dir: {}", e))?;
+        }
         let json = serde_json::to_string_pretty(self).map_err(|e| format!("serialize: {}", e))?;
         std::fs::write(path, json).map_err(|e| format!("write {}: {}", path, e))
     }
 
-    /// Loads session data from a JSON file at the given path.
-    /// Returns `None` if the file does not exist.
-    /// Returns an error if the file exists but cannot be parsed.
+    pub fn save_with_name(&self, name: &str) -> Result<(), String> {
+        let path = Self::session_file_path(name);
+        self.save_to_file(&path)
+    }
+
     pub fn load_from_file(path: &str) -> Option<Result<Self, String>> {
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
-            Err(_) => return None, // File doesn't exist — no session to resume
+            Err(_) => return None,
         };
         let result = serde_json::from_str(&content)
             .map_err(|e| format!("parse {}: {}", path, e));
         Some(result)
     }
 
-    /// Deletes the session file. Returns Ok(()) if the file was deleted
-    /// or didn't exist. Returns an error if deletion failed.
+    pub fn load_by_name(name: &str) -> Option<Result<Self, String>> {
+        let path = Self::session_file_path(name);
+        Self::load_from_file(&path)
+    }
+
     pub fn delete_file(path: &str) -> Result<(), String> {
         match std::fs::remove_file(path) {
             Ok(()) => Ok(()),
@@ -70,14 +90,55 @@ impl SessionData {
         }
     }
 
-    /// Returns the session file path from the config, or the default.
-    pub fn session_path(config: &Config) -> &str {
-        config.session.save_file.as_deref().unwrap_or(DEFAULT_SESSION_FILE)
+    pub fn delete_by_name(name: &str) -> Result<(), String> {
+        let path = Self::session_file_path(name);
+        Self::delete_file(&path)
+    }
+
+    pub fn list_sessions() -> Vec<SessionInfo> {
+        let mut sessions = Vec::new();
+        
+        let dir_path = std::path::Path::new(SESSION_DIR);
+        if !dir_path.is_dir() {
+            return sessions;
+        }
+        
+        if let Ok(entries) = std::fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map(|e| e == "json").unwrap_or(false) {
+                    if let Some(name) = path.file_stem() {
+                        let name_str = name.to_string_lossy().to_string();
+                        if let Some(data) = Self::load_from_file(&path.to_string_lossy()) {
+                            if let Ok(data) = data {
+                                sessions.push(SessionInfo {
+                                    name: name_str,
+                                    turns: data.chat_history.iter()
+                                        .filter(|m| matches!(m, Message::User { .. }))
+                                        .count(),
+                                    saved_at: data.saved_at,
+                                    tokens: data.token_usage.total_tokens(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        sessions.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
+        sessions
     }
 }
 
-/// Returns the current time as seconds since the Unix epoch.
-/// Uses `std::time::SystemTime` — no external dependency needed, portable.
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    pub name: String,
+    pub turns: usize,
+    pub saved_at: u64,
+    pub tokens: u64,
+}
+
 fn unix_epoch_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -85,11 +146,7 @@ fn unix_epoch_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Formats a unix timestamp into a human-readable local datetime string.
-/// Uses the system `date` command (GNU: `date -d @SECS`; BSD: `date -r SECS`).
-/// Falls back to showing raw seconds if the command is unavailable.
 pub fn format_timestamp(secs: u64) -> String {
-    // Try GNU date syntax first (Linux), then BSD (macOS)
     let gnu = std::process::Command::new("date")
         .arg(format!("-d@{}", secs))
         .arg("+%Y-%m-%d %H:%M:%S")
@@ -111,28 +168,6 @@ pub fn format_timestamp(secs: u64) -> String {
     format!("epoch:{}", secs)
 }
 
-/// Prints a summary of a resumed session.
-pub fn print_resume_summary(data: &SessionData) {
-    let turns = data
-        .chat_history
-        .iter()
-        .filter(|m| matches!(m, Message::User { .. }))
-        .count();
-    let when = format_timestamp(data.saved_at);
-    println!(
-        "  {} {}",
-        "📂".bright_cyan(),
-        format!(
-            "resumed session from {} — {} turns, {} tokens used",
-            when,
-            turns,
-            data.token_usage.total_tokens()
-        )
-        .dimmed()
-    );
-}
-
-/// Prints a confirmation message when the session is saved.
 pub fn print_saved_confirmation(path: &str, data: &SessionData) {
     let turns = data
         .chat_history

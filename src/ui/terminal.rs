@@ -126,6 +126,31 @@ pub fn print_reasoning_full(reasoning: &str) {
     println!();
 }
 
+pub fn print_sessions_list(sessions: &[crate::core::session::SessionInfo]) {
+    println!();
+    println!("  {} {}", "📂".bright_cyan(), "Saved Sessions".bright_white().bold());
+    println!("  {}", "─".repeat(50).dimmed());
+    
+    if sessions.is_empty() {
+        println!("  {}", "No saved sessions.".dimmed());
+        println!("  {}", "Use /save <name> to save current session.".dimmed());
+    } else {
+        for (i, session) in sessions.iter().enumerate() {
+            let when = crate::core::session::format_timestamp(session.saved_at);
+            println!(
+                "  [{}] {}  {}  •  {} turns",
+                (i + 1).to_string().bright_yellow(),
+                session.name.bright_white(),
+                when.dimmed(),
+                session.turns
+            );
+        }
+    }
+    println!("  {}", "─".repeat(50).dimmed());
+    println!("  {} {}", "n".bright_yellow(), "New session".dimmed());
+    println!();
+}
+
 pub fn print_interrupted_notice(full_response: &str, interrupted: bool) {
     if !full_response.is_empty() {
         println!();
@@ -153,6 +178,8 @@ pub enum Command {
     Quit,
     Think,
     Save,
+    Sessions,
+    Load,
 }
 
 pub fn parse_command(input: &str) -> Option<Command> {
@@ -164,6 +191,8 @@ pub fn parse_command(input: &str) -> Option<Command> {
         "quit" | "exit" | "q" => Some(Command::Quit),
         "think" => Some(Command::Think),
         "save" => Some(Command::Save),
+        "sessions" => Some(Command::Sessions),
+        "load" => Some(Command::Load),
         _ => None,
     }
 }
@@ -179,7 +208,7 @@ pub fn run_command(
         Command::Think => {
             print_reasoning_full(last_reasoning);
         }
-        Command::Clear | Command::Quit | Command::Save => {}
+        Command::Clear | Command::Quit | Command::Save | Command::Sessions | Command::Load => {}
     }
     false
 }

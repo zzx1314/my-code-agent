@@ -4,12 +4,12 @@ use my_code_agent::core::config::Config;
 use my_code_agent::core::context::{expand_file_refs, print_attachments};
 use my_code_agent::core::context_manager::ContextManager;
 use my_code_agent::core::file_cache::FileCache;
+use my_code_agent::core::session::SessionData;
+use my_code_agent::core::streaming::stream_response;
 use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::core::preamble::{build_agent, check_api_key};
-use my_code_agent::core::session::{SessionData, print_resume_summary, print_saved_confirmation};
-use my_code_agent::core::streaming::stream_response;
 use my_code_agent::ui::{
-    parse_command, print_banner, print_interrupted_notice, run_command, Command,
+    parse_command, print_banner, print_interrupted_notice, print_sessions_list, run_command, Command,
 };
 
 use reedline::{
@@ -28,35 +28,11 @@ async fn main() -> Result<()> {
     print_banner();
     let agent = build_agent(&config);
 
-    // Try to resume a saved session
-    let session_path = SessionData::session_path(&config).to_string();
-    let mut chat_history: Vec<rig::completion::Message>;
-    let mut session_usage: TokenUsage;
-    let mut last_reasoning: String;
-
-    match SessionData::load_from_file(&session_path) {
-        Some(Ok(data)) => {
-            print_resume_summary(&data);
-            chat_history = data.chat_history;
-            session_usage = data.token_usage;
-            last_reasoning = data.last_reasoning;
-        }
-        Some(Err(e)) => {
-            eprintln!(
-                "  {} {}",
-                "⚠".bright_yellow(),
-                format!("could not resume session: {}", e).dimmed()
-            );
-            chat_history = Vec::new();
-            session_usage = TokenUsage::with_config(&config);
-            last_reasoning = String::new();
-        }
-        None => {
-            chat_history = Vec::new();
-            session_usage = TokenUsage::with_config(&config);
-            last_reasoning = String::new();
-        }
-    };
+    // New session by default
+    let mut chat_history: Vec<rig::completion::Message> = Vec::new();
+    let mut session_usage: TokenUsage = TokenUsage::with_config(&config);
+    let mut last_reasoning: String = String::new();
+    let mut current_session_name: Option<String> = None;
 
     // Initialize context manager and file cache
     let mut context_manager = ContextManager::new(&config);
@@ -203,23 +179,105 @@ impl Completer for FilePathCompleter {
 
                 let input = buffer.trim().to_string();
 
+                // Handle /save <name> command
+                if input.starts_with("/save ") {
+                    let name = input.trim_start_matches("/save ").trim();
+                    if name.is_empty() {
+                        println!("  {} Usage: /save <name>", "⚠".bright_yellow());
+                    } else {
+                        let data = SessionData::with_name(
+                            chat_history.clone(),
+                            session_usage.clone(),
+                            last_reasoning.clone(),
+                            name.to_string(),
+                        );
+                        match data.save_with_name(name) {
+                            Ok(()) => {
+                                current_session_name = Some(name.to_string());
+                                println!(
+                                    "  {} Session saved as '{}'",
+                                    "💾".bright_green(),
+                                    name.bright_white()
+                                );
+                            }
+                            Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
+                        }
+                    }
+                    continue;
+                }
+
+                // Handle /sessions command
+                if input == "/sessions" {
+                    let sessions = SessionData::list_sessions();
+                    print_sessions_list(&sessions);
+                    continue;
+                }
+
+                // Handle /load <name> command
+                if input.starts_with("/load ") {
+                    let name = input.trim_start_matches("/load ").trim();
+                    if name.is_empty() {
+                        println!("  {} Usage: /load <name>", "⚠".bright_yellow());
+                        println!("  {} Run /sessions to see available sessions", "→".dimmed());
+                    } else {
+                        match SessionData::load_by_name(name) {
+                            Some(Ok(data)) => {
+                                let turns = data.chat_history.iter()
+                                    .filter(|m| matches!(m, rig::completion::Message::User { .. }))
+                                    .count();
+                                let when = my_code_agent::core::session::format_timestamp(data.saved_at);
+                                chat_history = data.chat_history;
+                                session_usage = data.token_usage;
+                                last_reasoning = data.last_reasoning;
+                                current_session_name = Some(name.to_string());
+                                println!(
+                                    "  {} Loaded session '{}' ({} turns from {})",
+                                    "📂".bright_cyan(),
+                                    name.bright_white(),
+                                    turns,
+                                    when.dimmed()
+                                );
+                            }
+                            Some(Err(e)) => {
+                                eprintln!("  {} Failed to load session: {}", "⚠".bright_yellow(), e);
+                            }
+                            None => {
+                                eprintln!("  {} Session '{}' not found", "⚠".bright_yellow(), name);
+                                println!("  {} Run /sessions to see available sessions", "→".dimmed());
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                // Handle built-in commands
                 if let Some(cmd) = parse_command(&input) {
                     match cmd {
                         Command::Clear => {
                             chat_history.clear();
                             last_reasoning.clear();
-                            if let Err(e) = SessionData::delete_file(&session_path) {
-                                eprintln!("  {} {}", "⚠".bright_yellow(), e);
-                            }
+                            session_usage = TokenUsage::with_config(&config);
+                            current_session_name = None;
                             println!("{}", "Conversation history cleared 🗑️".dimmed());
                         }
-                        Command::Save => {
-                            save_session(&session_path, &chat_history, &session_usage, &last_reasoning);
-                        }
                         Command::Quit => {
-                            save_session(&session_path, &chat_history, &session_usage, &last_reasoning);
+                            if let Some(ref name) = current_session_name {
+                                let data = SessionData::with_name(
+                                    chat_history.clone(),
+                                    session_usage.clone(),
+                                    last_reasoning.clone(),
+                                    name.clone(),
+                                );
+                                if let Err(e) = data.save_with_name(name) {
+                                    eprintln!("  {} {}", "⚠".bright_yellow(), e);
+                                }
+                            }
                             println!("{}", "Goodbye! 👋".dimmed());
                             break;
+                        }
+                        Command::Sessions => {
+                            let sessions = SessionData::list_sessions();
+                            print_sessions_list(&sessions);
                         }
                         _ => {
                             run_command(cmd, &mut session_usage, &last_reasoning);
@@ -253,7 +311,17 @@ impl Completer for FilePathCompleter {
                 .await;
 
                 if result.should_exit {
-                    save_session(&session_path, &chat_history, &session_usage, &last_reasoning);
+                    if let Some(ref name) = current_session_name {
+                        let data = SessionData::with_name(
+                            chat_history.clone(),
+                            session_usage.clone(),
+                            last_reasoning.clone(),
+                            name.clone(),
+                        );
+                        if let Err(e) = data.save_with_name(name) {
+                            eprintln!("  {} {}", "⚠".bright_yellow(), e);
+                        }
+                    }
                     println!("{}", "Goodbye! 👋".dimmed());
                     return Ok(());
                 }
@@ -265,7 +333,17 @@ impl Completer for FilePathCompleter {
                 print_interrupted_notice(&result.full_response, result.interrupted);
             }
             Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => {
-                save_session(&session_path, &chat_history, &session_usage, &last_reasoning);
+                if let Some(ref name) = current_session_name {
+                    let data = SessionData::with_name(
+                        chat_history.clone(),
+                        session_usage.clone(),
+                        last_reasoning.clone(),
+                        name.clone(),
+                    );
+                    if let Err(e) = data.save_with_name(name) {
+                        eprintln!("  {} {}", "⚠".bright_yellow(), e);
+                    }
+                }
                 println!("{}", "Goodbye! 👋".dimmed());
                 break;
             }
@@ -276,24 +354,4 @@ impl Completer for FilePathCompleter {
     }
 
     Ok(())
-}
-
-fn save_session(
-    path: &str,
-    chat_history: &[rig::completion::Message],
-    session_usage: &TokenUsage,
-    last_reasoning: &str,
-) {
-    if chat_history.is_empty() {
-        return;
-    }
-    let data = SessionData::new(
-        chat_history.to_vec(),
-        session_usage.clone(),
-        last_reasoning.to_string(),
-    );
-    match data.save_to_file(path) {
-        Ok(()) => print_saved_confirmation(path, &data),
-        Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
-    }
 }
