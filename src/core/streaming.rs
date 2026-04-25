@@ -4,6 +4,7 @@ use rig::agent::MultiTurnStreamItem;
 use rig::completion::Message;
 use rig::streaming::StreamedAssistantContent;
 
+use super::context_manager::ContextManager;
 use super::preamble::Agent;
 use super::token_usage::{print_context_warning, print_turn_usage, TokenUsage};
 use crate::ui::render::{MarkdownRenderer, ReasoningTracker};
@@ -35,6 +36,7 @@ pub async fn stream_response(
     chat_history: &mut Vec<Message>,
     session_usage: &mut TokenUsage,
     interrupt_rx: &mut tokio::sync::mpsc::Receiver<()>,
+    context_manager: &mut ContextManager,
 ) -> StreamResult {
     let streaming_request = agent.stream_chat(input, chat_history.as_slice());
     let mut stream = streaming_request.await;
@@ -124,6 +126,27 @@ pub async fn stream_response(
                 print_turn_usage(&turn_usage);
                 session_usage.add(turn_usage);
                 print_context_warning(session_usage);
+                
+                // Check if context pruning is needed
+                let input_tokens = session_usage.input_tokens();
+                if context_manager.should_compact(input_tokens) {
+                    println!(
+                        "\n  {} {}",
+                        "📝".bright_cyan(),
+                        "Context window full - pruning old messages...".dimmed()
+                    );
+                    let pruned_messages = context_manager.prune_messages(chat_history);
+                    let pruned_count = chat_history.len() - pruned_messages.len();
+                    *chat_history = pruned_messages;
+                    context_manager.set_prune_triggered(true);
+                    context_manager.increment_compact_count();
+                    println!(
+                        "  {} Pruned {} old messages ({} remaining)",
+                        "✓".bright_green(),
+                        pruned_count,
+                        chat_history.len()
+                    );
+                }
             }
             Ok(_) => {}
             Err(e) => {

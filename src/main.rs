@@ -2,6 +2,8 @@ use anyhow::Result;
 use colored::*;
 use my_code_agent::core::config::Config;
 use my_code_agent::core::context::{expand_file_refs, print_attachments};
+use my_code_agent::core::context_manager::ContextManager;
+use my_code_agent::core::file_cache::FileCache;
 use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::core::preamble::{build_agent, check_api_key};
 use my_code_agent::core::session::{SessionData, print_resume_summary, print_saved_confirmation};
@@ -56,7 +58,9 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Custom completer that handles both commands and file paths
+    // Initialize context manager and file cache
+    let mut context_manager = ContextManager::new(&config);
+    let mut file_cache = FileCache::new(50, 300);
 struct FilePathCompleter {
     default_completer: reedline::DefaultCompleter,
 }
@@ -228,12 +232,23 @@ impl Completer for FilePathCompleter {
                 if !expand_result.attachments.is_empty() {
                     print_attachments(&expand_result.attachments);
                 }
+                
+                // Use file cache for @filepath expansion
+                use my_code_agent::core::context::expand_file_refs_with_cache;
+                let expanded_input = if !expand_result.attachments.is_empty() {
+                    let cached_result = expand_file_refs_with_cache(&input, &config, Some(&mut file_cache));
+                    cached_result.expanded
+                } else {
+                    expand_result.expanded.clone()
+                };
+                
                 let result = stream_response(
                     &agent,
-                    &expand_result.expanded,
+                    &expanded_input,
                     &mut chat_history,
                     &mut session_usage,
                     &mut interrupt_rx,
+                    &mut context_manager,
                 )
                 .await;
 

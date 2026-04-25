@@ -19,9 +19,12 @@ src/
 ├── main.rs           # CLI entry point, interactive loop, banner/help text
 ├── lib.rs           # Library crate root (re-exports core, ui, tools)
 ├── core/            # Core functionality
-│   ├── mod.rs      # Re-exports: config, context, preamble, session, streaming, token_usage
+│   ├── mod.rs      # Re-exports: config, context, context_cache, context_manager, file_cache, preamble, session, streaming, token_usage
 │   ├── config.rs   # Configuration (TOML) with serde defaults
 │   ├── context.rs  # @filepath parsing and inline file expansion
+│   ├── context_cache.rs # Context caching: preamble cache, cache metrics
+│   ├── context_manager.rs # Context pruning with sliding window
+│   ├── file_cache.rs # File content cache with mtime invalidation
 │   ├── preamble.rs # Agent builder, preamble template, knowledge loading, API key check
 │   ├── session.rs  # Session persistence (save/load/resume conversation)
 │   ├── streaming.rs# Streaming response handling
@@ -43,6 +46,9 @@ tests/               # Integration tests (one file per module/tool)
 | `src/lib.rs` | Library crate root (re-exports modules) |
 | `src/core/preamble.rs` | Agent builder, preamble template, API key check |
 | `src/core/context.rs` | `@filepath` parsing and inline file expansion |
+| `src/core/context_cache.rs` | Context caching: preamble cache, cache metrics |
+| `src/core/context_manager.rs` | Context pruning with sliding window, auto-compact |
+| `src/core/file_cache.rs` | File content cache with mtime invalidation |
 | `src/core/token_usage.rs` | Token usage tracking and reporting |
 | `src/core/session.rs` | Session persistence (save/load/delete/resume) |
 | `src/core/streaming.rs` | Streaming response handling |
@@ -75,6 +81,13 @@ tests/               # Integration tests (one file per module/tool)
 - **thiserror 2** — Derived error enums
 - **colored 3** — Terminal color output
 - **dotenv 0.15** — `.env` file loading
+- **termimad** — Markdown rendering in terminal
+- **crossterm** — Cross-platform terminal features
+- **reedline** — Line editing and history
+- **toml** — TOML configuration parsing
+- **anyhow** — Error handling
+- **futures** — Stream utilities
+- **glob** — File pattern matching
 
 ## Conventions & Gotchas
 - **No inline `#[cfg(test)]` modules** — Tests live in `tests/` directory

@@ -209,8 +209,9 @@ src/
 ├── lib.rs            # Library crate root
 ├── core/            # Core functionality
 │   ├── config.rs   # Configuration (TOML) with defaults
-│   ├── context.rs   # @filepath parsing and expansion
+│   ├── context.rs  # @filepath parsing and expansion
 │   ├── preamble.rs # Agent builder, preamble template
+│   ├── session.rs  # Session persistence (save/load/resume)
 │   ├── streaming.rs# Streaming response handling
 │   └── token_usage.rs # Token usage tracking
 ├── ui/              # Terminal UI
@@ -248,6 +249,10 @@ cargo test
 | [dotenv](https://crates.io/crates/dotenv) | .env file loading |
 | [futures](https://crates.io/crates/futures) | Stream utilities |
 | [glob](https://crates.io/crates/glob) | File pattern matching for the glob tool |
+| [termimad](https://crates.io/crates/termimad) | Markdown rendering in terminal |
+| [toml](https://crates.io/crates/toml) | TOML configuration parsing |
+| [crossterm](https://crates.io/crates/crossterm) | Cross-platform terminal features |
+| [reedline](https://crates.io/crates/reedline) | Line editing and history |
 
 ## License
 

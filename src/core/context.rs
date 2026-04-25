@@ -1,4 +1,5 @@
 use crate::core::config::Config;
+use crate::core::file_cache::FileCache;
 use colored::*;
 use std::path::Path;
 
@@ -112,7 +113,27 @@ pub fn parse_file_refs(input: &str) -> Vec<FileRef> {
 /// Starts reading from `offset` (0-indexed line number) and truncates if the
 /// remaining content exceeds the configured line/byte limits.
 fn format_file_content(path: &str, offset: usize, max_lines: usize, max_bytes: usize) -> Result<(String, usize, bool, usize), std::io::Error> {
-    let content = std::fs::read_to_string(path)?;
+    format_file_content_with_cache(path, offset, max_lines, max_bytes, None)
+}
+
+/// Reads a file with optional caching and formats its content as a fenced code block.
+fn format_file_content_with_cache(
+    path: &str, 
+    offset: usize, 
+    max_lines: usize, 
+    max_bytes: usize,
+    file_cache: Option<&mut FileCache>,
+) -> Result<(String, usize, bool, usize), std::io::Error> {
+    let content = if let Some(cache) = file_cache {
+        if let Some((cached_content, _)) = cache.read_file(path, 0, usize::MAX) {
+            cached_content
+        } else {
+            std::fs::read_to_string(path)?
+        }
+    } else {
+        std::fs::read_to_string(path)?
+    };
+    
     let extension = Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -207,6 +228,11 @@ fn format_file_content(path: &str, offset: usize, max_lines: usize, max_bytes: u
 /// Output: "explain <file path=\"src/main.rs\" lines=\"373\">\n```rust\n...\n```\n</file>"
 /// ```
 pub fn expand_file_refs(input: &str, config: &Config) -> ExpandResult {
+    expand_file_refs_with_cache(input, config, None)
+}
+
+/// Expands all `@filepath` references with optional file caching.
+pub fn expand_file_refs_with_cache(input: &str, config: &Config, mut file_cache: Option<&mut FileCache>) -> ExpandResult {
     let refs = parse_file_refs(input);
 
     if refs.is_empty() {
@@ -223,7 +249,8 @@ pub fn expand_file_refs(input: &str, config: &Config) -> ExpandResult {
     // Process refs in reverse order so byte offsets remain valid
     let mut result = input.to_string();
     for file_ref in refs.into_iter().rev() {
-        let replacement = match format_file_content(&file_ref.path, file_ref.offset, max_lines, max_bytes) {
+        let cache_for_call = file_cache.as_mut().map(|c| c as &mut FileCache);
+        let replacement = match format_file_content_with_cache(&file_ref.path, file_ref.offset, max_lines, max_bytes, cache_for_call) {
             Ok((content, lines, truncated, shown)) => {
                 attachments.push((file_ref.path.clone(), AttachStatus::Attached { lines, truncated, offset: file_ref.offset, shown }));
                 content
