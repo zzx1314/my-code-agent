@@ -1,4 +1,4 @@
-use rig::client::{CompletionClient, ProviderClient};
+use rig::client::CompletionClient;
 
 use crate::core::config::Config;
 use crate::tools;
@@ -195,17 +195,14 @@ pub fn build_agent(config: &Config) -> Agent {
     match provider {
         Provider::DeepSeek => {
             eprintln!("[model] {} (DeepSeek)", model);
-            unsafe { std::env::set_var("OPENAI_BASE_URL", "https://api.deepseek.com/v1") };
-            let api_key = std::env::var(api_key_env).unwrap_or_default();
-            let client = rig::providers::openai::CompletionsClient::new(&api_key)
-                .ok()
-                .expect("Failed to create DeepSeek client");
-            client
-                .agent(&model)
-                .preamble(&preamble)
-                .tools(all_tools)
-                .default_max_turns(config.agent.max_turns)
-                .build()
+            create_openai_client(
+                api_key_env,
+                "https://api.deepseek.com/v1",
+                &preamble,
+                &model,
+                all_tools,
+                config.agent.max_turns,
+            )
         }
         Provider::Custom => {
             let base_url = match config.llm.base_url.as_ref() {
@@ -221,38 +218,52 @@ pub fn build_agent(config: &Config) -> Agent {
                 }
             };
             eprintln!("[model] {} (Custom: {})", model, base_url);
-            unsafe { std::env::set_var("OPENAI_BASE_URL", &base_url) };
-            let api_key = std::env::var(api_key_env).unwrap_or_default();
-            let client = match rig::providers::openai::CompletionsClient::new(&api_key) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("[error] Failed to create OpenAI client: {}", e);
-                    std::process::exit(1);
-                }
-            };
-            client
-                .agent(&model)
-                .preamble(&preamble)
-                .tools(all_tools)
-                .default_max_turns(config.agent.max_turns)
-                .build()
+            create_openai_client(
+                api_key_env,
+                &base_url,
+                &preamble,
+                &model,
+                all_tools,
+                config.agent.max_turns,
+            )
         }
         _ => {
             eprintln!(
                 "[warn] Provider '{}' not fully implemented, using DeepSeek",
                 provider.display_name()
             );
-            unsafe { std::env::set_var("OPENAI_BASE_URL", "https://api.deepseek.com/v1") };
-            let api_key = std::env::var(api_key_env).unwrap_or_default();
-            let client = rig::providers::openai::CompletionsClient::new(&api_key)
-                .ok()
-                .expect("Failed to create DeepSeek client");
-            client
-                .agent(&model)
-                .preamble(&preamble)
-                .tools(all_tools)
-                .default_max_turns(config.agent.max_turns)
-                .build()
+            create_openai_client(
+                api_key_env,
+                "https://api.deepseek.com/v1",
+                &preamble,
+                &model,
+                all_tools,
+                config.agent.max_turns,
+            )
         }
     }
+}
+
+/// Creates an OpenAI-compatible client using the builder pattern with explicit base_url.
+fn create_openai_client(
+    api_key_env: &str,
+    base_url: &str,
+    preamble: &str,
+    model: &str,
+    all_tools: Vec<Box<dyn rig::tool::ToolDyn>>,
+    max_turns: usize,
+) -> Agent {
+    let api_key = std::env::var(api_key_env).unwrap_or_default();
+    let client = rig::providers::openai::CompletionsClient::builder()
+        .api_key(&api_key)
+        .base_url(base_url)
+        .build()
+        .expect("Failed to create OpenAI client");
+
+    client
+        .agent(model)
+        .preamble(preamble)
+        .tools(all_tools)
+        .default_max_turns(max_turns)
+        .build()
 }
