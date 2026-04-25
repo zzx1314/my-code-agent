@@ -120,7 +120,8 @@ impl PlanTracker {
     pub fn complete_current_step(&mut self) {
         if self.current_step < self.steps.len() {
             let step = &self.steps[self.current_step];
-            self.step_status.insert(step.clone(), PlanStepStatus::Completed);
+            self.step_status
+                .insert(step.clone(), PlanStepStatus::Completed);
             self.current_step += 1;
         }
     }

@@ -4,7 +4,7 @@ use my_code_agent::core::config::Config;
 use my_code_agent::core::context::{expand_file_refs, print_attachments};
 use my_code_agent::core::context_manager::ContextManager;
 use my_code_agent::core::file_cache::FileCache;
-use my_code_agent::core::preamble::{build_agent, check_api_key};
+use my_code_agent::core::preamble::build_agent;
 use my_code_agent::core::session::SessionData;
 use my_code_agent::core::streaming::stream_response;
 use my_code_agent::core::token_usage::TokenUsage;
@@ -22,10 +22,8 @@ use std::path::Path;
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv::dotenv().ok();
-    check_api_key();
 
     let config = Config::load();
-
     print_banner();
     let agent = build_agent(&config);
 
@@ -38,7 +36,7 @@ async fn main() -> Result<()> {
     // Initialize context manager and file cache
     let mut context_manager = ContextManager::new(&config);
     let mut file_cache = FileCache::new(50, 300);
-    
+
     struct FilePathCompleter {
         default_completer: reedline::DefaultCompleter,
     }
@@ -347,7 +345,7 @@ async fn main() -> Result<()> {
                 let mut plan_tracker = result.plan_tracker;
                 if plan_tracker.needs_confirmation() {
                     plan_tracker.print_with_confirmation();
-                    
+
                     // Read user confirmation
                     match rl.read_line(&DefaultPrompt::default()) {
                         Ok(Signal::Success(confirm_input)) => {

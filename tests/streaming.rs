@@ -7,7 +7,9 @@ fn test_detect_task_plan_with_emoji_header() {
 
 #[test]
 fn test_detect_task_plan_simple_header() {
-    assert!(detect_task_plan("## Task Plan\n1. First step\n2. Second step"));
+    assert!(detect_task_plan(
+        "## Task Plan\n1. First step\n2. Second step"
+    ));
 }
 
 #[test]
@@ -27,7 +29,9 @@ fn test_detect_task_plan_no_plan() {
 
 #[test]
 fn test_detect_task_plan_in_middle_of_text() {
-    assert!(detect_task_plan("Let me help you. ## Task Plan\n1. Do this"));
+    assert!(detect_task_plan(
+        "Let me help you. ## Task Plan\n1. Do this"
+    ));
 }
 
 #[test]

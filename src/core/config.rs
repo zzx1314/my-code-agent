@@ -29,6 +29,12 @@ fn default_timeout_secs() -> u64 {
 fn default_max_turns() -> usize {
     100
 }
+fn default_provider_name() -> String {
+    "deepseek".to_string()
+}
+fn default_api_key_env() -> String {
+    String::new() // Empty means use provider default
+}
 
 /// Configuration file name (looked up in the current directory).
 pub const CONFIG_FILE: &str = "config.toml";
@@ -51,6 +57,9 @@ pub struct Config {
     /// Agent behavior settings.
     #[serde(default)]
     pub agent: AgentConfig,
+    /// LLM provider settings.
+    #[serde(default)]
+    pub llm: LLMConfig,
     /// Session persistence settings.
     #[serde(default)]
     pub session: SessionConfig,
@@ -108,6 +117,23 @@ pub struct AgentConfig {
     pub max_turns: usize,
 }
 
+/// LLM provider settings.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LLMConfig {
+    /// Provider name: "deepseek", "openai", "anthropic", "cohere"
+    /// Default: "deepseek"
+    #[serde(default = "default_provider_name")]
+    pub provider: String,
+    /// Model name (e.g., "deepseek-reasoner", "gpt-4o", "claude-3-5-sonnet-20241022")
+    /// Default: provider-specific
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Environment variable name for the API key
+    /// Default: "DEEPSEEK_API_KEY"
+    #[serde(default = "default_api_key_env")]
+    pub api_key_env: String,
+}
+
 /// Session persistence settings.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SessionConfig {
@@ -149,6 +175,16 @@ impl Default for ShellConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self { max_turns: 10 }
+    }
+}
+
+impl Default for LLMConfig {
+    fn default() -> Self {
+        Self {
+            provider: "deepseek".to_string(),
+            model: None,
+            api_key_env: String::new(), // Empty means use provider default
+        }
     }
 }
 

@@ -6,10 +6,12 @@ use rig::streaming::StreamedAssistantContent;
 
 use super::context_manager::ContextManager;
 use super::plan_tracker::PlanTracker;
-use super::preamble::Agent;
 use super::token_usage::{TokenUsage, print_context_warning, print_turn_usage};
 use crate::ui::render::{MarkdownRenderer, ReasoningTracker};
+
 use rig::streaming::StreamingChat;
+
+type Agent = rig::agent::Agent<rig::providers::deepseek::CompletionModel>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // StreamResult & stream_response
@@ -36,7 +38,7 @@ pub fn detect_task_plan(text: &str) -> bool {
             return false;
         }
     }
-    
+
     // Check for common task plan patterns (markdown headers)
     text.contains("## 📋 Task Plan")
         || text.contains("## Task Plan")
@@ -112,7 +114,7 @@ pub async fn stream_response(
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
                 }
-                
+
                 // Detect task plan header
                 if !plan_detected && detect_task_plan(&text_content.text) {
                     plan_detected = true;
@@ -120,7 +122,7 @@ pub async fn stream_response(
                     renderer.flush();
                     println!("\n  {} {}", "📋".bright_green(), "Task Plan".bold());
                 }
-                
+
                 // Track plan text and highlight steps
                 if plan_detected {
                     plan_text.push_str(&text_content.text);
@@ -129,9 +131,13 @@ pub async fn stream_response(
                         let trimmed = line.trim();
                         // Check if this is a numbered step
                         let is_numbered = trimmed.len() > 2
-                            && trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+                            && trimmed
+                                .chars()
+                                .next()
+                                .map(|c| c.is_ascii_digit())
+                                .unwrap_or(false)
                             && trimmed.chars().nth(1) == Some('.');
-                        
+
                         if is_numbered && in_plan {
                             println!("    {} {}", "→".bright_cyan(), trimmed.bright_white());
                         } else {
@@ -151,7 +157,7 @@ pub async fn stream_response(
                 } else {
                     renderer.push_text(&text_content.text);
                 }
-                
+
                 full_response.push_str(&text_content.text);
             }
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
@@ -161,14 +167,14 @@ pub async fn stream_response(
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
                 }
-                
+
                 // Update plan progress when tool is called
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
                     plan_tracker.complete_current_step();
                     plan_tracker.print_progress();
                     println!(); // newline after progress
                 }
-                
+
                 renderer.flush();
                 println!(
                     "\n  {} {}",
@@ -195,12 +201,12 @@ pub async fn stream_response(
                     reasoning.end_segment();
                 }
                 renderer.flush();
-                
+
                 // Print plan completion if applicable
                 if plan_tracker.has_active_plan() {
                     plan_tracker.print_completion();
                 }
-                
+
                 if let Some(history) = final_res.history() {
                     *chat_history = history.to_vec();
                 }

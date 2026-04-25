@@ -1,7 +1,27 @@
 # My Code Agent — Project Knowledge
 
 ## What This Is
-An interactive terminal-based AI coding assistant powered by **DeepSeek** with tool-augmented capabilities (read/write/search/execute files). Written in Rust (edition 2024).
+An interactive terminal-based AI coding assistant powered by **DeepSeek** (and other LLM providers) with tool-augmented capabilities (read/write/search/execute files). Written in Rust (edition 2024).
+
+## LLM Providers
+Supports multiple LLM providers configured via `config.toml`:
+
+| Provider | Environment Variable | Default Models |
+|----------|---------------------|----------------|
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-reasoner`, `deepseek-chat` |
+| OpenAI | `OPENAI_API_KEY` | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo` |
+| Anthropic | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-20241022`, `claude-3-haiku-20240307` |
+| Cohere | `COHERE_API_KEY` | `command-r-plus`, `command-r` |
+
+**Configuration** (`config.toml`):
+```toml
+[llm]
+provider = "deepseek"      # deepseek, openai, anthropic, cohere
+model = "deepseek-reasoner"  # leave empty for provider default
+api_key_env = "DEEPSEEK_API_KEY"  # or OPENAI_API_KEY, etc.
+```
+
+**Note:** Currently configured for DeepSeek. Infrastructure ready for all 4 providers — additional providers can be enabled by updating `src/core/preamble.rs`.
 
 ## Banner (ASCII)
 ```
