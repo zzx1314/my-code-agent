@@ -2,6 +2,8 @@ use rig::client::CompletionClient;
 
 use crate::core::config::Config;
 use crate::tools;
+use rig::providers::openrouter;
+
 
 pub const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with access to tools for reading, writing, searching, and executing code.
 
@@ -73,6 +75,9 @@ Always be concise but thorough.
 {knowledge}"#;
 
 pub const KNOWLEDGE_FILE: &str = "knowledge.md";
+
+pub type OpenRouterAgent = rig::agent::Agent<openrouter::CompletionModel>;
+
 
 fn load_knowledge() -> Option<String> {
     std::fs::read_to_string(KNOWLEDGE_FILE)
@@ -174,8 +179,10 @@ impl Provider {
 }
 
 /// Agent type alias - uses OpenAI Completions API for compatibility with custom endpoints.
-pub type Agent = rig::agent::Agent<rig::providers::openai::CompletionModel>;
-
+pub enum Agent {
+    OpenAI(rig::agent::Agent<rig::providers::openai::CompletionModel>),
+    OpenRouter(rig::agent::Agent<openrouter::CompletionModel>),
+}
 /// Builds an agent using the configured LLM provider.
 /// Uses OpenAI Completions API client for compatibility with custom endpoints.
 pub fn build_agent(config: &Config) -> Agent {
@@ -211,14 +218,17 @@ pub fn build_agent(config: &Config) -> Agent {
         }
         Provider::OpenRouter => {
             eprintln!("[model] {} (OpenRouter)", model);
-            create_openai_client(
-                api_key_env,
-                "https://openrouter.ai/api/v1",
-                &preamble,
-                &model,
-                all_tools,
-                config.agent.max_turns,
-            )
+            let api_key = std::env::var(api_key_env).unwrap_or_default();
+            let client = openrouter::Client::new(&api_key).expect("Failed to create OpenRouter client");
+            
+            return Agent::OpenRouter(
+                client
+                    .agent(&model)
+                    .preamble(&preamble)
+                    .tools(all_tools)
+                    .default_max_turns(config.agent.max_turns)
+                    .build(),
+            );
         }
         Provider::Custom => {
             let base_url = match config.llm.base_url.as_ref() {
@@ -268,7 +278,7 @@ fn create_openai_client(
     model: &str,
     all_tools: Vec<Box<dyn rig::tool::ToolDyn>>,
     max_turns: usize,
-) -> Agent {
+) -> Agent {  // 返回你的 Agent 枚举
     let api_key = std::env::var(api_key_env).unwrap_or_default();
     let client = rig::providers::openai::CompletionsClient::builder()
         .api_key(&api_key)
@@ -276,10 +286,12 @@ fn create_openai_client(
         .build()
         .expect("Failed to create OpenAI client");
 
-    client
-        .agent(model)
-        .preamble(preamble)
-        .tools(all_tools)
-        .default_max_turns(max_turns)
-        .build()
+    Agent::OpenAI(  // ← 包装进枚举
+        client
+            .agent(model)
+            .preamble(preamble)
+            .tools(all_tools)
+            .default_max_turns(max_turns)
+            .build()
+    )
 }

@@ -7,7 +7,7 @@
 # ── LLM Provider Settings ──
 [llm]
 provider = "openrouter"
-model = "nvidia/nemotron-3-super-120b-a12b:free"
+model = "tencent/hy3-preview:free"
 api_key_env = "OPENROUTER_API_KEY"
 
 # Custom base URL for OpenAI-compatible providers
