@@ -16,8 +16,8 @@ use my_code_agent::ui::{
 };
 
 use reedline::{
-    ColumnarMenu, Completer, DefaultPrompt, Emacs, KeyCode, KeyModifiers, Reedline, ReedlineEvent,
-    ReedlineMenu, Signal, Span, Suggestion,
+    ColumnarMenu, Completer, DefaultPrompt, Emacs, KeyCode, KeyModifiers, MenuBuilder, Reedline,
+    ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion,
 };
 use std::path::Path;
 
@@ -271,19 +271,13 @@ async fn main() -> Result<()> {
 
     let edit_mode = Box::new(Emacs::new(keybindings));
 
-    let mut rl = Reedline::create()
+    let rl = Reedline::create()
         .with_completer(Box::new(completer))
         .with_menu(ReedlineMenu::EngineCompleter(Box::new(completion_menu)))
         .with_edit_mode(edit_mode);
 
     // Enable bracketed paste mode for proper multi-line paste support
-    if let Err(e) = rl.enable_bracketed_paste() {
-        eprintln!(
-            "  {} Warning: Could not enable bracketed paste: {}",
-            "⚠".bright_yellow(),
-            e
-        );
-    }
+    let mut rl = rl.use_bracketed_paste(true);
 
     // Interrupt channel for Ctrl+C during streaming
     let (interrupt_tx, mut interrupt_rx) = tokio::sync::mpsc::channel::<()>(1);
