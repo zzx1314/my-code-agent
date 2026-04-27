@@ -1,4 +1,5 @@
 pub mod core;
+pub mod mcp;
 pub mod tools;
 pub mod ui;
 

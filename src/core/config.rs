@@ -72,6 +72,9 @@ pub struct Config {
     /// Session persistence settings.
     #[serde(default)]
     pub session: SessionConfig,
+    /// MCP (Model Context Protocol) settings.
+    #[serde(default)]
+    pub mcp: McpConfig,
 }
 
 /// File reading and attachment limits.
@@ -150,6 +153,31 @@ pub struct LLMConfig {
     /// Used when provider is "custom" or any provider with a custom endpoint
     #[serde(default = "default_base_url")]
     pub base_url: Option<String>,
+}
+
+/// MCP (Model Context Protocol) settings.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct McpConfig {
+    /// Enable MCP integration.
+    #[serde(default = "default_mcp_enabled")]
+    pub enabled: bool,
+    /// Brave Search API key (or set BRAVE_API_KEY env var).
+    /// Get your key at: https://brave.com/search/api/
+    #[serde(default)]
+    pub brave_api_key: Option<String>,
+}
+
+fn default_mcp_enabled() -> bool {
+    false
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            brave_api_key: None,
+        }
+    }
 }
 
 /// Session persistence settings.

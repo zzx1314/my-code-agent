@@ -7,6 +7,8 @@ edition = "2024"
 rig-core = "0.35"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "signal"] }
 anyhow = "1"
+async-process = "2"  # For spawning MCP server processes
+async-trait = "0.1"
 dotenv = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

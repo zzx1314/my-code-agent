@@ -8,6 +8,7 @@ use my_code_agent::core::preamble::build_agent;
 use my_code_agent::core::session::SessionData;
 use my_code_agent::core::streaming::stream_response;
 use my_code_agent::core::token_usage::TokenUsage;
+use my_code_agent::tools::create_mcp_tools;
 use my_code_agent::ui::{
     Command, parse_command, print_banner, print_interrupted_notice, print_sessions_list,
     run_command,
@@ -25,7 +26,12 @@ async fn main() -> Result<()> {
 
     let config = Config::load();
     print_banner();
-    let agent = build_agent(&config);
+
+    // Create MCP tools if enabled
+    let mcp_tools = create_mcp_tools(&config).await;
+    eprintln!("  {} {} MCP tools loaded", "⚙".bright_cyan(), mcp_tools.len());
+
+    let agent = build_agent(&config, mcp_tools);
 
     // New session by default
     let mut chat_history: Vec<rig::completion::Message> = Vec::new();
@@ -60,6 +66,7 @@ async fn main() -> Result<()> {
                 "@code_search".into(),
                 "@list_dir".into(),
                 "@glob".into(),
+                "@web_search".into(),
             ];
             let mut default_completer =
                 reedline::DefaultCompleter::with_inclusions(&['/', '@']).set_min_word_len(1);

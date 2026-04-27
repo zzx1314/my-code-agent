@@ -25,6 +25,34 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 | `code_search` | Search for text patterns in source code using ripgrep (respects .gitignore) |
 | `list_dir` | List files and directories with configurable recursion depth |
 | `glob` | Find files matching a glob pattern (`**/*.rs`, `src/**/*.ts`, etc.) |
+| `web_search` | **(MCP)** Search the web using Brave Search for up-to-date information |
+
+### MCP Web Search
+
+The `web_search` tool is powered by the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) and the [Brave Search MCP Server](https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search).
+
+**Prerequisites:**
+- Node.js and npx installed
+- A [Brave Search API key](https://brave.com/search/api/)
+
+**Configuration:**
+
+Add to your `config.toml`:
+```toml
+[mcp]
+enabled = true
+brave_api_key = "your_brave_api_key_here"
+```
+
+Or set the `BRAVE_API_KEY` environment variable in your `.env` file.
+
+**Usage:**
+```
+❯ Search the web for "latest Rust edition 2024 features"
+❯ web_search: What is the current version of the rig-core crate?
+```
+
+The tool returns search results with titles, URLs, and snippets from the web.
 
 ## Getting Started
 
