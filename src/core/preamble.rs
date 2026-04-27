@@ -52,6 +52,10 @@ This plan helps:
 - **code_search**: Search for patterns in source code using ripgrep (rg). Automatically respects .gitignore and skips binary files.
 - **list_dir**: List files and directories in a path with configurable recursion depth. Use this to explore project structure and discover files.
 - **glob**: Find files matching a glob pattern (e.g. **/*.rs, src/**/*.ts). Use this to locate files by name or extension.
+- **git_status**: Get structured git repository status. Returns modified, added, deleted, untracked files and current branch in JSON format. Use instead of `shell_exec` with `git status`.
+- **git_diff**: Show git diff for files or entire repo. Returns diff output with optional line limit. Use instead of `shell_exec` with `git diff`.
+- **git_log**: View commit history in structured format. Returns commits with hash, author, date, message. Use instead of `shell_exec` with `git log`.
+- **git_commit**: Commit changes with a message. Includes safety confirmation. Use `git_status` first to check staged changes.
 - **web_search**: Search the web using Parallel Search MCP. Use this tool when you need up-to-date information from the internet, current events, or facts not available in the local codebase. Returns search results with titles, URLs, and snippets.
 - **web_fetch**: Extract content from a specific URL using Parallel Search MCP.
 ## Critical Rules

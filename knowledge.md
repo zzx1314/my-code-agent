@@ -71,6 +71,10 @@ src/
 │   └── terminal.rs # Terminal UI components (prompt, banner, help, commands)
 └── tools/           # Tool implementations
     ├── mod.rs       # Tool registry — all_tools()
+    ├── git_status.rs # Git repository status (structured output)
+    ├── git_diff.rs  # Git diff viewer
+    ├── git_log.rs   # Git commit history
+    ├── git_commit.rs # Git commit with safety checks
     └── *.rs        # Individual tool implementations
 tests/               # Integration tests (one file per module/tool)
 ```
@@ -92,12 +96,16 @@ tests/               # Integration tests (one file per module/tool)
 | `src/ui/render.rs` | Markdown rendering, reasoning tracking |
 | `src/tools/mod.rs` | Tool registry — `all_tools()` |
 | `src/tools/*.rs` | Individual tool implementations |
+| `src/tools/git_status.rs` | Git repository status (structured) |
+| `src/tools/git_diff.rs` | Git diff viewer |
+| `src/tools/git_log.rs` | Git commit history |
+| `src/tools/git_commit.rs` | Git commit with safety checks |
 | `src/tools/list_dir.rs` | Directory listing with recursive depth |
 | `src/tools/glob.rs` | File pattern matching (glob syntax) |
 | `src/tools/safety.rs` | Safety guardrails for destructive operations |
 
-## Tools (8 total)
-`file_read` · `file_write` · `file_update` · `file_delete` · `shell_exec` · `code_search` (ripgrep) · `list_dir` · `glob`
+## Tools (12 total)
+`file_read` · `file_write` · `file_update` · `file_delete` · `shell_exec` · `code_search` (ripgrep) · `list_dir` · `glob` · `git_status` · `git_diff` · `git_log` · `git_commit`
 
 ## Commands
 

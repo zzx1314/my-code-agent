@@ -36,7 +36,7 @@ pub fn print_banner() {
     println!(
         "  {} {}",
         "Tools:".bright_white().bold(),
-        "file_read · file_write · file_update · file_delete · shell_exec · code_search · list_dir · glob"
+        "file_read · file_write · file_update · file_delete · shell_exec · code_search · list_dir · glob · git_status · git_diff · git_log · git_commit"
             .bright_green()
     );
     println!(
@@ -78,6 +78,22 @@ pub fn print_help() {
     println!("  {}  Search code patterns", "code_search".bright_yellow());
     println!("  {}  List directory contents", "list_dir".bright_yellow());
     println!("  {}  Find files by glob pattern", "glob".bright_yellow());
+    println!(
+        "  {}  Show git repository status (structured)",
+        "git_status".bright_yellow()
+    );
+    println!(
+        "  {}  Show git diff for files or entire repo",
+        "git_diff".bright_yellow()
+    );
+    println!(
+        "  {}  Show git commit history",
+        "git_log".bright_yellow()
+    );
+    println!(
+        "  {}  Commit changes with safety checks",
+        "git_commit".bright_yellow()
+    );
     println!();
     println!("  {}  Show token usage statistics", "usage".dimmed());
     println!(

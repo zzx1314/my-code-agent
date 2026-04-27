@@ -3,6 +3,10 @@ pub mod file_delete;
 pub mod file_read;
 pub mod file_update;
 pub mod file_write;
+pub mod git_commit;
+pub mod git_diff;
+pub mod git_log;
+pub mod git_status;
 pub mod glob;
 pub mod list_dir;
 pub mod safety;
@@ -14,10 +18,15 @@ pub use file_read::FileRead;
 pub use file_update::FileUpdate;
 pub use file_update::build_diff;
 pub use file_write::FileWrite;
+pub use git_commit::GitCommit;
+pub use git_diff::GitDiff;
+pub use git_log::GitLog;
+pub use git_status::GitStatus;
 pub use glob::GlobSearch;
 pub use list_dir::ListDir;
 pub use safety::{
-    is_dangerous_deletion, is_dangerous_shell_command, is_dangerous_snippet_deletion,
+    is_dangerous_deletion, is_dangerous_git_command, is_dangerous_shell_command,
+    is_dangerous_snippet_deletion,
 };
 pub use shell_exec::ShellExec;
 
@@ -37,6 +46,10 @@ pub fn all_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
         Box::new(CodeSearch),
         Box::new(ListDir),
         Box::new(GlobSearch),
+        Box::new(GitStatus),
+        Box::new(GitDiff),
+        Box::new(GitLog),
+        Box::new(GitCommit),
     ]
 }
 

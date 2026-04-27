@@ -67,6 +67,10 @@ async fn main() -> Result<()> {
                 "@list_dir".into(),
                 "@glob".into(),
                 "@web_search".into(),
+                "@git_status".into(),
+                "@git_diff".into(),
+                "@git_log".into(),
+                "@git_commit".into(),
             ];
             let mut default_completer =
                 reedline::DefaultCompleter::with_inclusions(&['/', '@']).set_min_word_len(1);

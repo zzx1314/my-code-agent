@@ -36,6 +36,21 @@ const DANGEROUS_SHELL_PATTERNS: &[&str] = &[
     ">> /etc/",
 ];
 
+/// Git-specific dangerous patterns for git operations.
+const DANGEROUS_GIT_PATTERNS: &[&str] = &[
+    "push --force",
+    "push -f",
+    "push --force-with-lease",
+    "reset --hard",
+    "clean -f",
+    "clean -fd",
+    "rebase",
+    "merge --no-ff",
+    "branch -D",
+    "branch -d",
+    "checkout -b",
+];
+
 /// Checks whether a shell command matches any dangerous pattern.
 /// Returns the first matching pattern, if any.
 pub fn is_dangerous_shell_command(command: &str) -> Option<&'static str> {
@@ -170,4 +185,15 @@ async fn read_confirmation() -> bool {
     })
     .await
     .unwrap_or(false)
+}
+
+/// Checks whether a git command (without the 'git' prefix) matches any dangerous pattern.
+/// Returns the first matching pattern, if any.
+/// This is used by git tools to check for dangerous operations.
+pub fn is_dangerous_git_command(command: &str) -> Option<&'static str> {
+    let lower = command.to_lowercase();
+    DANGEROUS_GIT_PATTERNS
+        .iter()
+        .find(|&&pattern| lower.contains(&pattern.to_lowercase()))
+        .copied()
 }
