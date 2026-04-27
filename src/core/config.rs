@@ -123,7 +123,7 @@ pub struct AgentConfig {
 /// LLM provider settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LLMConfig {
-    /// Provider name: "deepseek", "openai", "anthropic", "cohere", "custom"
+    /// Provider name: "deepseek", "openai", "anthropic", "cohere", "openrouter", "custom"
     /// Default: "deepseek"
     #[serde(default = "default_provider_name")]
     pub provider: String,

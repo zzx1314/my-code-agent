@@ -122,6 +122,7 @@ pub enum Provider {
     OpenAI,
     Anthropic,
     Cohere,
+    OpenRouter,
     Custom,
 }
 
@@ -132,6 +133,7 @@ impl Provider {
             "openai" => Some(Provider::OpenAI),
             "anthropic" => Some(Provider::Anthropic),
             "cohere" => Some(Provider::Cohere),
+            "openrouter" => Some(Provider::OpenRouter),
             "custom" => Some(Provider::Custom),
             _ => None,
         }
@@ -143,6 +145,7 @@ impl Provider {
             Provider::OpenAI => "gpt-4o",
             Provider::Anthropic => "claude-3-5-sonnet-20241022",
             Provider::Cohere => "command-r-plus",
+            Provider::OpenRouter => "nvidia/nemotron-3-super-120b-a12b:free",
             Provider::Custom => "gpt-4o",
         }
     }
@@ -153,6 +156,7 @@ impl Provider {
             Provider::OpenAI => "OPENAI_API_KEY",
             Provider::Anthropic => "ANTHROPIC_API_KEY",
             Provider::Cohere => "COHERE_API_KEY",
+            Provider::OpenRouter => "OPENROUTER_API_KEY",
             Provider::Custom => "OPENAI_API_KEY",
         }
     }
@@ -163,6 +167,7 @@ impl Provider {
             Provider::OpenAI => "OpenAI",
             Provider::Anthropic => "Anthropic",
             Provider::Cohere => "Cohere",
+            Provider::OpenRouter => "OpenRouter",
             Provider::Custom => "Custom",
         }
     }
@@ -198,6 +203,17 @@ pub fn build_agent(config: &Config) -> Agent {
             create_openai_client(
                 api_key_env,
                 "https://api.deepseek.com/v1",
+                &preamble,
+                &model,
+                all_tools,
+                config.agent.max_turns,
+            )
+        }
+        Provider::OpenRouter => {
+            eprintln!("[model] {} (OpenRouter)", model);
+            create_openai_client(
+                api_key_env,
+                "https://openrouter.ai/api/v1",
                 &preamble,
                 &model,
                 all_tools,
