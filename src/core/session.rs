@@ -130,6 +130,37 @@ impl SessionData {
         sessions.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
         sessions
     }
+
+    /// Search for keyword in this session's chat history
+    pub fn search_in_session(&self, keyword: &str) -> Vec<MessageMatch> {
+        let mut matches = Vec::new();
+        let keyword_lower = keyword.to_lowercase();
+
+        for (idx, message) in self.chat_history.iter().enumerate() {
+            let (role, content) = match message {
+                Message::User { content, .. } => {
+                    ("User", format!("{:?}", content))
+                }
+                Message::Assistant { content, .. } => {
+                    ("Assistant", format!("{:?}", content))
+                }
+                Message::System { content, .. } => {
+                    ("System", format!("{:?}", content))
+                }
+            };
+
+            if content.to_lowercase().contains(&keyword_lower) {
+                let snippet = extract_snippet(&content, keyword, 100);
+                matches.push(MessageMatch {
+                    role: role.to_string(),
+                    content_snippet: snippet,
+                    line_number: idx,
+                });
+            }
+        }
+
+        matches
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +169,22 @@ pub struct SessionInfo {
     pub turns: usize,
     pub saved_at: u64,
     pub tokens: u64,
+}
+
+/// Search result for a single session
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub session_name: String,
+    pub saved_at: u64,
+    pub matches: Vec<MessageMatch>,
+}
+
+/// A single message match in a session
+#[derive(Debug, Clone)]
+pub struct MessageMatch {
+    pub role: String, // "User", "Assistant", or "System"
+    pub content_snippet: String,
+    pub line_number: usize, // position in chat_history
 }
 
 pub fn generate_session_name() -> String {
@@ -193,4 +240,66 @@ pub fn print_saved_confirmation(path: &str, data: &SessionData) {
         )
         .dimmed()
     );
+}
+
+/// Search all sessions for a keyword
+pub fn search_sessions(keyword: &str) -> Vec<SearchResult> {
+    let mut results = Vec::new();
+    let dir_path = std::path::Path::new(SESSION_DIR);
+
+    if !dir_path.is_dir() {
+        return results;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(dir_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "json").unwrap_or(false) {
+                if let Some(name) = path.file_stem() {
+                    let name_str = name.to_string_lossy().to_string();
+                    if let Some(load_result) = SessionData::load_from_file(&path.to_string_lossy()) {
+                        if let Ok(session_data) = load_result {
+                            let matches = session_data.search_in_session(keyword);
+                            if !matches.is_empty() {
+                                results.push(SearchResult {
+                                    session_name: name_str,
+                                    saved_at: session_data.saved_at,
+                                    matches,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by save time, newest first
+    results.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
+    results
+}
+
+/// Extract a snippet of content around the keyword (up to context_size chars)
+fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String {
+    let content_lower = content.to_lowercase();
+    let keyword_lower = keyword.to_lowercase();
+
+    if let Some(pos) = content_lower.find(&keyword_lower) {
+        let start = pos.saturating_sub(context_size / 2);
+        let end = (pos + keyword.len() + context_size / 2).min(content.len());
+
+        let mut snippet = String::new();
+        if start > 0 {
+            snippet.push_str("...");
+        }
+        snippet.push_str(&content[start..end]);
+        if end < content.len() {
+            snippet.push_str("...");
+        }
+
+        snippet
+    } else {
+        // Fallback: return first context_size chars
+        content.chars().take(context_size).collect()
+    }
 }

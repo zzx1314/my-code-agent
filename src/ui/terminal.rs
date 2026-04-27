@@ -107,9 +107,10 @@ pub fn print_help() {
     println!("  {}  List saved sessions", "sessions".dimmed());
     println!("  {}  Load a saved session by name", "load".dimmed());
     println!("  {}  Clear conversation history", "clear".dimmed());
+    println!("  {}  Start a new session (clears current, optionally saves)", "new".bright_green());
     println!(
-        "  {}  Start a new session (clears current, optionally saves)",
-        "new".bright_green()
+        "  {}  Search sessions for keyword",
+        "search".bright_green()
     );
     println!(
         "  {}  Review code at <path> for quality and issues",
@@ -221,6 +222,7 @@ pub enum Command {
     Sessions,
     Load,
     Review(String),  // Contains the path to review
+    Search(String),  // Search sessions for keyword
 }
 
 pub fn parse_command(input: &str) -> Option<Command> {
@@ -240,6 +242,7 @@ pub fn parse_command(input: &str) -> Option<Command> {
         "sessions" => Some(Command::Sessions),
         "load" => Some(Command::Load),
         "review" => Some(Command::Review(arg.unwrap_or("").to_string())),
+        "search" => Some(Command::Search(arg?.to_string())),
         _ => None,
     }
 }
@@ -255,10 +258,74 @@ pub fn run_command(cmd: Command, session_usage: &mut TokenUsage, last_reasoning:
                 println!("  {} Command not enabled", "⚠".bright_yellow());
             }
         }
-        Command::Review(_) => {
-            // Review command is handled in main.rs, not here
+        Command::Review(_) | Command::Search(_) => {
+            // These commands are handled in main.rs, not here
         }
         Command::Clear | Command::Quit | Command::Save | Command::Sessions | Command::Load | Command::New => {}
     }
     false
+}
+
+/// Print search results in a formatted way
+pub fn print_search_results(results: &[crate::core::session::SearchResult], keyword: &str) {
+    use crate::core::session::format_timestamp;
+
+    println!();
+    println!(
+        "  {} {} '{}'",
+        "🔍".bright_cyan(),
+        "Search results for".bright_white().bold(),
+        keyword.bright_yellow()
+    );
+    println!("  {}", "─".repeat(50).dimmed());
+
+    if results.is_empty() {
+        println!("  {}", "No matches found.".dimmed());
+        println!();
+        return;
+    }
+
+    for (i, result) in results.iter().enumerate() {
+        let when = format_timestamp(result.saved_at);
+        println!(
+            "  [{}/{}] {}  {}",
+            (i + 1).to_string().bright_yellow(),
+            result.matches.len().to_string().bright_green(),
+            result.session_name.bright_white(),
+            when.dimmed()
+        );
+
+        // Show at most 3 matches per session to avoid excessive output
+        let display_count = result.matches.len().min(3);
+        for msg_match in &result.matches[..display_count] {
+            let role_color = match msg_match.role.as_str() {
+                "User" => "bright_green",
+                "Assistant" => "bright_blue",
+                _ => "white",
+            };
+            println!(
+                "    {} {}: {}",
+                "└".dimmed(),
+                msg_match.role.color(role_color).bold(),
+                msg_match.content_snippet.dimmed()
+            );
+        }
+
+        if result.matches.len() > display_count {
+            println!(
+                "    {} {} more matches...",
+                "└".dimmed(),
+                (result.matches.len() - display_count).to_string().bright_cyan()
+            );
+        }
+
+        println!("  {}", "─".repeat(50).dimmed());
+    }
+
+    println!(
+        "  {} Use {} to load a session",
+        "→".dimmed(),
+        "/load <session_name>".bright_green()
+    );
+    println!();
 }

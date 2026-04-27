@@ -6,13 +6,13 @@ use my_code_agent::core::context::{expand_file_refs, print_attachments};
 use my_code_agent::core::context_manager::ContextManager;
 use my_code_agent::core::file_cache::FileCache;
 use my_code_agent::core::preamble::build_agent;
-use my_code_agent::core::session::{generate_session_name, SessionData};
+use my_code_agent::core::session::{generate_session_name, search_sessions, SessionData};
 use my_code_agent::core::streaming::stream_response;
 use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::tools::create_mcp_tools;
 use my_code_agent::ui::{
-    Command, parse_command, print_banner, print_interrupted_notice, print_sessions_list,
-    run_command,
+    Command, parse_command, print_banner, print_interrupted_notice, print_search_results,
+    print_sessions_list, run_command,
 };
 
 use reedline::{
@@ -49,20 +49,27 @@ async fn main() -> Result<()> {
 
     struct FilePathCompleter {
         default_completer: reedline::DefaultCompleter,
+        session_names: Vec<String>,
     }
 
     impl FilePathCompleter {
         fn new() -> Self {
             let commands = vec![
+                // Slash commands
                 "/help".into(),
                 "/usage".into(),
                 "/save".into(),
                 "/sessions".into(),
                 "/load".into(),
                 "/clear".into(),
+                "/new".into(),
                 "/review".into(),
                 "/think".into(),
+                "/search".into(),
                 "/quit".into(),
+                "/exit".into(),
+                "/q".into(),
+                // At-tools (when typed manually)
                 "@file_read".into(),
                 "@file_write".into(),
                 "@file_update".into(),
@@ -73,6 +80,7 @@ async fn main() -> Result<()> {
                 "@list_dir".into(),
                 "@glob".into(),
                 "@web_search".into(),
+                "@web_fetch".into(),
                 "@git_status".into(),
                 "@git_diff".into(),
                 "@git_log".into(),
@@ -81,7 +89,18 @@ async fn main() -> Result<()> {
             let mut default_completer =
                 reedline::DefaultCompleter::with_inclusions(&['/', '@']).set_min_word_len(1);
             default_completer.insert(commands);
-            Self { default_completer }
+            Self { 
+                default_completer,
+                session_names: Vec::new(),
+            }
+        }
+
+        /// Refresh session names from disk
+        fn refresh_sessions(&mut self) {
+            self.session_names = my_code_agent::core::session::SessionData::list_sessions()
+                .into_iter()
+                .map(|s| s.name)
+                .collect();
         }
 
         fn complete_file_path(&self, path_prefix: &str, word_start: usize) -> Vec<Suggestion> {
@@ -138,6 +157,60 @@ async fn main() -> Result<()> {
             // Find the word being completed (after last space or from start)
             let word_start = line.rfind(' ').map(|i| i + 1).unwrap_or(0);
             let word = &line[word_start..];
+
+            // If word starts with /, handle command completion
+            if word.starts_with('/') {
+                // Special handling for /load command - complete session names
+                if word.starts_with("/load") {
+                    self.refresh_sessions();
+                    let prefix = word.strip_prefix("/load").unwrap_or("").trim();
+                    let mut suggestions: Vec<Suggestion> = self.session_names
+                        .iter()
+                        .filter(|name| prefix.is_empty() || name.starts_with(prefix))
+                        .map(|name| Suggestion {
+                            value: format!("/load {}", name),
+                            description: Some("session".into()),
+                            extra: None,
+                            span: Span::new(word_start, word_start + word.len()),
+                            append_whitespace: true,
+                            ..Default::default()
+                        })
+                        .collect();
+                    suggestions.sort_by(|a, b| a.value.cmp(&b.value));
+                    
+                    // Also include /load command itself if just typing "/lo..."
+                    if "/load".starts_with(word) || word == "/load" {
+                        suggestions.push(Suggestion {
+                            value: "/load ".into(),
+                            description: Some("load session".into()),
+                            extra: None,
+                            span: Span::new(word_start, word_start + word.len()),
+                            append_whitespace: false,
+                            ..Default::default()
+                        });
+                    }
+                    return suggestions;
+                }
+                
+                // Special handling for /review command - complete file paths
+                if word.starts_with("/review") {
+                    let prefix = word.strip_prefix("/review").unwrap_or("").trim();
+                    if !prefix.is_empty() {
+                        return self.complete_file_path(&format!("@{}", prefix), word_start);
+                    }
+                    return vec![Suggestion {
+                        value: "/review ".into(),
+                        description: Some("review code at path".into()),
+                        extra: None,
+                        span: Span::new(word_start, word_start + word.len()),
+                        append_whitespace: false,
+                        ..Default::default()
+                    }];
+                }
+                
+                // Default command completion for other / commands
+                return self.default_completer.complete(line, pos);
+            }
 
             // If word starts with @, do file path completion
             if word.starts_with('@') {
@@ -405,6 +478,14 @@ async fn main() -> Result<()> {
                             } else {
                                 review_prompt = Some(format!("请审查 {} 的代码，检查代码质量、潜在问题和改进建议", path));
                                 println!("  {} Reviewing {}...", "🔍".bright_cyan(), path.bright_white());
+                            }
+                        }
+                        Command::Search(keyword) => {
+                            if keyword.is_empty() {
+                                println!("  {} Usage: /search <keyword>", "⚠".bright_yellow());
+                            } else {
+                                let results = search_sessions(&keyword);
+                                print_search_results(&results, &keyword);
                             }
                         }
                         _ => {
