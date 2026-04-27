@@ -140,6 +140,13 @@ pub struct SessionInfo {
     pub tokens: u64,
 }
 
+pub fn generate_session_name() -> String {
+    let secs = unix_epoch_secs();
+    let timestamp = format_timestamp(secs);
+    // Convert "YYYY-MM-DD HH:MM:SS" to "session_YYYYMMDD_HHMMSS"
+    format!("session_{}", timestamp.replace(&['-', ':', ' '][..], "_"))
+}
+
 fn unix_epoch_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

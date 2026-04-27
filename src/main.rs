@@ -6,7 +6,7 @@ use my_code_agent::core::context::{expand_file_refs, print_attachments};
 use my_code_agent::core::context_manager::ContextManager;
 use my_code_agent::core::file_cache::FileCache;
 use my_code_agent::core::preamble::build_agent;
-use my_code_agent::core::session::SessionData;
+use my_code_agent::core::session::{generate_session_name, SessionData};
 use my_code_agent::core::streaming::stream_response;
 use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::tools::create_mcp_tools;
@@ -296,17 +296,20 @@ async fn main() -> Result<()> {
                 if let Some(cmd) = parse_command(&input) {
                     match cmd {
                         Command::Clear => {
-                            // Delete the session file if it exists
-                            let session_to_delete = current_session_name.clone().unwrap_or_else(|| "default".to_string());
-                            match SessionData::delete_by_name(&session_to_delete) {
-                                Ok(()) => {
-                                    println!(
-                                        "{} Session '{}' deleted",
-                                        "🗑️".bright_yellow(),
-                                        session_to_delete.bright_white()
-                                    );
+                            // Delete the session file if it exists and has a name
+                            if let Some(ref name) = current_session_name {
+                                match SessionData::delete_by_name(name) {
+                                    Ok(()) => {
+                                        println!(
+                                            "{} Session '{}' deleted",
+                                            "🗑️".bright_yellow(),
+                                            name.bright_white()
+                                        );
+                                    }
+                                    Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
                                 }
-                                Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
+                            } else {
+                                println!("{} No named session to delete", "ℹ️".bright_blue());
                             }
                             
                             // Clear in-memory state
@@ -333,7 +336,7 @@ async fn main() -> Result<()> {
                                     let answer = input.trim().to_lowercase();
                                     if answer == "y" || answer == "yes" {
                                         // Save current session
-                                        let save_name = current_session_name.clone().unwrap_or_else(|| "default".to_string());
+                                        let save_name = current_session_name.clone().unwrap_or_else(|| generate_session_name());
                                         let data = SessionData::with_name(
                                             chat_history.clone(),
                                             session_usage.clone(),
@@ -375,7 +378,7 @@ async fn main() -> Result<()> {
                                     eprintln!("  {} {}", "⚠".bright_yellow(), e);
                                 }
                             } else if auto_save {
-                                let name = "default".to_string();
+                                let name = generate_session_name();
                                 let data = SessionData::with_name(
                                     chat_history.clone(),
                                     session_usage.clone(),
@@ -385,7 +388,7 @@ async fn main() -> Result<()> {
                                 if let Err(e) = data.save_with_name(&name) {
                                     eprintln!("  {} {}", "⚠".bright_yellow(), e);
                                 }
-                                println!("  {} Auto-saved as 'default'", "💾".bright_green());
+                                println!("  {} Auto-saved as '{}'", "💾".bright_green(), name.bright_white());
                             }
                             println!("{}", "Goodbye! 👋".dimmed());
                             break;
@@ -514,7 +517,7 @@ async fn main() -> Result<()> {
                             eprintln!("  {} {}", "⚠".bright_yellow(), e);
                         }
                     } else if auto_save {
-                        let name = "default".to_string();
+                        let name = generate_session_name();
                         let data = SessionData::with_name(
                             chat_history.clone(),
                             session_usage.clone(),
@@ -524,7 +527,7 @@ async fn main() -> Result<()> {
                         if let Err(e) = data.save_with_name(&name) {
                             eprintln!("  {} {}", "⚠".bright_yellow(), e);
                         }
-                        println!("  {} Auto-saved as 'default'", "💾".bright_green());
+                        println!("  {} Auto-saved as '{}'", "💾".bright_green(), name.bright_white());
                     }
                     println!("{}", "Goodbye! 👋".dimmed());
                     return Ok(());
@@ -549,7 +552,7 @@ async fn main() -> Result<()> {
                         eprintln!("  {} {}", "⚠".bright_yellow(), e);
                     }
                 } else if auto_save {
-                    let name = "default".to_string();
+                    let name = generate_session_name();
                     let data = SessionData::with_name(
                         chat_history.clone(),
                         session_usage.clone(),
@@ -559,7 +562,7 @@ async fn main() -> Result<()> {
                     if let Err(e) = data.save_with_name(&name) {
                         eprintln!("  {} {}", "⚠".bright_yellow(), e);
                     }
-                    println!("  {} Auto-saved as 'default'", "💾".bright_green());
+                    println!("  {} Auto-saved as '{}'", "💾".bright_green(), name.bright_white());
                 }
                 println!("{}", "Goodbye! 👋".dimmed());
                 break;
