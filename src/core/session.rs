@@ -284,16 +284,35 @@ fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String 
     let content_lower = content.to_lowercase();
     let keyword_lower = keyword.to_lowercase();
 
-    if let Some(pos) = content_lower.find(&keyword_lower) {
-        let start = pos.saturating_sub(context_size / 2);
-        let end = (pos + keyword.len() + context_size / 2).min(content.len());
+    if let Some(byte_pos) = content_lower.find(&keyword_lower) {
+        // Convert byte position to character boundary-safe position
+        // Find the keyword's character position in the original content
+        let char_pos = content
+            .char_indices()
+            .enumerate()
+            .find_map(|(char_idx, (byte_idx, _))| {
+                if byte_idx == byte_pos {
+                    Some(char_idx)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+
+        // Calculate character-based start and end
+        let char_start = char_pos.saturating_sub(context_size / 2);
+        let char_end = (char_pos + keyword.chars().count() + context_size / 2).min(content.chars().count());
+
+        // Convert back to byte indices safely
+        let start_byte = content.char_indices().nth(char_start).map(|(i, _)| i).unwrap_or(0);
+        let end_byte = content.char_indices().nth(char_end).map(|(i, _)| i).unwrap_or(content.len());
 
         let mut snippet = String::new();
-        if start > 0 {
+        if char_start > 0 {
             snippet.push_str("...");
         }
-        snippet.push_str(&content[start..end]);
-        if end < content.len() {
+        snippet.push_str(&content[start_byte..end_byte]);
+        if char_end < content.chars().count() {
             snippet.push_str("...");
         }
 

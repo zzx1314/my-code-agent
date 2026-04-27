@@ -247,6 +247,15 @@ async fn main() -> Result<()> {
         .with_menu(ReedlineMenu::EngineCompleter(Box::new(completion_menu)))
         .with_edit_mode(edit_mode);
 
+    // Enable bracketed paste mode for proper multi-line paste support
+    if let Err(e) = rl.enable_bracketed_paste() {
+        eprintln!(
+            "  {} Warning: Could not enable bracketed paste: {}",
+            "⚠".bright_yellow(),
+            e
+        );
+    }
+
     // Interrupt channel for Ctrl+C during streaming
     let (interrupt_tx, mut interrupt_rx) = tokio::sync::mpsc::channel::<()>(1);
     tokio::spawn(async move {
