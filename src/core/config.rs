@@ -161,10 +161,10 @@ pub struct McpConfig {
     /// Enable MCP integration.
     #[serde(default = "default_mcp_enabled")]
     pub enabled: bool,
-    /// Brave Search API key (or set BRAVE_API_KEY env var).
-    /// Get your key at: https://brave.com/search/api/
+    /// Parallel AI API key (or set PARALLEL_API_KEY env var).
+    /// Get your key at: https://platform.parallel.ai
     #[serde(default)]
-    pub brave_api_key: Option<String>,
+    pub parallel_api_key: Option<String>,
 }
 
 fn default_mcp_enabled() -> bool {
@@ -175,7 +175,7 @@ impl Default for McpConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            brave_api_key: None,
+            parallel_api_key: None,
         }
     }
 }

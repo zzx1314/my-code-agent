@@ -50,8 +50,7 @@ pub fn all_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
     tools
 }
 
-/// Create and add the WebSearch tool if MCP is enabled.
-/// This should be called at startup with the config.
+/// Create MCP tools (Parallel Search MCP).
 pub async fn create_mcp_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
     let mut mcp_tools: Vec<Box<dyn ToolDyn>> = Vec::new();
 
@@ -59,35 +58,29 @@ pub async fn create_mcp_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
         return mcp_tools;
     }
 
-    // Get Brave API key from config or environment
-    let brave_api_key = config
+    let parallel_api_key = config
         .mcp
-        .brave_api_key
+        .parallel_api_key
         .clone()
-        .or_else(|| std::env::var("BRAVE_API_KEY").ok());
+        .or_else(|| std::env::var("PARALLEL_API_KEY").ok());
 
-    let api_key = match brave_api_key {
-        Some(key) => key,
-        None => {
-            eprintln!(
-                "{} BRAVE_API_KEY not set. MCP WebSearch will not be available.",
-                "✗".bright_red()
-            );
-            return mcp_tools;
+    if let Some(key) = parallel_api_key {
+        let search_tool = crate::mcp::web_search_tool::ParallelWebSearch::new(&key);
+        if search_tool.is_available() {
+            eprintln!("{} web_search tool added", "✓".bright_green());
+            mcp_tools.push(Box::new(search_tool) as Box<dyn ToolDyn>);
         }
-    };
 
-    // Create WebSearch tool
-    match crate::mcp::web_search_tool::WebSearch::new(&api_key).await {
-        Ok(tool) => {
-            if tool.is_available() {
-                eprintln!("{} MCP WebSearch tool added", "✓".bright_green());
-                mcp_tools.push(Box::new(tool) as Box<dyn ToolDyn>);
-            }
+        let fetch_tool = crate::mcp::web_search_tool::ParallelWebFetch::new(&key);
+        if fetch_tool.is_available() {
+            eprintln!("{} web_fetch tool added", "✓".bright_green());
+            mcp_tools.push(Box::new(fetch_tool) as Box<dyn ToolDyn>);
         }
-        Err(e) => {
-            eprintln!("{} Failed to create WebSearch tool: {}", "✗".bright_red(), e);
-        }
+    } else {
+        eprintln!(
+            "{} PARALLEL_API_KEY not set. Set in config.toml or .env",
+            "✗".bright_red()
+        );
     }
 
     mcp_tools

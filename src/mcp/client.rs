@@ -1,10 +1,11 @@
-//! MCP Client implementation using stdio transport.
+//! MCP Client implementation using stdio and HTTP transport.
 //!
-//! This client spawns an MCP server as a child process and communicates
-//! via JSON-RPC 2.0 over stdin/stdout.
+//! This client can connect to MCP servers either via stdio (child process)
+//! or via HTTP (remote server like Parallel Search MCP).
 
 use crate::mcp::types::*;
 use anyhow::{Context, Result};
+use reqwest::Client;
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -272,5 +273,98 @@ impl McpClient {
     ) -> Result<CallToolResult> {
         let mut client = self.inner.lock().await;
         client.call_tool(name, arguments).await
+    }
+}
+
+/// HTTP-based MCP Client for remote servers (like Parallel Search MCP).
+pub struct McpHttpClient {
+    client: Client,
+    server_url: String,
+    auth_header: Option<String>,
+}
+
+impl McpHttpClient {
+    pub fn new(server_url: &str, api_key: Option<&str>) -> Self {
+        let auth_header = api_key.map(|key| format!("Bearer {}", key));
+        Self {
+            client: Client::new(),
+            server_url: server_url.to_string(),
+            auth_header,
+        }
+    }
+
+    pub async fn initialize(&self) -> Result<InitializeResult> {
+        let params = InitializeParams {
+            protocol_version: "2024-11-05".to_string(),
+            capabilities: ClientCapabilities {
+                roots: None,
+                sampling: None,
+            },
+            client_info: ClientInfo {
+                name: "my-code-agent".to_string(),
+                version: "0.1.0".to_string(),
+            },
+        };
+
+        let response = self
+            .send_request("initialize", Some(serde_json::to_value(params)?))
+            .await?;
+
+        let result: InitializeResult = serde_json::from_value(response)?;
+        Ok(result)
+    }
+
+    async fn send_request(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params
+        });
+
+        let mut req = self.client.post(&self.server_url).json(&request);
+        if let Some(ref header) = self.auth_header {
+            req = req.header("Authorization", header);
+        }
+
+        let response: serde_json::Value = req.send().await?.json().await?;
+        Ok(response)
+    }
+
+    pub async fn list_tools(&self) -> Result<Vec<ToolDefinition>> {
+        let response = self.send_request("tools/list", None).await?;
+
+        if let Some(result_obj) = response.get("result") {
+            let result: ListToolsResult = serde_json::from_value(result_obj.clone())?;
+            Ok(result.tools)
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    pub async fn call_tool(
+        &self,
+        name: &str,
+        arguments: serde_json::Value,
+    ) -> Result<CallToolResult> {
+        let params = CallToolParams {
+            name: name.to_string(),
+            arguments,
+        };
+
+        let response = self
+            .send_request("tools/call", Some(serde_json::to_value(params)?))
+            .await?;
+
+        if let Some(result_obj) = response.get("result") {
+            let result: CallToolResult = serde_json::from_value(result_obj.clone())?;
+            Ok(result)
+        } else {
+            anyhow::bail!("No result in response")
+        }
     }
 }

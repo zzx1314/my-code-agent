@@ -7,5 +7,5 @@ pub mod client;
 pub mod types;
 pub mod web_search_tool;
 
-pub use client::McpClient;
+pub use client::McpHttpClient;
 pub use types::*;

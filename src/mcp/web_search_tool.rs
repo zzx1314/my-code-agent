@@ -1,37 +1,34 @@
-//! WebSearch tool adapter for MCP Brave Search server.
-//!
-//! This tool connects to the @modelcontextprotocol/server-brave-search
-//! MCP server to provide web search capabilities.
+//! Parallel Search MCP tool adapter.
+//! 
+//! Uses https://search.parallel.ai/mcp for web search and fetch.
 
-use crate::mcp::McpClient;
+use crate::mcp::McpHttpClient;
 use rig::completion::ToolDefinition as RigToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use thiserror::Error;
 
-/// Arguments for the web_search tool.
 #[derive(Deserialize, Serialize)]
 pub struct WebSearchArgs {
     pub query: String,
-    #[serde(default = "default_count")]
+    #[serde(default)]
     pub count: u32,
 }
 
-fn default_count() -> u32 {
-    10
+#[derive(Deserialize, Serialize)]
+pub struct WebFetchArgs {
+    pub url: String,
 }
 
-/// Output of the web_search tool.
 #[derive(Serialize)]
 pub struct WebSearchOutput {
     pub results: String,
 }
 
-/// Errors for the WebSearch tool.
 #[derive(Debug, Error)]
 pub enum WebSearchError {
-    #[error("WebSearch tool not available. Make sure BRAVE_API_KEY is set and npx is installed.")]
+    #[error("WebSearch tool not available. Set PARALLEL_API_KEY in config or .env")]
     NotAvailable,
     #[error("Web search failed: {0}")]
     SearchFailed(String),
@@ -39,57 +36,24 @@ pub enum WebSearchError {
     SearchError,
 }
 
-/// WebSearch tool that wraps the MCP Brave Search server.
-pub struct WebSearch {
-    client: Option<McpClient>,
+pub struct ParallelWebSearch {
+    client: Option<McpHttpClient>,
 }
 
-impl WebSearch {
-    /// Create a new WebSearch tool by connecting to the Brave Search MCP server.
-    pub async fn new(brave_api_key: &str) -> anyhow::Result<Self> {
-        // Check if npx is available
-        let npx_check = tokio::process::Command::new("npx")
-            .arg("--version")
-            .output()
-            .await;
-        
-        if npx_check.is_err() || !npx_check.unwrap().status.success() {
-            eprintln!("✗ npx not found. Install Node.js to use MCP web search.");
-            return Ok(Self { client: None });
-        }
-
-        // Set the API key in the environment
-        unsafe {
-            std::env::set_var("BRAVE_API_KEY", brave_api_key);
-        }
-
-        // Connect to the Brave Search MCP server
-        match McpClient::connect(
-            "npx",
-            &["-y", "@modelcontextprotocol/server-brave-search"],
-        )
-        .await
-        {
-            Ok(client) => {
-                eprintln!("✓ MCP Brave Search connected");
-                Ok(Self {
-                    client: Some(client),
-                })
-            }
-            Err(e) => {
-                eprintln!("✗ Failed to connect to MCP server: {}", e);
-                Ok(Self { client: None })
-            }
+impl ParallelWebSearch {
+    pub fn new(api_key: &str) -> Self {
+        let client = McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key));
+        Self {
+            client: Some(client),
         }
     }
 
-    /// Check if the tool is available.
     pub fn is_available(&self) -> bool {
         self.client.is_some()
     }
 }
 
-impl Tool for WebSearch {
+impl Tool for ParallelWebSearch {
     const NAME: &'static str = "web_search";
     type Error = WebSearchError;
     type Args = WebSearchArgs;
@@ -98,21 +62,19 @@ impl Tool for WebSearch {
     async fn definition(&self, _prompt: String) -> RigToolDefinition {
         RigToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Search the web using Brave Search. \
-                Returns relevant web results with titles, URLs, and snippets. \
-                Use this tool when you need up-to-date information from the internet, \
-                current events, or facts not available in the local codebase."
+            description: "Search the web using Parallel Search MCP. \
+                Returns relevant web results with titles, URLs, and snippets."
                 .to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The search query to submit to Brave Search"
+                        "description": "The search query"
                     },
                     "count": {
                         "type": "number",
-                        "description": "Number of results to return (default: 10)",
+                        "description": "Number of results (default: 10)",
                         "default": 10
                     }
                 },
@@ -124,19 +86,16 @@ impl Tool for WebSearch {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let client = self.client.as_ref().ok_or(WebSearchError::NotAvailable)?;
 
-        eprintln!("🔍 Searching web for: {}", args.query);
-
         let call_args = serde_json::json!({
             "query": args.query,
             "count": args.count
         });
 
-        match client.call_tool("brave_web_search", call_args).await {
+        match client.call_tool("web_search", call_args).await {
             Ok(result) => {
                 if result.is_error {
                     return Err(WebSearchError::SearchError);
                 }
-                // Format the results
                 let mut output = String::new();
                 for content in &result.content {
                     if let crate::mcp::types::Content::Text { text } = content {
@@ -146,10 +105,74 @@ impl Tool for WebSearch {
                 }
                 Ok(WebSearchOutput { results: output })
             }
-            Err(e) => {
-                eprintln!("✗ Web search failed: {}", e);
-                Err(WebSearchError::SearchFailed(e.to_string()))
+            Err(e) => Err(WebSearchError::SearchFailed(e.to_string()))
+        }
+    }
+}
+
+pub struct ParallelWebFetch {
+    client: Option<McpHttpClient>,
+}
+
+impl ParallelWebFetch {
+    pub fn new(api_key: &str) -> Self {
+        let client = McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key));
+        Self {
+            client: Some(client),
+        }
+    }
+
+    pub fn is_available(&self) -> bool {
+        self.client.is_some()
+    }
+}
+
+impl Tool for ParallelWebFetch {
+    const NAME: &'static str = "web_fetch";
+    type Error = WebSearchError;
+    type Args = WebFetchArgs;
+    type Output = WebSearchOutput;
+
+    async fn definition(&self, _prompt: String) -> RigToolDefinition {
+        RigToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Extract content from a URL in markdown format."
+                .to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch"
+                    }
+                },
+                "required": ["url"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let client = self.client.as_ref().ok_or(WebSearchError::NotAvailable)?;
+
+        let call_args = serde_json::json!({
+            "url": args.url
+        });
+
+        match client.call_tool("web_fetch", call_args).await {
+            Ok(result) => {
+                if result.is_error {
+                    return Err(WebSearchError::SearchError);
+                }
+                let mut output = String::new();
+                for content in &result.content {
+                    if let crate::mcp::types::Content::Text { text } = content {
+                        output.push_str(text);
+                        output.push('\n');
+                    }
+                }
+                Ok(WebSearchOutput { results: output })
             }
+            Err(e) => Err(WebSearchError::SearchFailed(e.to_string()))
         }
     }
 }

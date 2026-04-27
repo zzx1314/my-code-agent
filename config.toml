@@ -69,3 +69,12 @@ api_key_env = "OPENROUTER_API_KEY"
 # Default: `.session.json` (in the current directory).
 # Set to "" or omit to use the default.
 # save_file = ".session.json"
+
+# ── MCP (Parallel Search) Settings ──
+[mcp]
+# Enable MCP web search tools.
+enabled = true
+
+# Parallel AI API key (get yours at https://platform.parallel.ai)
+# Or set PARALLEL_API_KEY environment variable in .env
+# parallel_api_key = "your_api_key_here"
