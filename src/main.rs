@@ -56,6 +56,7 @@ async fn main() -> Result<()> {
                 "/sessions".into(),
                 "/load".into(),
                 "/clear".into(),
+                "/review".into(),
                 "/think".into(),
                 "/quit".into(),
                 "@file_read".into(),
@@ -64,6 +65,7 @@ async fn main() -> Result<()> {
                 "@file_delete".into(),
                 "@shell_exec".into(),
                 "@code_search".into(),
+                "@code_review".into(),
                 "@list_dir".into(),
                 "@glob".into(),
                 "@web_search".into(),
@@ -278,6 +280,7 @@ async fn main() -> Result<()> {
                 }
 
                 // Handle built-in commands
+                let mut review_prompt = None;
                 if let Some(cmd) = parse_command(&input) {
                     match cmd {
                         Command::Clear => {
@@ -334,26 +337,45 @@ async fn main() -> Result<()> {
                             let sessions = SessionData::list_sessions();
                             print_sessions_list(&sessions);
                         }
+                        Command::Review(path) => {
+                            // Construct review prompt
+                            if path.is_empty() {
+                                println!("  {} Usage: /review <path>", "⚠".bright_yellow());
+                                println!("  {} Example: /review src/main.rs", "→".dimmed());
+                            } else {
+                                review_prompt = Some(format!("请审查 {} 的代码，检查代码质量、潜在问题和改进建议", path));
+                                println!("  {} Reviewing {}...", "🔍".bright_cyan(), path.bright_white());
+                            }
+                        }
                         _ => {
                             run_command(cmd, &mut session_usage, &last_reasoning, config.agent.think_command);
                         }
                     }
-                    continue;
+                    
+                    // Don't continue for Review command - let it fall through to model call
+                    if review_prompt.is_none() {
+                        continue;
+                    }
                 }
 
-                let expand_result = expand_file_refs(&input, &config);
-                if !expand_result.attachments.is_empty() {
-                    print_attachments(&expand_result.attachments);
-                }
-
-                // Use file cache for @filepath expansion
-                use my_code_agent::core::context::expand_file_refs_with_cache;
-                let expanded_input = if !expand_result.attachments.is_empty() {
-                    let cached_result =
-                        expand_file_refs_with_cache(&input, &config, Some(&mut file_cache));
-                    cached_result.expanded
+                let expanded_input = if let Some(ref prompt) = review_prompt {
+                    // Use review prompt directly, skip file expansion
+                    prompt.clone()
                 } else {
-                    expand_result.expanded.clone()
+                    let expand_result = expand_file_refs(&input, &config);
+                    if !expand_result.attachments.is_empty() {
+                        print_attachments(&expand_result.attachments);
+                    }
+
+                    // Use file cache for @filepath expansion
+                    use my_code_agent::core::context::expand_file_refs_with_cache;
+                    if !expand_result.attachments.is_empty() {
+                        let cached_result =
+                            expand_file_refs_with_cache(&input, &config, Some(&mut file_cache));
+                        cached_result.expanded
+                    } else {
+                        expand_result.expanded.clone()
+                    }
                 };
 
                 let result = stream_response(

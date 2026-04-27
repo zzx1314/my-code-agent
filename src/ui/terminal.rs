@@ -36,7 +36,7 @@ pub fn print_banner() {
     println!(
         "  {} {}",
         "Tools:".bright_white().bold(),
-        "file_read · file_write · file_update · file_delete · shell_exec · code_search · list_dir · glob · git_status · git_diff · git_log · git_commit"
+        "file_read · file_write · file_update · file_delete · shell_exec · code_search · code_review · list_dir · glob · git_status · git_diff · git_log · git_commit"
             .bright_green()
     );
     println!(
@@ -76,6 +76,10 @@ pub fn print_help() {
     );
     println!("  {}  Run shell commands", "shell_exec".bright_yellow());
     println!("  {}  Search code patterns", "code_search".bright_yellow());
+    println!(
+        "  {}  Review code files for quality and issues",
+        "code_review".bright_yellow()
+    );
     println!("  {}  List directory contents", "list_dir".bright_yellow());
     println!("  {}  Find files by glob pattern", "glob".bright_yellow());
     println!(
@@ -103,6 +107,10 @@ pub fn print_help() {
     println!("  {}  List saved sessions", "sessions".dimmed());
     println!("  {}  Load a saved session by name", "load".dimmed());
     println!("  {}  Clear conversation history", "clear".dimmed());
+    println!(
+        "  {}  Review code at <path> for quality and issues",
+        "review".bright_green()
+    );
     println!(
         "  {}  Expand last reasoning content",
         "think".bright_magenta()
@@ -207,11 +215,16 @@ pub enum Command {
     Save,
     Sessions,
     Load,
+    Review(String),  // Contains the path to review
 }
 
 pub fn parse_command(input: &str) -> Option<Command> {
     let input = input.strip_prefix('/').unwrap_or(input);
-    match input {
+    let parts: Vec<&str> = input.splitn(2, ' ').collect();
+    let cmd = parts[0];
+    let arg = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty());
+
+    match cmd {
         "help" => Some(Command::Help),
         "usage" => Some(Command::Usage),
         "clear" => Some(Command::Clear),
@@ -220,6 +233,7 @@ pub fn parse_command(input: &str) -> Option<Command> {
         "save" => Some(Command::Save),
         "sessions" => Some(Command::Sessions),
         "load" => Some(Command::Load),
+        "review" => Some(Command::Review(arg.unwrap_or("").to_string())),
         _ => None,
     }
 }
@@ -234,6 +248,9 @@ pub fn run_command(cmd: Command, session_usage: &mut TokenUsage, last_reasoning:
             } else {
                 println!("  {} Command not enabled", "⚠".bright_yellow());
             }
+        }
+        Command::Review(_) => {
+            // Review command is handled in main.rs, not here
         }
         Command::Clear | Command::Quit | Command::Save | Command::Sessions | Command::Load => {}
     }

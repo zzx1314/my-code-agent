@@ -5,7 +5,7 @@ use my_code_agent::tools::all_tools;
 fn test_all_tools_count() {
     let config = Config::default();
     let tools = all_tools(&config);
-    assert_eq!(tools.len(), 8);
+    assert_eq!(tools.len(), 13);
 }
 
 #[test]
@@ -17,8 +17,13 @@ fn test_all_tools_names() {
     assert!(names.contains(&"file_write".to_string()));
     assert!(names.contains(&"shell_exec".to_string()));
     assert!(names.contains(&"code_search".to_string()));
+    assert!(names.contains(&"code_review".to_string()));
     assert!(names.contains(&"file_update".to_string()));
     assert!(names.contains(&"file_delete".to_string()));
     assert!(names.contains(&"list_dir".to_string()));
     assert!(names.contains(&"glob".to_string()));
+    assert!(names.contains(&"git_status".to_string()));
+    assert!(names.contains(&"git_diff".to_string()));
+    assert!(names.contains(&"git_log".to_string()));
+    assert!(names.contains(&"git_commit".to_string()));
 }

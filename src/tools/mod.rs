@@ -1,3 +1,4 @@
+pub mod code_review;
 pub mod code_search;
 pub mod file_delete;
 pub mod file_read;
@@ -12,6 +13,7 @@ pub mod list_dir;
 pub mod safety;
 pub mod shell_exec;
 
+pub use code_review::CodeReview;
 pub use code_search::CodeSearch;
 pub use file_delete::FileDelete;
 pub use file_read::FileRead;
@@ -44,6 +46,7 @@ pub fn all_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
         Box::new(FileDelete),
         Box::new(ShellExec::from_config(config)),
         Box::new(CodeSearch),
+        Box::new(CodeReview),
         Box::new(ListDir),
         Box::new(GlobSearch),
         Box::new(GitStatus),
