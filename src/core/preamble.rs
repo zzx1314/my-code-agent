@@ -52,7 +52,8 @@ This plan helps:
 - **code_search**: Search for patterns in source code using ripgrep (rg). Automatically respects .gitignore and skips binary files.
 - **list_dir**: List files and directories in a path with configurable recursion depth. Use this to explore project structure and discover files.
 - **glob**: Find files matching a glob pattern (e.g. **/*.rs, src/**/*.ts). Use this to locate files by name or extension.
-- **web_search**: Search the web using Brave Search. Use this tool when you need up-to-date information from the internet, current events, or facts not available in the local codebase. Returns search results with titles, URLs, and snippets.
+- **web_search**: Search the web using Parallel Search MCP. Use this tool when you need up-to-date information from the internet, current events, or facts not available in the local codebase. Returns search results with titles, URLs, and snippets.
+- **web_fetch**: Extract content from a specific URL using Parallel Search MCP.
 ## Critical Rules
 1. **STOP after answering**: Once you have gathered enough information to answer the user's question, provide a text response immediately. Do NOT call more tools.
 2. **Minimum tools**: Use the fewest tool calls possible. Typically 1-3 calls per question is sufficient. Do not chain tool calls unnecessarily.

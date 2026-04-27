@@ -1,7 +1,3 @@
-//! Parallel Search MCP tool adapter.
-//! 
-//! Uses https://search.parallel.ai/mcp for web search and fetch.
-
 use crate::mcp::McpHttpClient;
 use rig::completion::ToolDefinition as RigToolDefinition;
 use rig::tool::Tool;
@@ -65,14 +61,14 @@ impl Tool for ParallelWebSearch {
         RigToolDefinition {
             name: Self::NAME.to_string(),
             description: "Search the web using Parallel Search MCP. \
-                Returns relevant web results with titles, URLs, and snippets."
+                Use objective (what to find) and search_queries (keywords)."
                 .to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The search query"
+                        "description": "What to search for"
                     },
                     "count": {
                         "type": "number",
@@ -88,9 +84,10 @@ impl Tool for ParallelWebSearch {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let client = self.client.as_ref().ok_or(WebSearchError::NotAvailable)?;
 
+        let keywords: Vec<String> = args.query.split_whitespace().take(3).map(String::from).collect();
         let call_args = serde_json::json!({
-            "query": args.query,
-            "count": args.count
+            "objective": args.query,
+            "search_queries": keywords
         });
 
         match client.call_tool("web_search", call_args).await {
