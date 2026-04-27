@@ -281,11 +281,25 @@ async fn main() -> Result<()> {
                 if let Some(cmd) = parse_command(&input) {
                     match cmd {
                         Command::Clear => {
+                            // Delete the session file if it exists
+                            let session_to_delete = current_session_name.clone().unwrap_or_else(|| "default".to_string());
+                            match SessionData::delete_by_name(&session_to_delete) {
+                                Ok(()) => {
+                                    println!(
+                                        "{} Session '{}' deleted",
+                                        "🗑️".bright_yellow(),
+                                        session_to_delete.bright_white()
+                                    );
+                                }
+                                Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
+                            }
+                            
+                            // Clear in-memory state
                             chat_history.clear();
                             last_reasoning.clear();
                             session_usage = TokenUsage::with_config(&config);
                             current_session_name = None;
-                            println!("{}", "Conversation history cleared 🗑️".dimmed());
+                            println!("{}", "Conversation history cleared".dimmed());
                         }
                         Command::Quit => {
                             let auto_save =
