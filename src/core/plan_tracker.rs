@@ -156,15 +156,11 @@ impl PlanTracker {
         }
 
         println!("\n  {} {}", "📋".bright_green(), "Task Plan".bold());
-        for step in self.steps.iter() {
-            println!("    {} {}", "→".bright_cyan(), step.bright_white());
+        for (i, step) in self.steps.iter().enumerate() {
+            println!("    {} {}", format!("{}.", i + 1).bright_cyan(), step.bright_white());
         }
-        println!("    {}", "─".repeat(30).dimmed());
-        println!(
-            "  {} {}",
-            "?".bright_yellow(),
-            "Confirm plan? [ENTER=proceed, n=cancel]:".dimmed()
-        );
+        print!("  {} ", "?".bright_yellow());
+        println!("{}", "Confirm? [Enter=proceed, n=cancel]".dimmed());
     }
 
     /// Print current progress indicator
