@@ -120,12 +120,21 @@ pub struct ReasoningTracker {
 }
 
 impl ReasoningTracker {
-    pub fn new() -> Self {
-        Self {
+    pub fn new_with_config(thinking_display: &str) -> Self {
+        let tracker = Self {
             is_reasoning: false,
             reasoning_buf: String::new(),
             total_reasoning: String::new(),
+        };
+        if thinking_display == "streaming" {
+            print!("\n  {} ", "💭".bright_magenta());
+            let _ = std::io::stdout().flush();
         }
+        tracker
+    }
+
+    pub fn new() -> Self {
+        Self::new_with_config("collapsed")
     }
 
     /// Returns `true` if currently inside a reasoning segment.

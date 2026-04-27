@@ -208,12 +208,16 @@ pub fn parse_command(input: &str) -> Option<Command> {
     }
 }
 
-pub fn run_command(cmd: Command, session_usage: &mut TokenUsage, last_reasoning: &str) -> bool {
+pub fn run_command(cmd: Command, session_usage: &mut TokenUsage, last_reasoning: &str, think_enabled: bool) -> bool {
     match cmd {
         Command::Help => print_help(),
         Command::Usage => session_usage.print_session_report(),
         Command::Think => {
-            print_reasoning_full(last_reasoning);
+            if think_enabled {
+                print_reasoning_full(last_reasoning);
+            } else {
+                println!("  {} Command not enabled", "⚠".bright_yellow());
+            }
         }
         Command::Clear | Command::Quit | Command::Save | Command::Sessions | Command::Load => {}
     }

@@ -310,7 +310,7 @@ async fn main() -> Result<()> {
                             print_sessions_list(&sessions);
                         }
                         _ => {
-                            run_command(cmd, &mut session_usage, &last_reasoning);
+                            run_command(cmd, &mut session_usage, &last_reasoning, config.agent.think_command);
                         }
                     }
                     continue;
@@ -338,6 +338,7 @@ async fn main() -> Result<()> {
                     &mut session_usage,
                     &mut interrupt_rx,
                     &mut context_manager,
+                    &config.agent,
                 )
                 .await;
 

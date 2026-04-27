@@ -4,6 +4,7 @@ use rig::agent::MultiTurnStreamItem;
 use rig::completion::Message;
 use rig::streaming::StreamedAssistantContent;
 
+use super::config::AgentConfig;
 use super::context_manager::ContextManager;
 use super::plan_tracker::PlanTracker;
 use super::token_usage::{TokenUsage, print_context_warning, print_turn_usage};
@@ -60,6 +61,7 @@ pub async fn stream_response(
     session_usage: &mut TokenUsage,
     interrupt_rx: &mut tokio::sync::mpsc::Receiver<()>,
     context_manager: &mut ContextManager,
+    agent_config: &AgentConfig,
 ) -> StreamResult {
     let streaming_request = agent.stream_chat(input, chat_history.as_slice());
     let mut stream = streaming_request.await;
@@ -67,10 +69,12 @@ pub async fn stream_response(
     let mut full_response = String::new();
     let mut interrupted = false;
     let mut renderer = MarkdownRenderer::new();
-    let mut reasoning = ReasoningTracker::new();
+    let mut reasoning = ReasoningTracker::new_with_config(&agent_config.thinking_display);
     let mut plan_tracker = PlanTracker::new();
     let mut plan_detected = false;
     let mut plan_text = String::new();
+
+    let display_mode = agent_config.thinking_display.as_str();
 
     loop {
         let item = tokio::select! {
@@ -186,17 +190,21 @@ pub async fn stream_response(
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Reasoning(
                 r,
             ))) => {
-                reasoning.append(&r.display_text());
+                if display_mode != "hidden" {
+                    reasoning.append(&r.display_text());
+                }
             }
             Ok(MultiTurnStreamItem::StreamAssistantItem(
                 StreamedAssistantContent::ReasoningDelta {
                     reasoning: delta, ..
                 },
             )) => {
-                reasoning.append(&delta);
+                if display_mode != "hidden" {
+                    reasoning.append(&delta);
+                }
             }
             Ok(MultiTurnStreamItem::FinalResponse(final_res)) => {
-                if reasoning.is_reasoning() {
+                if reasoning.is_reasoning() && display_mode != "hidden" {
                     reasoning.end_segment();
                 }
                 renderer.flush();

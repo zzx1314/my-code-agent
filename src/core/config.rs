@@ -29,6 +29,12 @@ fn default_timeout_secs() -> u64 {
 fn default_max_turns() -> usize {
     100
 }
+fn default_thinking_display() -> String {
+    "collapsed".to_string()
+}
+fn default_think_command() -> bool {
+    true
+}
 fn default_provider_name() -> String {
     "deepseek".to_string()
 }
@@ -115,9 +121,14 @@ pub struct ShellConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentConfig {
     /// Maximum number of tool-call turns per response.
-    /// Default: 10.
     #[serde(default = "default_max_turns")]
     pub max_turns: usize,
+    /// Thinking/reasoning display mode: "streaming" | "collapsed" | "hidden"
+    #[serde(default = "default_thinking_display")]
+    pub thinking_display: String,
+    /// Enable /think command to view full reasoning.
+    #[serde(default = "default_think_command")]
+    pub think_command: bool,
 }
 
 /// LLM provider settings.
@@ -181,7 +192,11 @@ impl Default for ShellConfig {
 
 impl Default for AgentConfig {
     fn default() -> Self {
-        Self { max_turns: 10 }
+        Self {
+            max_turns: 10,
+            thinking_display: "collapsed".to_string(),
+            think_command: true,
+        }
     }
 }
 
