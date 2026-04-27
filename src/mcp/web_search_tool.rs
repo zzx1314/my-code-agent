@@ -133,7 +133,7 @@ impl Tool for WebSearch {
 
         match client.call_tool("brave_web_search", call_args).await {
             Ok(result) => {
-                if result.isError {
+                if result.is_error {
                     return Err(WebSearchError::SearchError);
                 }
                 // Format the results

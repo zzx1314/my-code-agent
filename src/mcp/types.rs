@@ -49,9 +49,11 @@ pub struct JsonRpcError {
 /// MCP Initialize request parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitializeParams {
-    pub protocolVersion: String,
+    #[serde(rename = "protocolVersion")]
+    pub protocol_version: String,
     pub capabilities: ClientCapabilities,
-    pub clientInfo: ClientInfo,
+    #[serde(rename = "clientInfo")]
+    pub client_info: ClientInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,7 +66,8 @@ pub struct ClientCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RootsCapability {
-    pub listChanged: bool,
+    #[serde(rename = "listChanged")]
+    pub list_changed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,9 +79,11 @@ pub struct ClientInfo {
 /// MCP Initialize result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitializeResult {
-    pub protocolVersion: String,
+    #[serde(rename = "protocolVersion")]
+    pub protocol_version: String,
     pub capabilities: ServerCapabilities,
-    pub serverInfo: ServerInfo,
+    #[serde(rename = "serverInfo")]
+    pub server_info: ServerInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,7 +98,8 @@ pub struct ServerCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolsCapability {
-    pub listChanged: bool,
+    #[serde(rename = "listChanged")]
+    pub list_changed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,8 +119,8 @@ pub struct ListToolsParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListToolsResult {
     pub tools: Vec<ToolDefinition>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nextCursor: Option<String>,
+    #[serde(rename = "nextCursor", skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// MCP Tool definition.
@@ -122,7 +128,8 @@ pub struct ListToolsResult {
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
-    pub inputSchema: serde_json::Value,  // JSON Schema
+    #[serde(rename = "inputSchema")]
+    pub input_schema: serde_json::Value,
 }
 
 /// MCP CallTool request parameters.
@@ -136,7 +143,8 @@ pub struct CallToolParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallToolResult {
     pub content: Vec<Content>,
-    pub isError: bool,
+    #[serde(rename = "isError")]
+    pub is_error: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,7 +153,7 @@ pub enum Content {
     #[serde(rename = "text")]
     Text { text: String },
     #[serde(rename = "image")]
-    Image { data: String, mimeType: String },
+    Image { data: String, mime_type: String },
     #[serde(rename = "resource")]
     Resource { resource: ResourceContent },
 }
@@ -153,8 +161,8 @@ pub enum Content {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceContent {
     pub uri: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mimeType: Option<String>,
+    #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

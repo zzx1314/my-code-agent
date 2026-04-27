@@ -99,12 +99,12 @@ impl McpClientInner {
     /// Initialize the MCP connection.
     async fn initialize(&mut self) -> Result<InitializeResult> {
         let params = InitializeParams {
-            protocolVersion: "2024-11-05".to_string(),
+            protocol_version: "2024-11-05".to_string(),
             capabilities: ClientCapabilities {
                 roots: None,
                 sampling: None,
             },
-            clientInfo: ClientInfo {
+            client_info: ClientInfo {
                 name: "my-code-agent".to_string(),
                 version: "0.1.0".to_string(),
             },
@@ -137,7 +137,7 @@ impl McpClientInner {
             let result: ListToolsResult = serde_json::from_value(response)?;
             all_tools.extend(result.tools);
 
-            match result.nextCursor {
+            match result.next_cursor {
                 Some(next) if !next.is_empty() => cursor = Some(next),
                 _ => break,
             }

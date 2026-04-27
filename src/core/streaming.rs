@@ -170,32 +170,39 @@ where
                     plan_detected = true;
                     plan_text.clear();
                     renderer.flush();
-                    println!("\n  {} {}", "📋".bright_green(), "Task Plan".bold());
+                    // Don't print the heading here - let it stream through renderer
+                    plan_text.push_str(&text_content.text);
+                    continue;  // Accumulate, don't print yet
                 }
 
                 if plan_detected {
                     plan_text.push_str(&text_content.text);
+                    let lines: Vec<&str> = plan_text.lines().collect();
                     let mut in_plan = true;
-                    for line in text_content.text.lines() {
+                    let mut plan_ended = false;
+                    for line in lines {
                         let trimmed = line.trim();
                         let is_numbered = trimmed.len() > 2
                             && trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
                             && trimmed.chars().nth(1) == Some('.');
 
                         if is_numbered && in_plan {
-                            println!("    {} {}", "→".bright_cyan(), trimmed.bright_white());
+                            renderer.push_text(line);
+                            renderer.push_text("\n");
                         } else {
                             if in_plan && !trimmed.is_empty() && !is_numbered {
                                 plan_tracker.parse_plan(&plan_text);
-                                plan_tracker.print_with_confirmation();
-                                plan_text.clear();
                                 in_plan = false;
+                                plan_ended = true;
                             }
                             renderer.push_text(line);
                             if !line.is_empty() {
                                 renderer.push_text("\n");
                             }
                         }
+                    }
+                    if plan_ended {
+                        plan_text.clear();
                     }
                 } else {
                     renderer.push_text(&text_content.text);
@@ -249,6 +256,7 @@ where
                 renderer.flush();
 
                 if plan_tracker.has_active_plan() {
+                    println!("\n  {} {}", "📋".bright_green(), "Task Plan".bold());
                     plan_tracker.print_completion();
                 }
 
