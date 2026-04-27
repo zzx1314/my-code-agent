@@ -4,6 +4,8 @@ use crate::core::config::Config;
 use crate::tools;
 use rig::providers::openrouter;
 
+use std::time::Duration;
+
 
 pub const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with access to tools for reading, writing, searching, and executing code.
 
@@ -225,12 +227,27 @@ pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>)
                 &model,
                 all_tools,
                 config.agent.max_turns,
+                config.llm.timeout_secs,
             )
         }
         Provider::OpenRouter => {
             eprintln!("[model] {} (OpenRouter)", model);
             let api_key = std::env::var(api_key_env).unwrap_or_default();
-            let client = openrouter::Client::new(&api_key).expect("Failed to create OpenRouter client");
+            
+            // Create builder
+            let mut builder = openrouter::Client::builder()
+                .api_key(&api_key);
+            
+            // Apply timeout if set
+            if config.llm.timeout_secs > 0 {
+                let reqwest_client = reqwest::Client::builder()
+                    .timeout(Duration::from_secs(config.llm.timeout_secs))
+                    .build()
+                    .expect("Failed to create reqwest client");
+                builder = builder.http_client(reqwest_client);
+            }
+            
+            let client = builder.build().expect("Failed to create OpenRouter client");
             
             return Agent::OpenRouter(
                 client
@@ -262,6 +279,7 @@ pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>)
                 &model,
                 all_tools,
                 config.agent.max_turns,
+                config.llm.timeout_secs,
             )
         }
         _ => {
@@ -276,6 +294,7 @@ pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>)
                 &model,
                 all_tools,
                 config.agent.max_turns,
+                config.llm.timeout_secs,
             )
         }
     }
@@ -289,13 +308,25 @@ fn create_openai_client(
     model: &str,
     all_tools: Vec<Box<dyn rig::tool::ToolDyn>>,
     max_turns: usize,
+    timeout_secs: u64,
 ) -> Agent {  // 返回你的 Agent 枚举
     let api_key = std::env::var(api_key_env).unwrap_or_default();
-    let client = rig::providers::openai::CompletionsClient::builder()
+    
+    // Start building the client
+    let mut builder = rig::providers::openai::CompletionsClient::builder()
         .api_key(&api_key)
-        .base_url(base_url)
-        .build()
-        .expect("Failed to create OpenAI client");
+        .base_url(base_url);
+    
+    // Apply timeout if set
+    if timeout_secs > 0 {
+        let reqwest_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(timeout_secs))
+            .build()
+            .expect("Failed to create reqwest client");
+        builder = builder.http_client(reqwest_client);
+    }
+    
+    let client = builder.build().expect("Failed to create OpenAI client");
 
     Agent::OpenAI(  // ← 包装进枚举
         client

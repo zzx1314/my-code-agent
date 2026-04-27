@@ -153,6 +153,15 @@ pub struct LLMConfig {
     /// Used when provider is "custom" or any provider with a custom endpoint
     #[serde(default = "default_base_url")]
     pub base_url: Option<String>,
+    /// Model API request timeout in seconds.
+    /// Default: 60
+    /// Set to 0 to disable timeout (not recommended).
+    #[serde(default = "default_llm_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+fn default_llm_timeout_secs() -> u64 {
+    60
 }
 
 /// MCP (Model Context Protocol) settings.
@@ -235,6 +244,7 @@ impl Default for LLMConfig {
             model: None,
             api_key_env: String::new(), // Empty means use provider default
             base_url: None,
+            timeout_secs: default_llm_timeout_secs(),
         }
     }
 }

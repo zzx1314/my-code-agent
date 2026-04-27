@@ -15,6 +15,11 @@ api_key_env = "OPENROUTER_API_KEY"
 # Supports: LocalAI, Ollama, vLLM, LiteLLM, etc.
 # base_url = "http://localhost:8080/v1"
 
+# Model API request timeout in seconds.
+# Default: 60
+# Set to 0 to disable timeout (not recommended).
+# timeout_secs = 60
+
 # ── File Reading / Attachment Settings ──
 [files]
 # Maximum lines returned by `file_read` when `limit` is not specified.
