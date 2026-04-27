@@ -112,8 +112,20 @@ where
 
     let display_mode = agent_config.thinking_display.as_str();
 
+    // Animation timer: update bouncing ellipsis every 100ms
+    let mut anim_interval = tokio::time::interval(std::time::Duration::from_millis(100));
+    anim_interval.tick().await; // Skip immediate first tick
+
     loop {
         let item = tokio::select! {
+            // Animation update tick
+            _ = anim_interval.tick() => {
+                if display_mode != "hidden" && reasoning.is_reasoning() {
+                    reasoning.update_animation();
+                }
+                continue;
+            }
+
             _ = interrupt_rx.recv() => {
                 renderer.flush();
                 println!(

@@ -117,6 +117,8 @@ pub struct ReasoningTracker {
     reasoning_buf: String,
     /// Accumulated reasoning across the entire stream (for the `think` command).
     total_reasoning: String,
+    /// Current dot count for the bouncing ellipsis animation (1-3).
+    dot_count: u8,
 }
 
 impl ReasoningTracker {
@@ -125,6 +127,7 @@ impl ReasoningTracker {
             is_reasoning: false,
             reasoning_buf: String::new(),
             total_reasoning: String::new(),
+            dot_count: 1, // Start with 1 dot
         };
         if thinking_display == "streaming" {
             print!("\n  {} ", "💭".bright_magenta());
@@ -142,12 +145,40 @@ impl ReasoningTracker {
         self.is_reasoning
     }
 
+    /// Updates the bouncing ellipsis animation (called periodically).
+    /// Cycles through 1, 2, 3 dots: Thinking. → Thinking.. → Thinking... → Thinking.
+    pub fn update_animation(&mut self) {
+        if !self.is_reasoning {
+            return;
+        }
+        // Cycle: 1 → 2 → 3 → 1
+        self.dot_count = match self.dot_count {
+            1 => 2,
+            2 => 3,
+            _ => 1, // 3 wraps back to 1
+        };
+        // Move to start of line and update the animation in place
+        print!(
+            "\r  {} {}",
+            "💭".bright_magenta(),
+            format!("Thinking{}", ".".repeat(self.dot_count as usize))
+                .bright_magenta()
+                .dimmed()
+        );
+        let _ = std::io::stdout().flush();
+    }
+
     /// Starts a new reasoning segment (if not already in one) and appends text.
     pub fn append(&mut self, text: &str) {
         if !self.is_reasoning {
             self.is_reasoning = true;
-            print!("\n  {} ", "💭".bright_magenta());
-            print!("{}", "Thinking...".bright_magenta().dimmed());
+            self.dot_count = 1; // Start with 1 dot
+            print!(
+                "{}",
+                format!("Thinking{}", ".".repeat(self.dot_count as usize))
+                    .bright_magenta()
+                    .dimmed()
+            );
             let _ = std::io::stdout().flush();
         }
         self.reasoning_buf.push_str(text);
@@ -169,6 +200,11 @@ impl ReasoningTracker {
     /// a summary. Used when the stream is interrupted or errors out.
     pub fn flush_unfinished(&mut self) {
         if !self.reasoning_buf.is_empty() {
+            // Clear any residual animation line
+            if self.is_reasoning {
+                print!("\r\x1b[2K");
+                let _ = std::io::stdout().flush();
+            }
             self.total_reasoning.push_str(&self.reasoning_buf);
             self.total_reasoning.push('\n');
         }
