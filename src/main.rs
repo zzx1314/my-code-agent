@@ -1,6 +1,7 @@
 use anyhow::Result;
 use colored::*;
 use my_code_agent::core::config::Config;
+use my_code_agent::core::connection::ConnectionState;
 use my_code_agent::core::context::{expand_file_refs, print_attachments};
 use my_code_agent::core::context_manager::ContextManager;
 use my_code_agent::core::file_cache::FileCache;
@@ -32,6 +33,9 @@ async fn main() -> Result<()> {
     eprintln!("  {} {} MCP tools loaded", "⚙".bright_cyan(), mcp_tools.len());
 
     let agent = build_agent(&config, mcp_tools);
+
+    // Initialize connection state
+    let connection_state = ConnectionState::new();
 
     // New session by default
     let mut chat_history: Vec<rig::completion::Message> = Vec::new();
@@ -184,6 +188,14 @@ async fn main() -> Result<()> {
     loop {
         // Drain stale interrupt signals
         while interrupt_rx.try_recv().is_ok() {}
+
+        // Always display connection status
+        let current_status = connection_state.get();
+        eprintln!(
+            "{} {}",
+            current_status.emoji(),
+            format!("Model: {}", current_status.text()).dimmed()
+        );
 
         let sig = rl.read_line(&prompt);
 
@@ -423,6 +435,9 @@ async fn main() -> Result<()> {
                     }
                 };
 
+                // Update connection state to "connecting"
+                connection_state.set_connecting();
+
                 let result = stream_response(
                     &agent,
                     &expanded_input,
@@ -433,6 +448,30 @@ async fn main() -> Result<()> {
                     &config.agent,
                 )
                 .await;
+
+                // Update connection state based on result
+                if result.interrupted {
+                    connection_state.set_disconnected();
+                    eprintln!(
+                        "{} {}",
+                        connection_state.get().emoji(),
+                        "Model: Disconnected (interrupted)".bright_yellow()
+                    );
+                } else if !result.full_response.is_empty() {
+                    connection_state.set_connected();
+                    eprintln!(
+                        "{} {}",
+                        connection_state.get().emoji(),
+                        "Model: Connected".bright_green()
+                    );
+                } else {
+                    connection_state.set_error();
+                    eprintln!(
+                        "{} {}",
+                        connection_state.get().emoji(),
+                        "Model: Error (empty response)".bright_red()
+                    );
+                }
 
                 // Handle plan confirmation
                 let mut plan_tracker = result.plan_tracker;
