@@ -108,6 +108,10 @@ pub fn print_help() {
     println!("  {}  Load a saved session by name", "load".dimmed());
     println!("  {}  Clear conversation history", "clear".dimmed());
     println!(
+        "  {}  Start a new session (clears current, optionally saves)",
+        "new".bright_green()
+    );
+    println!(
         "  {}  Review code at <path> for quality and issues",
         "review".bright_green()
     );
@@ -210,6 +214,7 @@ pub enum Command {
     Help,
     Usage,
     Clear,
+    New,
     Quit,
     Think,
     Save,
@@ -228,6 +233,7 @@ pub fn parse_command(input: &str) -> Option<Command> {
         "help" => Some(Command::Help),
         "usage" => Some(Command::Usage),
         "clear" => Some(Command::Clear),
+        "new" => Some(Command::New),
         "quit" | "exit" | "q" => Some(Command::Quit),
         "think" => Some(Command::Think),
         "save" => Some(Command::Save),
@@ -252,7 +258,7 @@ pub fn run_command(cmd: Command, session_usage: &mut TokenUsage, last_reasoning:
         Command::Review(_) => {
             // Review command is handled in main.rs, not here
         }
-        Command::Clear | Command::Quit | Command::Save | Command::Sessions | Command::Load => {}
+        Command::Clear | Command::Quit | Command::Save | Command::Sessions | Command::Load | Command::New => {}
     }
     false
 }

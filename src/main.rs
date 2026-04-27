@@ -304,6 +304,51 @@ async fn main() -> Result<()> {
                             current_session_name = None;
                             println!("{}", "Conversation history cleared".dimmed());
                         }
+                        Command::New => {
+                            // Ask user if they want to save current session
+                            if !chat_history.is_empty() {
+                                println!(
+                                    "  {} Current session has {} turns. Save before starting new session? [y/N]",
+                                    "💾".bright_yellow(),
+                                    chat_history.iter().filter(|m| matches!(m, rig::completion::Message::User { .. })).count()
+                                );
+                                
+                                // Read user input for confirmation
+                                let mut input = String::new();
+                                use std::io::{self, Write};
+                                io::stdout().flush().ok();
+                                if io::stdin().read_line(&mut input).is_ok() {
+                                    let answer = input.trim().to_lowercase();
+                                    if answer == "y" || answer == "yes" {
+                                        // Save current session
+                                        let save_name = current_session_name.clone().unwrap_or_else(|| "default".to_string());
+                                        let data = SessionData::with_name(
+                                            chat_history.clone(),
+                                            session_usage.clone(),
+                                            last_reasoning.clone(),
+                                            save_name.clone(),
+                                        );
+                                        match data.save_with_name(&save_name) {
+                                            Ok(()) => {
+                                                println!(
+                                                    "  {} Session '{}' saved",
+                                                    "💾".bright_green(),
+                                                    save_name.bright_white()
+                                                );
+                                            }
+                                            Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Clear in-memory state to start new session
+                            chat_history.clear();
+                            last_reasoning.clear();
+                            session_usage = TokenUsage::with_config(&config);
+                            current_session_name = None;
+                            println!("{}", "Started new session".bright_green());
+                        }
                         Command::Quit => {
                             let auto_save =
                                 current_session_name.is_none() && !chat_history.is_empty();
