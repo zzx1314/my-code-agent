@@ -38,12 +38,8 @@ pub struct ParallelWebSearch {
 
 impl ParallelWebSearch {
     pub fn new(api_key: &str) -> Self {
-        let client = if api_key.is_empty() {
-            None
-        } else {
-            Some(McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key)))
-        };
-        Self { client }
+        let client = McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key));
+        Self { client: Some(client) }
     }
 
     pub fn is_available(&self) -> bool {
@@ -87,7 +83,8 @@ impl Tool for ParallelWebSearch {
         let keywords: Vec<String> = args.query.split_whitespace().take(3).map(String::from).collect();
         let call_args = serde_json::json!({
             "objective": args.query,
-            "search_queries": keywords
+            "search_queries": keywords,
+            "session_id": "my-code-agent-session"
         });
 
         match client.call_tool("web_search", call_args).await {
@@ -115,12 +112,8 @@ pub struct ParallelWebFetch {
 
 impl ParallelWebFetch {
     pub fn new(api_key: &str) -> Self {
-        let client = if api_key.is_empty() {
-            None
-        } else {
-            Some(McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key)))
-        };
-        Self { client }
+        let client = McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key));
+        Self { client: Some(client) }
     }
 
     pub fn is_available(&self) -> bool {
