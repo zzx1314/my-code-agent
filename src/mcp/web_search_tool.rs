@@ -42,14 +42,16 @@ pub struct ParallelWebSearch {
 
 impl ParallelWebSearch {
     pub fn new(api_key: &str) -> Self {
-        let client = McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key));
-        Self {
-            client: Some(client),
-        }
+        let client = if api_key.is_empty() {
+            None
+        } else {
+            Some(McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key)))
+        };
+        Self { client }
     }
 
     pub fn is_available(&self) -> bool {
-        self.client.is_some()
+        true
     }
 }
 
@@ -116,14 +118,16 @@ pub struct ParallelWebFetch {
 
 impl ParallelWebFetch {
     pub fn new(api_key: &str) -> Self {
-        let client = McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key));
-        Self {
-            client: Some(client),
-        }
+        let client = if api_key.is_empty() {
+            None
+        } else {
+            Some(McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key)))
+        };
+        Self { client }
     }
 
     pub fn is_available(&self) -> bool {
-        self.client.is_some()
+        true
     }
 }
 

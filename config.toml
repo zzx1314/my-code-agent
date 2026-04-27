@@ -75,6 +75,7 @@ api_key_env = "OPENROUTER_API_KEY"
 # Enable MCP web search tools.
 enabled = true
 
-# Parallel AI API key (get yours at https://platform.parallel.ai)
+# Parallel AI API key (optional - works without for free/anonymous usage)
+# Get one at https://platform.parallel.ai for higher rate limits
 # Or set PARALLEL_API_KEY environment variable in .env
-# parallel_api_key = "your_api_key_here"
+# parallel_api_key = ""

@@ -9,3 +9,4 @@ pub mod web_search_tool;
 
 pub use client::McpHttpClient;
 pub use types::*;
+pub use web_search_tool::{ParallelWebSearch, ParallelWebFetch};

@@ -58,29 +58,24 @@ pub async fn create_mcp_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
         return mcp_tools;
     }
 
-    let parallel_api_key = config
+    let key = config
         .mcp
         .parallel_api_key
-        .clone()
-        .or_else(|| std::env::var("PARALLEL_API_KEY").ok());
+        .as_ref()
+        .filter(|k| !k.is_empty())
+        .cloned()
+        .unwrap_or_else(|| std::env::var("PARALLEL_API_KEY").unwrap_or_default());
 
-    if let Some(key) = parallel_api_key {
-        let search_tool = crate::mcp::web_search_tool::ParallelWebSearch::new(&key);
-        if search_tool.is_available() {
-            eprintln!("{} web_search tool added", "✓".bright_green());
-            mcp_tools.push(Box::new(search_tool) as Box<dyn ToolDyn>);
-        }
+    let search_tool = crate::mcp::web_search_tool::ParallelWebSearch::new(&key);
+    if search_tool.is_available() {
+        eprintln!("{} web_search tool added", "✓".bright_green());
+        mcp_tools.push(Box::new(search_tool) as Box<dyn ToolDyn>);
+    }
 
-        let fetch_tool = crate::mcp::web_search_tool::ParallelWebFetch::new(&key);
-        if fetch_tool.is_available() {
-            eprintln!("{} web_fetch tool added", "✓".bright_green());
-            mcp_tools.push(Box::new(fetch_tool) as Box<dyn ToolDyn>);
-        }
-    } else {
-        eprintln!(
-            "{} PARALLEL_API_KEY not set. Set in config.toml or .env",
-            "✗".bright_red()
-        );
+    let fetch_tool = crate::mcp::web_search_tool::ParallelWebFetch::new(&key);
+    if fetch_tool.is_available() {
+        eprintln!("{} web_fetch tool added", "✓".bright_green());
+        mcp_tools.push(Box::new(fetch_tool) as Box<dyn ToolDyn>);
     }
 
     mcp_tools

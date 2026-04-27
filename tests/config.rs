@@ -74,3 +74,36 @@ fn test_toml_roundtrip() {
     assert_eq!(parsed.context.window_size, config.context.window_size);
     assert_eq!(parsed.agent.max_turns, config.agent.max_turns);
 }
+
+#[test]
+fn test_mcp_config_default() {
+    let config = Config::default();
+    assert!(!config.mcp.enabled);
+    assert_eq!(config.mcp.parallel_api_key, None);
+}
+
+#[test]
+fn test_mcp_config_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        "[mcp]\nenabled = true\nparallel_api_key = \"test_key_123\"\n",
+    )
+    .unwrap();
+
+    let config = Config::load_from(&path);
+    assert!(config.mcp.enabled);
+    assert_eq!(config.mcp.parallel_api_key, Some("test_key_123".to_string()));
+}
+
+#[test]
+fn test_mcp_config_empty_key_allowed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "[mcp]\nenabled = true\nparallel_api_key = \"\"\n").unwrap();
+
+    let config = Config::load_from(&path);
+    assert!(config.mcp.enabled);
+    assert_eq!(config.mcp.parallel_api_key, Some("".to_string()));
+}
