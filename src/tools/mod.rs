@@ -28,7 +28,7 @@ use rig::tool::ToolDyn;
 /// Returns all tools boxed as `Box<dyn ToolDyn>` for registration with the agent builder.
 /// Config values are passed through to tool structs that need them.
 pub fn all_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
-    let tools: Vec<Box<dyn ToolDyn>> = vec![
+    vec![
         Box::new(FileRead::from_config(config)),
         Box::new(FileWrite),
         Box::new(FileUpdate),
@@ -37,17 +37,7 @@ pub fn all_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
         Box::new(CodeSearch),
         Box::new(ListDir),
         Box::new(GlobSearch),
-    ];
-
-    // Add MCP WebSearch tool if enabled
-    if config.mcp.enabled {
-        eprintln!(
-            "{} MCP is enabled but WebSearch tool must be initialized at startup",
-            "⚠".bright_yellow()
-        );
-    }
-
-    tools
+    ]
 }
 
 /// Create MCP tools (Parallel Search MCP).

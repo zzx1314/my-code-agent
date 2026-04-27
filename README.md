@@ -25,31 +25,40 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 | `code_search` | Search for text patterns in source code using ripgrep (respects .gitignore) |
 | `list_dir` | List files and directories with configurable recursion depth |
 | `glob` | Find files matching a glob pattern (`**/*.rs`, `src/**/*.ts`, etc.) |
-| `web_search` | **(MCP)** Search the web using Brave Search for up-to-date information |
+| `web_search` | **(MCP)** Search the web using Parallel Search for up-to-date information |
+| `web_fetch` | **(MCP)** Extract content from a specific URL |
 
 ### MCP Web Search
 
-The `web_search` tool is powered by the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) and the [Brave Search MCP Server](https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search).
+The `web_search` and `web_fetch` tools are powered by [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp).
 
-**Prerequisites:**
-- Node.js and npx installed
-- A [Brave Search API key](https://brave.com/search/api/)
+**Optional: API Key**
+- Without API key: Free anonymous usage (rate limited)
+- With API key: Higher rate limits
+- Get your key at: https://platform.parallel.ai
 
 **Configuration:**
 
-Add to your `config.toml`:
+Enable in `config.toml`:
 ```toml
 [mcp]
 enabled = true
-brave_api_key = "your_brave_api_key_here"
 ```
-
-Or set the `BRAVE_API_KEY` environment variable in your `.env` file.
+Optional API key (in config.toml or `.env`):
+```toml
+[mcp]
+enabled = true
+parallel_api_key = "your_key_here"
+```
+Or set environment variable:
+```env
+PARALLEL_API_KEY=your_key_here
+```
 
 **Usage:**
 ```
 ❯ Search the web for "latest Rust edition 2024 features"
-❯ web_search: What is the current version of the rig-core crate?
+❯ web_fetch: https://rust-lang.org
 ```
 
 The tool returns search results with titles, URLs, and snippets from the web.
