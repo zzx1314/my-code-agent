@@ -33,15 +33,16 @@ api_key_env = "OPENROUTER_API_KEY"
 [context]
 # Model context window size in tokens.
 # Default: 131072 (128K for DeepSeek V3/R1)
-# window_size = 131072
+# Set to 262144 for 256K context window
+window_size = 262144
 
 # Percentage at which to warn about context usage.
 # Default: 75
-# warn_threshold_percent = 75
+warn_threshold_percent = 75
 
 # Percentage at which to issue a critical context warning.
 # Default: 90
-# critical_threshold_percent = 90
+critical_threshold_percent = 90
 
 # ── Shell Execution Settings ──
 [shell]
