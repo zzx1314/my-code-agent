@@ -106,7 +106,7 @@ pub fn print_help() {
     );
     println!("  {}  List saved sessions", "sessions".dimmed());
     println!("  {}  Load a saved session by name", "load".dimmed());
-    println!("  {}  Clear conversation history", "clear".dimmed());
+    println!("  {}  Clear conversation history and delete session file", "clear".dimmed());
     println!("  {}  Start a new session (clears current, optionally saves)", "new".bright_green());
     println!(
         "  {}  Search sessions for keyword",

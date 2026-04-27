@@ -28,6 +28,41 @@ async fn main() -> Result<()> {
     let config = Config::load();
     print_banner();
 
+    // Try to auto-resume from default session file
+    let mut chat_history: Vec<rig::completion::Message> = Vec::new();
+    let mut session_usage: TokenUsage = TokenUsage::with_config(&config);
+    let mut last_reasoning: String = String::new();
+    let mut current_session_name: Option<String> = None;
+
+    // Check for default session file and load it
+    match SessionData::load_default(config.session.save_file.as_deref()) {
+        Some(Ok(data)) => {
+            chat_history = data.chat_history;
+            session_usage = data.token_usage;
+            last_reasoning = data.last_reasoning;
+            // Don't set current_session_name for auto-resumed sessions
+            // (they're not "named" sessions in .sessions/ directory)
+            let turns = chat_history
+                .iter()
+                .filter(|m| matches!(m, rig::completion::Message::User { .. }))
+                .count();
+            println!(
+                "  {} Resumed session from {} ({} turns, {} tokens)",
+                "🔄".bright_green(),
+                SessionData::default_session_file_path(config.session.save_file.as_deref())
+                    .bright_white(),
+                turns,
+                session_usage.total_tokens()
+            );
+        }
+        Some(Err(e)) => {
+            eprintln!("  {} Failed to load session: {}", "⚠".bright_yellow(), e);
+        }
+        None => {
+            // No saved session, start fresh
+        }
+    }
+
     // Create MCP tools if enabled
     let mcp_tools = create_mcp_tools(&config).await;
     eprintln!("  {} {} MCP tools loaded", "⚙".bright_cyan(), mcp_tools.len());
@@ -36,12 +71,6 @@ async fn main() -> Result<()> {
 
     // Initialize connection state
     let connection_state = ConnectionState::new();
-
-    // New session by default
-    let mut chat_history: Vec<rig::completion::Message> = Vec::new();
-    let mut session_usage: TokenUsage = TokenUsage::with_config(&config);
-    let mut last_reasoning: String = String::new();
-    let mut current_session_name: Option<String> = None;
 
     // Initialize context manager and file cache
     let mut context_manager = ContextManager::new(&config);
@@ -378,7 +407,7 @@ async fn main() -> Result<()> {
                 if let Some(cmd) = parse_command(&input) {
                     match cmd {
                         Command::Clear => {
-                            // Delete the session file if it exists and has a name
+                            // Delete the named session file if it exists
                             if let Some(ref name) = current_session_name {
                                 match SessionData::delete_by_name(name) {
                                     Ok(()) => {
@@ -390,8 +419,19 @@ async fn main() -> Result<()> {
                                     }
                                     Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
                                 }
-                            } else {
-                                println!("{} No named session to delete", "ℹ️".bright_blue());
+                            }
+
+                            // Also delete the default session file (.session.json)
+                            match SessionData::delete_default(config.session.save_file.as_deref()) {
+                                Ok(()) => {
+                                    let path = SessionData::default_session_file_path(config.session.save_file.as_deref());
+                                    println!(
+                                        "{} Deleted session file: {}",
+                                        "🗑️".bright_yellow(),
+                                        path.bright_white()
+                                    );
+                                }
+                                Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
                             }
                             
                             // Clear in-memory state
@@ -447,6 +487,26 @@ async fn main() -> Result<()> {
                             println!("{}", "Started new session".bright_green());
                         }
                         Command::Quit => {
+                            // Always save to default session file for auto-resume (if there's history)
+                            if !chat_history.is_empty() {
+                                let data = SessionData::new(
+                                    chat_history.clone(),
+                                    session_usage.clone(),
+                                    last_reasoning.clone(),
+                                );
+                                match data.save_default(config.session.save_file.as_deref()) {
+                                    Ok(()) => {
+                                        let path = SessionData::default_session_file_path(config.session.save_file.as_deref());
+                                        println!(
+                                            "  {} Session saved to {} (for auto-resume)",
+                                            "💾".bright_green(),
+                                            path.bright_white()
+                                        );
+                                    }
+                                    Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
+                                }
+                            }
+
                             let auto_save =
                                 current_session_name.is_none() && !chat_history.is_empty();
                             if let Some(ref name) = current_session_name {
@@ -630,6 +690,26 @@ async fn main() -> Result<()> {
                 print_interrupted_notice(&result.full_response, result.interrupted);
             }
             Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => {
+                // Always save to default session file for auto-resume (if there's history)
+                if !chat_history.is_empty() {
+                    let data = SessionData::new(
+                        chat_history.clone(),
+                        session_usage.clone(),
+                        last_reasoning.clone(),
+                    );
+                    match data.save_default(config.session.save_file.as_deref()) {
+                        Ok(()) => {
+                            let path = SessionData::default_session_file_path(config.session.save_file.as_deref());
+                            println!(
+                                "  {} Session saved to {} (for auto-resume)",
+                                "💾".bright_green(),
+                                path.bright_white()
+                            );
+                        }
+                        Err(e) => eprintln!("  {} {}", "⚠".bright_yellow(), e),
+                    }
+                }
+
                 let auto_save = current_session_name.is_none() && !chat_history.is_empty();
                 if let Some(ref name) = current_session_name {
                     let data = SessionData::with_name(

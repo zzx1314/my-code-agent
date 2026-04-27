@@ -1,11 +1,13 @@
 use colored::*;
 use rig::completion::Message;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::token_usage::TokenUsage;
 
 pub const SESSION_DIR: &str = ".sessions";
+pub const DEFAULT_SESSION_FILE: &str = ".session.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionData {
@@ -92,6 +94,36 @@ impl SessionData {
     pub fn delete_by_name(name: &str) -> Result<(), String> {
         let path = Self::session_file_path(name);
         Self::delete_file(&path)
+    }
+
+    /// Get the default session file path from config, or use DEFAULT_SESSION_FILE.
+    pub fn default_session_file_path(save_file: Option<&str>) -> String {
+        save_file
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_SESSION_FILE)
+            .to_string()
+    }
+
+    /// Save to the default session file (for auto-save/auto-resume).
+    pub fn save_default(&self, save_file: Option<&str>) -> Result<(), String> {
+        let path = Self::default_session_file_path(save_file);
+        self.save_to_file(&path)
+    }
+
+    /// Load from the default session file (for auto-resume).
+    pub fn load_default(save_file: Option<&str>) -> Option<Result<Self, String>> {
+        let path = Self::default_session_file_path(save_file);
+        Self::load_from_file(&path)
+    }
+
+    /// Delete the default session file (used by /clear command).
+    pub fn delete_default(save_file: Option<&str>) -> Result<(), String> {
+        let path = Self::default_session_file_path(save_file);
+        if Path::new(&path).exists() {
+            Self::delete_file(&path)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn list_sessions() -> Vec<SessionInfo> {
