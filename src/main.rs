@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyModifiers, MouseEventKind, EnableMouseCapture, DisableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
 };
@@ -142,10 +142,17 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(paragraph, chunks[0]);
     f.render_widget(&app.input, chunks[1]);
 
+    let scroll_info = if app.total_lines > 0 {
+        let pct = (app.scroll as u64 * 100 / app.total_lines as u64).min(100);
+        format!(" | Scroll: {}/{} ({}%)", app.scroll, app.total_lines, pct)
+    } else {
+        String::new()
+    };
     let mut status = format!(
-        "Model: {} | Tokens: {}",
+        "Model: {} | Tokens: {}{}",
         app.config.llm.model.as_deref().unwrap_or("unknown"),
         app.token_usage.total_tokens(),
+        scroll_info,
     );
     if let Some(ref turn_line) = app.turn_usage_line {
         status.push_str(&format!(" | {}", turn_line));
@@ -171,8 +178,9 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
     app.last_reasoning = result.last_reasoning;
     app.status_messages = result.status_messages;
     app.turn_usage_line = result.turn_usage_line;
-    // Auto-scroll to bottom after receiving response
-    app.scroll = app.total_lines.saturating_sub(10);
+    // Auto-scroll to bottom after receiving response (show last ~10 visible lines)
+    let max_scroll = app.total_lines.saturating_sub(1);
+    app.scroll = app.total_lines.saturating_sub(10).min(max_scroll);
 
     if result.should_exit {
         app.should_exit = true;
@@ -208,7 +216,7 @@ async fn main() -> Result<()> {
 
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -330,17 +338,34 @@ async fn main() -> Result<()> {
                             }
                         }
                         (KeyCode::PageUp, _) => {
-                            app.scroll = app.scroll.saturating_sub(5);
+                            app.scroll = app.scroll.saturating_sub(3);
                         }
                         (KeyCode::PageDown, _) => {
-                            app.scroll = app.scroll.saturating_add(5);
+                            let max_scroll = app.total_lines.saturating_sub(1);
+                            app.scroll = (app.scroll + 3).min(max_scroll);
+                        }
+                        (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.scroll = app.scroll.saturating_sub(3);
+                        }
+                        (KeyCode::Down, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+                            let max_scroll = app.total_lines.saturating_sub(1);
+                            app.scroll = (app.scroll + 3).min(max_scroll);
                         }
                         _ => {
                             app.input.input(key);
                         }
                     }
                 }
-                Event::Mouse(_) => {}
+                Event::Mouse(mouse) => match mouse.kind {
+                    MouseEventKind::ScrollUp => {
+                        app.scroll = app.scroll.saturating_sub(3);
+                    }
+                    MouseEventKind::ScrollDown => {
+                        let max_scroll = app.total_lines.saturating_sub(1);
+                        app.scroll = (app.scroll + 3).min(max_scroll);
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -351,7 +376,7 @@ async fn main() -> Result<()> {
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
 
     if !app.chat_history.is_empty() {
         let data = SessionData::new(
