@@ -189,13 +189,31 @@ impl Default for McpConfig {
 }
 
 /// Session persistence settings.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SessionConfig {
+    /// Enable session persistence (auto-save on exit, auto-resume on startup).
+    /// Default: `true`.
+    /// Set to `false` to disable all session persistence.
+    #[serde(default = "default_session_enabled")]
+    pub enabled: bool,
     /// File path for session persistence.
     /// Default: `.session.json` (in the current directory).
     /// Set to `""` or omit to use the default.
     #[serde(default)]
     pub save_file: Option<String>,
+}
+
+fn default_session_enabled() -> bool {
+    false
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            save_file: None,
+        }
+    }
 }
 
 impl Default for FileConfig {

@@ -311,13 +311,15 @@ async fn main() -> Result<()> {
     let mut token_usage = TokenUsage::with_config(&config);
     let mut last_reasoning = String::new();
 
-    if let Some(load_result) = SessionData::load_default(config.session.save_file.as_deref()) {
-        if let Ok(data) = load_result {
-            app_chat_history = data.chat_history.into_iter().map(convert_rig_to_app).collect();
-            token_usage = data.token_usage;
-            last_reasoning = data.last_reasoning;
-            let turns = app_chat_history.iter().filter(|(r, _)| r == "user").count();
-            eprintln!("[info] Resumed session ({} turns, {} tokens)", turns, token_usage.total_tokens());
+    if config.session.enabled {
+        if let Some(load_result) = SessionData::load_default(config.session.save_file.as_deref()) {
+            if let Ok(data) = load_result {
+                app_chat_history = data.chat_history.into_iter().map(convert_rig_to_app).collect();
+                token_usage = data.token_usage;
+                last_reasoning = data.last_reasoning;
+                let turns = app_chat_history.iter().filter(|(r, _)| r == "user").count();
+                eprintln!("[info] Resumed session ({} turns, {} tokens)", turns, token_usage.total_tokens());
+            }
         }
     }
 
@@ -567,7 +569,7 @@ async fn main() -> Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 
-    if !app.chat_history.is_empty() {
+    if config.session.enabled && !app.chat_history.is_empty() {
         let data = SessionData::new(
             app.chat_history.into_iter().map(|(r, c)| match r.as_str() {
                 "user" => RigMessage::user(c),
