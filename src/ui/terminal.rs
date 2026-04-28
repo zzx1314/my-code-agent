@@ -1,4 +1,5 @@
 use ratatui::prelude::*;
+use ratatui::text::{Line, Span, Text};
 
 pub fn color_to_fg_ansi(color: Color) -> String {
     match color {
@@ -70,24 +71,43 @@ pub const BANNER_ART: &str = r#"
             |___/                                |___/ 
 "#;
 
-/// Returns the startup banner lines with styling applied (for TUI rendering).
-pub fn make_banner_text() -> String {
-    format!(
-        "{}\n{}\n",
-        style_text("My Code Agent", Some(Color::Cyan), true, false),
-        style_text("  Interactive AI Coding Assistant", Some(Color::DarkGray), false, true),
-    )
-}
+/// 返回启动 banner 的 ratatui Text（可直接传给 Paragraph）
+pub fn make_startup_text() -> Text<'static> {
+    let mut lines: Vec<Line> = Vec::new();
 
-/// Returns the full startup banner (ASCII + info) for the chat area.
-pub fn make_startup_display() -> String {
-    let mut text = String::new();
-    text.push_str(BANNER_ART);
-    text.push_str("\n");
-    text.push_str(&make_banner_text());
-    text.push_str("\n");
-    text.push_str(&style_text("Type your message below to start chatting.", Some(Color::DarkGray), false, true));
-    text.push_str("\n");
-    text.push_str(&style_text("Commands: /help  /save  /load  /new  /think", Some(Color::DarkGray), false, true));
-    text
+    // ASCII art，用青色显示
+    for l in BANNER_ART.lines() {
+        lines.push(Line::from(Span::styled(
+            l.to_string(),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )));
+    }
+
+    lines.push(Line::from(""));
+
+    // 标题行
+    lines.push(Line::from(Span::styled(
+        "My Code Agent",
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )));
+
+    // 副标题
+    lines.push(Line::from(Span::styled(
+        "  Interactive AI Coding Assistant",
+        Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+    )));
+
+    lines.push(Line::from(""));
+
+    lines.push(Line::from(Span::styled(
+        "Type your message below to start chatting.",
+        Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+    )));
+
+    lines.push(Line::from(Span::styled(
+        "Commands: /help  /save  /load  /new  /think",
+        Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+    )));
+
+    Text::from(lines)
 }

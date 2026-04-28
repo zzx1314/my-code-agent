@@ -4,7 +4,6 @@ use rig::completion::{CompletionModel, GetTokenUsage, Message};
 use rig::streaming::{StreamedAssistantContent, StreamingChat};
 use tokio::sync::mpsc;
 
-use colored::Colorize;
 
 use super::config::AgentConfig;
 use super::context_manager::ContextManager;
@@ -211,7 +210,7 @@ where
                 let tool_call_marker = format!("\n⟳ *Tool Call:* `{}`\n", tool_call.function.name);
                 // 追加到 full_response，让工具调用日志保存在对话历史中
                 full_response.push_str(&tool_call_marker);
-                status_messages.push(format!("⟳ [{}]", tool_call.function.name.cyan()));
+                status_messages.push(format!("⟳ [`{}`]", tool_call.function.name));
                 send_event(StreamEvent::ToolCall(tool_call.function.name.clone()));
             }
 

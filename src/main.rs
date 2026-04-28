@@ -184,68 +184,67 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Show startup banner if no messages yet
     if app.show_banner {
-        chat_text.push_str(&my_code_agent::ui::terminal::make_startup_display());
-        chat_text.push_str("\n\n---\n\n");
-    }
-
-    for (role, content) in &app.chat_history {
-        match role.as_str() {
-            "user" => {
-                chat_text.push_str(&format!("**You**: {}\n\n", content));
+        // Banner 单独渲染，不走 markdown，避免 ANSI 码乱码和 ASCII art 变形
+        let banner = my_code_agent::ui::terminal::make_startup_text();
+        app.total_lines = banner.lines.len() as u16;
+        let paragraph = Paragraph::new(banner)
+            .wrap(Wrap { trim: false })
+            .block(Block::default().borders(Borders::NONE));
+        f.render_widget(paragraph, chunks[chat_chunk_index]);
+    } else {
+        for (role, content) in &app.chat_history {
+            match role.as_str() {
+                "user" => {
+                    chat_text.push_str(&format!("**You**: {}\n\n", content));
+                }
+                "assistant" => {
+                    chat_text.push_str(content);
+                    chat_text.push_str("\n\n---\n\n");
+                }
+                _ => {
+                    chat_text.push_str(&format!("**{}**: {}\n\n", role, content));
+                }
             }
-            "assistant" => {
-                // Render assistant content directly as markdown (no prefix)
-                // so that headings, code blocks, etc. are parsed correctly
-                chat_text.push_str(content);
-                chat_text.push_str("\n\n---\n\n");
+        }
+
+        if app.is_streaming {
+            if !app.streaming_text.is_empty() {
+                chat_text.push_str("**Assistant**: ");
+                chat_text.push_str(&app.streaming_text);
+                chat_text.push('\n');
+            } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
+                chat_text.push_str("*⏳ Generating response...*\n\n");
             }
-            _ => {
-                chat_text.push_str(&format!("**{}**: {}\n\n", role, content));
+        }
+
+        if !app.status_messages.is_empty() {
+            chat_text.push_str("---\n");
+            for msg in &app.status_messages {
+                chat_text.push_str(msg);
+                chat_text.push('\n');
             }
         }
-    }
 
-    if app.is_streaming {
-        // During streaming: show plain streaming text
-        if !app.streaming_text.is_empty() {
-            chat_text.push_str("**Assistant**: ");
-            chat_text.push_str(&app.streaming_text);
-            chat_text.push('\n');
-        } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
-            chat_text.push_str("*⏳ Generating response...*\n\n");
+        let markdown = from_str(&chat_text);
+        app.total_lines = markdown.lines.len() as u16;
+
+        if app.auto_scroll {
+            let chat_area_height = chunks[chat_chunk_index].height;
+            if app.total_lines > chat_area_height {
+                app.scroll = app.total_lines - chat_area_height;
+            } else {
+                app.scroll = 0;
+            }
         }
+
+        let paragraph = Paragraph::new(markdown)
+            .scroll((app.scroll, 0))
+            .wrap(Wrap { trim: true })
+            .block(Block::default().borders(Borders::NONE));
+        f.render_widget(paragraph, chunks[chat_chunk_index]);
     }
 
-    // Status messages (tool calls, warnings, plan progress)
-    if !app.status_messages.is_empty() {
-        chat_text.push_str("---\n");
-        for msg in &app.status_messages {
-            chat_text.push_str(&msg);
-            chat_text.push('\n');
-        }
-    }
-
-    let markdown = from_str(&chat_text);
-    let line_count = markdown.lines.len() as u16;
-    app.total_lines = line_count;
-
-    // Auto-scroll: follow the auto_scroll flag.
-    // Set true on new content, false when user manually scrolls.
-    if app.auto_scroll {
-        let chat_area_height = chunks[chat_chunk_index].height;
-        if app.total_lines > chat_area_height {
-            app.scroll = app.total_lines - chat_area_height;
-        } else {
-            app.scroll = 0;
-        }
-    }
-    let paragraph = Paragraph::new(markdown)
-        .scroll((app.scroll, 0))
-        .wrap(Wrap { trim: true })
-        .block(Block::default().borders(Borders::NONE));
-    f.render_widget(paragraph, chunks[chat_chunk_index]);
-    
-    f.render_widget(&app.input, chunks[input_chunk_index]);
+     f.render_widget(&app.input, chunks[input_chunk_index]); 
 
     let scroll_info = if app.total_lines > 0 {
         let pct = (app.scroll as u64 * 100 / app.total_lines as u64).min(100);
@@ -405,7 +404,7 @@ async fn main() -> Result<()> {
                         app.streaming_text.push_str(&delta);
                     }
                     Ok(StreamEvent::ToolCall(name)) => {
-                        app.streaming_text.push_str(&format!("\n⟳ [{}]\n", name.cyan()));
+                        app.streaming_text.push_str(&format!("\n⟳ [`{}`]\n", name));
                     }
                     Ok(StreamEvent::ReasoningActive(active)) => {
                         if !active {

@@ -21,7 +21,6 @@ ratatui = "0.28"
 tui-textarea = "0.6"
 tui-markdown = "0.2"
 crossterm = "0.28"
-colored = "3"
 
 [dev-dependencies]
 tempfile = "3"
