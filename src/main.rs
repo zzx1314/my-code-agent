@@ -22,7 +22,7 @@ use my_code_agent::core::session::SessionData;
 use my_code_agent::core::streaming::{stream_response, StreamResult, StreamEvent};
 use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::tools::create_mcp_tools;
-use my_code_agent::ui::render::{ReasoningTracker, get_reasoning_summary};
+use my_code_agent::ui::render::ReasoningTracker;
 
 use rig::completion::Message as RigMessage;
 use rig::message::UserContent;
@@ -87,25 +87,82 @@ struct App {
     _reasoning_tracker: ReasoningTracker,
     status_messages: Vec<String>,
     turn_usage_line: Option<String>,
+    /// 是否显示思考区域
+    show_reasoning: bool,
+    /// 思考区域的滚动位置
+    reasoning_scroll: u16,
+    /// 思考区域的总行数
+    reasoning_total_lines: u16,
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(1),
-            Constraint::Length(5),
-            Constraint::Length(1),
-        ])
-        .split(area);
+    // 判断是否有思考内容需要显示
+    let has_reasoning = app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming);
+    
+    let chunks = if has_reasoning {
+        // 四区域布局：思考区域 + 聊天区域 + 输入区域 + 状态栏
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(12),  // 思考区域（固定12行，包括边框）
+                Constraint::Min(1),      // 聊天区域
+                Constraint::Length(5),   // 输入区域
+                Constraint::Length(1),   // 状态栏
+            ])
+            .split(area)
+    } else {
+        // 三区域布局（无思考区域）
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(1),
+                Constraint::Length(5),
+                Constraint::Length(1),
+            ])
+            .split(area)
+    };
+
+    // 渲染思考区域
+    if has_reasoning {
+        let reasoning_text = if app.is_streaming && !app.streaming_reasoning.is_empty() {
+            // 流式输出中，显示实时思考内容
+            format!("⏳ Thinking...\n\n{}", app.streaming_reasoning)
+        } else if !app.last_reasoning.is_empty() {
+            // 思考结束，显示完整思考内容
+            format!("✓ Thinking complete\n\n{}", app.last_reasoning)
+        } else {
+            "⏳ Thinking...".to_string()
+        };
+
+        let lines: Vec<ratatui::text::Line> = reasoning_text
+            .lines()
+            .map(|l| ratatui::text::Line::from(l.to_string()))
+            .collect();
+        
+        app.reasoning_total_lines = lines.len() as u16;
+        
+        let reasoning_paragraph = Paragraph::new(reasoning_text)
+            .scroll((app.reasoning_scroll, 0))
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" 🤔 Reasoning ")
+                    .border_style(Style::default().fg(Color::Yellow))
+            )
+            .style(Style::default().fg(Color::DarkGray));
+        
+        f.render_widget(reasoning_paragraph, chunks[0]);
+    }
+
+    // 渲染聊天区域
+    let chat_chunk_index = if has_reasoning { 1 } else { 0 };
+    let input_chunk_index = if has_reasoning { 2 } else { 1 };
+    let status_chunk_index = if has_reasoning { 3 } else { 2 };
 
     let mut chat_text = String::new();
-
-    if !app.last_reasoning.is_empty() {
-        chat_text.push_str(&format!("{}\n\n", get_reasoning_summary(&app.last_reasoning)));
-    }
 
     for (role, content) in &app.chat_history {
         let role_display = match role.as_str() {
@@ -117,17 +174,12 @@ fn ui(f: &mut Frame, app: &mut App) {
     }
 
     if app.is_streaming {
-        // During streaming: show plain streaming text (markdown re-rendered after completion)
+        // During streaming: show plain streaming text
         if !app.streaming_text.is_empty() {
-            if !app.streaming_reasoning.is_empty() {
-                chat_text.push_str(&format!("💭 *{}*\n\n", app.streaming_reasoning));
-            }
             chat_text.push_str("**Assistant**: ");
             chat_text.push_str(&app.streaming_text);
             chat_text.push('\n');
-        } else if !app.streaming_reasoning.is_empty() {
-            chat_text.push_str(&format!("💭 *{}*\n\n", app.streaming_reasoning));
-        } else {
+        } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
             chat_text.push_str("*⏳ Generating response...*\n\n");
         }
     }
@@ -150,8 +202,9 @@ fn ui(f: &mut Frame, app: &mut App) {
         .scroll((app.scroll, 0))
         .wrap(Wrap { trim: true })
         .block(Block::default().borders(Borders::NONE));
-    f.render_widget(paragraph, chunks[0]);
-    f.render_widget(&app.input, chunks[1]);
+    f.render_widget(paragraph, chunks[chat_chunk_index]);
+    
+    f.render_widget(&app.input, chunks[input_chunk_index]);
 
     let scroll_info = if app.total_lines > 0 {
         let pct = (app.scroll as u64 * 100 / app.total_lines as u64).min(100);
@@ -173,9 +226,15 @@ fn ui(f: &mut Frame, app: &mut App) {
     } else {
         status.push_str(" | Ready");
     }
+    
+    // 添加思考区域控制提示
+    if !app.last_reasoning.is_empty() || app.is_streaming {
+        status.push_str(" | Ctrl+R: toggle reasoning");
+    }
+    
     let status_bar = Paragraph::new(status)
         .style(Style::default().fg(Color::DarkGray));
-    f.render_widget(status_bar, chunks[2]);
+    f.render_widget(status_bar, chunks[status_chunk_index]);
 }
 
 fn process_stream_result(app: &mut App, result: StreamResult) {
@@ -261,6 +320,9 @@ async fn main() -> Result<()> {
         _reasoning_tracker: ReasoningTracker::new(),
         status_messages: Vec::new(),
         turn_usage_line: None,
+        show_reasoning: true,  // 默认显示思考区域
+        reasoning_scroll: 0,
+        reasoning_total_lines: 0,
     };
 
     // Ctrl+C handler sends interrupt on broadcast channel
@@ -295,7 +357,11 @@ async fn main() -> Result<()> {
                     }
                     Ok(StreamEvent::ReasoningActive(active)) => {
                         if !active {
-                            app.streaming_reasoning.clear();
+                            // 思考结束，保存内容到 last_reasoning
+                            if !app.streaming_reasoning.is_empty() {
+                                app.last_reasoning = app.streaming_reasoning.clone();
+                                app.streaming_reasoning.clear();
+                            }
                         }
                     }
                     Ok(StreamEvent::ReasoningDelta(delta)) => {
@@ -319,6 +385,10 @@ async fn main() -> Result<()> {
                             if !app.is_streaming {
                                 app.should_exit = true;
                             }
+                        }
+                        (KeyCode::Char('r'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+                            // Ctrl+R: toggle reasoning display
+                            app.show_reasoning = !app.show_reasoning;
                         }
                         (KeyCode::Esc, _) => {
                             if !app.is_streaming {
@@ -386,18 +456,36 @@ async fn main() -> Result<()> {
                             }
                         }
                         (KeyCode::PageUp, _) => {
-                            app.scroll = app.scroll.saturating_sub(3);
+                            if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
+                                app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
+                            } else {
+                                app.scroll = app.scroll.saturating_sub(3);
+                            }
                         }
                         (KeyCode::PageDown, _) => {
-                            let max_scroll = app.total_lines.saturating_sub(1);
-                            app.scroll = (app.scroll + 3).min(max_scroll);
+                            if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
+                                let max_scroll = app.reasoning_total_lines.saturating_sub(1);
+                                app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
+                            } else {
+                                let max_scroll = app.total_lines.saturating_sub(1);
+                                app.scroll = (app.scroll + 3).min(max_scroll);
+                            }
                         }
                         (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                            app.scroll = app.scroll.saturating_sub(3);
+                            if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
+                                app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
+                            } else {
+                                app.scroll = app.scroll.saturating_sub(3);
+                            }
                         }
                         (KeyCode::Down, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                            let max_scroll = app.total_lines.saturating_sub(1);
-                            app.scroll = (app.scroll + 3).min(max_scroll);
+                            if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
+                                let max_scroll = app.reasoning_total_lines.saturating_sub(1);
+                                app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
+                            } else {
+                                let max_scroll = app.total_lines.saturating_sub(1);
+                                app.scroll = (app.scroll + 3).min(max_scroll);
+                            }
                         }
                         _ => {
                             app.input.input(key);
