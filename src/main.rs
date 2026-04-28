@@ -95,6 +95,8 @@ struct App {
     reasoning_total_lines: u16,
     /// 是否自动滚动到最新内容
     auto_scroll: bool,
+    /// 思考区域是否自动滚动
+    reasoning_auto_scroll: bool,
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
@@ -144,6 +146,11 @@ fn ui(f: &mut Frame, app: &mut App) {
             .collect();
         
         app.reasoning_total_lines = lines.len() as u16;
+
+        // Auto-scroll reasoning: during streaming always follow, else honor flag
+        if app.reasoning_auto_scroll || app.is_streaming {
+            app.reasoning_scroll = app.reasoning_total_lines.saturating_sub(1);
+        }
         
         let reasoning_paragraph = Paragraph::new(reasoning_text)
             .scroll((app.reasoning_scroll, 0))
@@ -212,9 +219,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     if app.auto_scroll {
         app.scroll = app.total_lines.saturating_sub(1);
     }
-    let lines: Vec<ratatui::text::Line> = markdown.lines;
-    let text = ratatui::text::Text::from(lines);
-    let paragraph = Paragraph::new(text)
+    let paragraph = Paragraph::new(markdown)
         .scroll((app.scroll, 0))
         .wrap(Wrap { trim: true })
         .block(Block::default().borders(Borders::NONE));
@@ -338,6 +343,7 @@ async fn main() -> Result<()> {
         reasoning_scroll: 0,
         reasoning_total_lines: 0,
         auto_scroll: true,
+        reasoning_auto_scroll: true,
     };
 
     // Ctrl+C handler sends interrupt on broadcast channel
@@ -383,6 +389,7 @@ async fn main() -> Result<()> {
                     }
                     Ok(StreamEvent::ReasoningDelta(delta)) => {
                         app.streaming_reasoning.push_str(&delta);
+                        app.reasoning_auto_scroll = true;
                     }
                     Err(mpsc::error::TryRecvError::Empty) => break,
                     Err(mpsc::error::TryRecvError::Disconnected) => {
@@ -433,6 +440,8 @@ async fn main() -> Result<()> {
                                     };
                                     app.is_streaming = true;
                                     app.auto_scroll = true;
+                                    app.reasoning_auto_scroll = true;
+                                    app.reasoning_scroll = 0;
                                     app.streaming_text.clear();
                                     app.streaming_reasoning.clear();
                                     app.current_response.clear();
@@ -476,6 +485,7 @@ async fn main() -> Result<()> {
                         (KeyCode::PageUp, _) => {
                             if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
                                 app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
+                                app.reasoning_auto_scroll = false;
                             } else {
                                 app.scroll = app.scroll.saturating_sub(3);
                                 app.auto_scroll = false;
@@ -485,6 +495,7 @@ async fn main() -> Result<()> {
                             if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
                                 let max_scroll = app.reasoning_total_lines.saturating_sub(1);
                                 app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
+                                app.reasoning_auto_scroll = false;
                             } else {
                                 let max_scroll = app.total_lines.saturating_sub(1);
                                 app.scroll = (app.scroll + 3).min(max_scroll);
@@ -494,6 +505,7 @@ async fn main() -> Result<()> {
                         (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
                             if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
                                 app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
+                                app.reasoning_auto_scroll = false;
                             } else {
                                 app.scroll = app.scroll.saturating_sub(3);
                                 app.auto_scroll = false;
@@ -503,6 +515,7 @@ async fn main() -> Result<()> {
                             if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
                                 let max_scroll = app.reasoning_total_lines.saturating_sub(1);
                                 app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
+                                app.reasoning_auto_scroll = false;
                             } else {
                                 let max_scroll = app.total_lines.saturating_sub(1);
                                 app.scroll = (app.scroll + 3).min(max_scroll);
@@ -516,13 +529,24 @@ async fn main() -> Result<()> {
                 }
                 Event::Mouse(mouse) => match mouse.kind {
                     MouseEventKind::ScrollUp => {
-                        app.scroll = app.scroll.saturating_sub(3);
-                        app.auto_scroll = false;
+                        if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
+                            app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
+                            app.reasoning_auto_scroll = false;
+                        } else {
+                            app.scroll = app.scroll.saturating_sub(3);
+                            app.auto_scroll = false;
+                        }
                     }
                     MouseEventKind::ScrollDown => {
-                        let max_scroll = app.total_lines.saturating_sub(1);
-                        app.scroll = (app.scroll + 3).min(max_scroll);
-                        app.auto_scroll = false;
+                        if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
+                            let max_scroll = app.reasoning_total_lines.saturating_sub(1);
+                            app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
+                            app.reasoning_auto_scroll = false;
+                        } else {
+                            let max_scroll = app.total_lines.saturating_sub(1);
+                            app.scroll = (app.scroll + 3).min(max_scroll);
+                            app.auto_scroll = false;
+                        }
                     }
                     _ => {}
                 },
