@@ -100,6 +100,8 @@ struct App {
     reasoning_auto_scroll: bool,
     /// 是否在启动时显示 banner（首次发送消息后隐藏）
     show_banner: bool,
+    /// 跑马灯动画帧计数器
+    marquee_frame: u64,
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
@@ -107,26 +109,27 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // 判断是否有思考内容需要显示
     let has_reasoning = app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming);
-    
+
+    // 布局：状态栏中包含跑马灯
     let chunks = if has_reasoning {
-        // 四区域布局：思考区域 + 聊天区域 + 输入区域 + 状态栏
+        // 四区域布局：思考区域 + 聊天区域 + 输入区域 + 状态栏（含跑马灯）
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(app.config.agent.thinking_display_height),  // 思考区域高度（可配置）
                 Constraint::Min(1),      // 聊天区域
                 Constraint::Length(5),   // 输入区域
-                Constraint::Length(1),   // 状态栏
+                Constraint::Length(1),   // 状态栏（包含跑马灯）
             ])
             .split(area)
     } else {
-        // 三区域布局（无思考区域）
+        // 三区域布局（无思考区域）：聊天区域 + 输入区域 + 状态栏（含跑马灯）
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(1),
-                Constraint::Length(5),
-                Constraint::Length(1),
+                Constraint::Min(1),      // 聊天区域
+                Constraint::Length(5),   // 输入区域
+                Constraint::Length(1),   // 状态栏（包含跑马灯）
             ])
             .split(area)
     };
@@ -246,21 +249,69 @@ fn ui(f: &mut Frame, app: &mut App) {
 
      f.render_widget(&app.input, chunks[input_chunk_index]); 
 
-    let mut status = format!(
-        "Model: {}",
-        app.config.llm.model.as_deref().unwrap_or("unknown")
-    );
+    // 渲染状态栏（左侧状态信息 + 右侧跑马灯）
+    let mut spans = Vec::new();
+    
+    // 左侧：状态信息
+    spans.push(Span::styled(
+        format!("Model: {}", app.config.llm.model.as_deref().unwrap_or("unknown")),
+        Style::default().fg(Color::DarkGray)
+    ));
+    
     if let Some(ref turn_line) = app.turn_usage_line {
-        status.push_str(&format!(" | {}", turn_line));
-    }
-    if app.is_streaming {
-        status.push_str(" | Streaming...");
-    } else {
-        status.push_str(" | Ready");
+        spans.push(Span::styled(
+            format!(" | {}", turn_line),
+            Style::default().fg(Color::DarkGray)
+        ));
     }
     
-    let status_bar = Paragraph::new(status)
-        .style(Style::default().fg(Color::DarkGray));
+    if app.is_streaming {
+        spans.push(Span::styled(
+            " | Streaming...",
+            Style::default().fg(Color::Yellow)
+        ));
+    } else {
+        spans.push(Span::styled(
+            " | Ready",
+            Style::default().fg(Color::Green)
+        ));
+    }
+    
+    // 计算左侧状态信息的宽度
+    let left_width: usize = spans.iter().map(|s| s.content.len()).sum();
+    
+    // 右侧：跑马灯动画（如果正在流式输出）
+    if app.is_streaming {
+        let total_width = chunks[status_chunk_index].width as usize;
+        if total_width > left_width + 5 {
+            let marquee_width = total_width - left_width - 1; // 跑马灯可用宽度
+            if marquee_width > 0 {
+                let marquee_text = "⏳ Processing... ";
+
+                // 构建缓冲区：前导空格 + 文本 + 尾部空格，实现循环滚动
+                let mut buffer = String::new();
+                buffer.push_str(&" ".repeat(marquee_width));  // 前导空格，让文本从右侧进入
+                buffer.push_str(marquee_text);
+                buffer.push_str(&" ".repeat(marquee_width));  // 尾部空格
+
+                // 根据帧数计算起始位置（每2帧移动1个字符，速度适中）
+                let speed = 1u64;
+                let mut start = ((app.marquee_frame / 2) * speed) as usize % (buffer.len() - marquee_width);
+                // Snap to valid UTF-8 boundary to avoid slicing inside multi-byte chars (e.g., ⏳)
+                start = buffer.floor_char_boundary(start);
+                let end = (start + marquee_width).min(buffer.len());
+                let end = buffer.floor_char_boundary(end);
+                let display = &buffer[start..end];
+
+                spans.push(Span::styled(
+                    display.to_string(),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                ));
+            }
+        }
+    }
+    
+    let status_bar = Paragraph::new(Line::from(spans));
     f.render_widget(status_bar, chunks[status_chunk_index]);
 }
 
@@ -361,6 +412,7 @@ async fn main() -> Result<()> {
         auto_scroll: true,
         reasoning_auto_scroll: true,
         show_banner,
+        marquee_frame: 0,
     };
 
     // Ctrl+C handler sends interrupt on broadcast channel
@@ -373,6 +425,13 @@ async fn main() -> Result<()> {
     });
 
     loop {
+        // 更新跑马灯帧计数器
+        if app.is_streaming {
+            app.marquee_frame = app.marquee_frame.wrapping_add(1);
+        } else {
+            app.marquee_frame = 0;
+        }
+        
         terminal.draw(|f| ui(f, &mut app))?;
 
         // Check for completed stream result
