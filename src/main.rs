@@ -1,340 +1,17 @@
 use anyhow::Result;
-use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
-};
-use ratatui::{
-    prelude::*,
-    widgets::{Paragraph, Wrap, Block, Borders},
-};
-use tui_textarea::TextArea;
-use tui_markdown::from_str;
-use tokio::sync::mpsc;
-use std::time::Duration;
-use std::sync::Arc;
-use std::io::Write;
 
 use my_code_agent::core::config::Config;
-use my_code_agent::core::context::expand_file_refs;
 use my_code_agent::core::context_manager::ContextManager;
 use my_code_agent::core::preamble::build_agent;
 use my_code_agent::core::session::SessionData;
-use my_code_agent::core::streaming::{stream_response, StreamResult, StreamEvent};
 use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::tools::create_mcp_tools;
-use my_code_agent::ui::render::ReasoningTracker;
+use my_code_agent::app::App;
+use my_code_agent::app;
+use my_code_agent::app::conversion::convert_rig_to_app;
 
-use rig::completion::Message as RigMessage;
-use rig::message::UserContent;
-use rig::completion::AssistantContent;
-
-fn text_from_user_content(content: &UserContent) -> String {
-    match content {
-        UserContent::Text(s) => s.text.clone(),
-        _ => String::new(),
-    }
-}
-
-fn text_from_assistant_content(content: &AssistantContent) -> String {
-    match content {
-        AssistantContent::Text(s) => s.text.clone(),
-        _ => String::new(),
-    }
-}
-
-fn convert_rig_to_app(msg: RigMessage) -> (String, String) {
-    match msg {
-        RigMessage::User { content } => {
-            let text = text_from_user_content(&content.first());
-            ("user".to_string(), text)
-        }
-        RigMessage::Assistant { content, .. } => {
-            let text = text_from_assistant_content(&content.first());
-            ("assistant".to_string(), text)
-        }
-        _ => ("unknown".to_string(), String::new()),
-    }
-}
-
-fn convert_app_to_rig(chat_history: &[(String, String)]) -> Vec<RigMessage> {
-    chat_history
-        .iter()
-        .map(|(role, content)| match role.as_str() {
-            "user" => RigMessage::user(content),
-            "assistant" => RigMessage::assistant(content),
-            _ => RigMessage::user(""),
-        })
-        .collect()
-}
-
-struct App {
-    chat_history: Vec<(String, String)>,
-    current_response: String,
-    input: TextArea<'static>,
-    scroll: u16,
-    total_lines: u16,
-    token_usage: TokenUsage,
-    _session_name: Option<String>,
-    last_reasoning: String,
-    config: Config,
-    should_exit: bool,
-    is_streaming: bool,
-    response_rx: Option<mpsc::Receiver<StreamResult>>,
-    streaming_events_rx: Option<mpsc::UnboundedReceiver<StreamEvent>>,
-    streaming_text: String,
-    streaming_reasoning: String,
-    _interrupt_tx: tokio::sync::broadcast::Sender<()>,
-    _reasoning_tracker: ReasoningTracker,
-    status_messages: Vec<String>,
-    turn_usage_line: Option<String>,
-    /// 是否显示思考区域
-    show_reasoning: bool,
-    /// 思考区域的滚动位置
-    reasoning_scroll: u16,
-    /// 思考区域的总行数
-    reasoning_total_lines: u16,
-    /// 是否自动滚动到最新内容
-    auto_scroll: bool,
-    /// 思考区域是否自动滚动
-    reasoning_auto_scroll: bool,
-    /// 是否在启动时显示 banner（首次发送消息后隐藏）
-    show_banner: bool,
-    /// 跑马灯动画帧计数器
-    marquee_frame: u64,
-}
-
-fn ui(f: &mut Frame, app: &mut App) {
-    let area = f.area();
-
-    // 判断是否有思考内容需要显示
-    let has_reasoning = app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming);
-
-    // 布局：状态栏中包含跑马灯
-    let chunks = if has_reasoning {
-        // 四区域布局：思考区域 + 聊天区域 + 输入区域 + 状态栏（含跑马灯）
-        Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(app.config.agent.thinking_display_height),  // 思考区域高度（可配置）
-                Constraint::Min(1),      // 聊天区域
-                Constraint::Length(5),   // 输入区域
-                Constraint::Length(1),   // 状态栏（包含跑马灯）
-            ])
-            .split(area)
-    } else {
-        // 三区域布局（无思考区域）：聊天区域 + 输入区域 + 状态栏（含跑马灯）
-        Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),      // 聊天区域
-                Constraint::Length(5),   // 输入区域
-                Constraint::Length(1),   // 状态栏（包含跑马灯）
-            ])
-            .split(area)
-    };
-
-    // 渲染思考区域
-    if has_reasoning {
-        let reasoning_text = if app.is_streaming && !app.streaming_reasoning.is_empty() {
-            // 流式输出中，显示实时思考内容
-            format!("⏳ Thinking...\n\n{}", app.streaming_reasoning)
-        } else if !app.last_reasoning.is_empty() {
-            // 思考结束，显示完整思考内容
-            format!("✓ Thinking complete\n\n{}", app.last_reasoning)
-        } else {
-            "⏳ Thinking...".to_string()
-        };
-
-        let lines: Vec<ratatui::text::Line> = reasoning_text
-            .lines()
-            .map(|l| ratatui::text::Line::from(l.to_string()))
-            .collect();
-        
-        app.reasoning_total_lines = lines.len() as u16;
-
-        // Auto-scroll reasoning: during streaming always follow, else honor flag
-        if app.reasoning_auto_scroll || app.is_streaming {
-            // reasoning area: height - 2 borders = content lines
-            let visible_lines = app.config.agent.thinking_display_height.saturating_sub(2);
-            if app.reasoning_total_lines > visible_lines {
-                app.reasoning_scroll = app.reasoning_total_lines - visible_lines;
-            } else {
-                app.reasoning_scroll = 0;
-            }
-        }
-        
-        let reasoning_paragraph = Paragraph::new(reasoning_text)
-            .scroll((app.reasoning_scroll, 0))
-            .wrap(Wrap { trim: true })
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" 🤔 Reasoning ")
-                    .border_style(Style::default().fg(Color::Yellow))
-            )
-            .style(Style::default().fg(Color::DarkGray));
-        
-        f.render_widget(reasoning_paragraph, chunks[0]);
-    }
-
-    // 渲染聊天区域
-    let chat_chunk_index = if has_reasoning { 1 } else { 0 };
-    let input_chunk_index = if has_reasoning { 2 } else { 1 };
-    let status_chunk_index = if has_reasoning { 3 } else { 2 };
-
-    let mut chat_text = String::new();
-
-    // Show startup banner if no messages yet
-    if app.show_banner {
-        // Banner 单独渲染，不走 markdown，避免 ANSI 码乱码和 ASCII art 变形
-        let banner = my_code_agent::ui::terminal::make_startup_text();
-        app.total_lines = banner.lines.len() as u16;
-        let paragraph = Paragraph::new(banner)
-            .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::NONE));
-        f.render_widget(paragraph, chunks[chat_chunk_index]);
-    } else {
-        for (role, content) in &app.chat_history {
-            match role.as_str() {
-                "user" => {
-                    chat_text.push_str(&format!("**You**: {}\n\n", content));
-                }
-                "assistant" => {
-                    chat_text.push_str(content);
-                    chat_text.push_str("\n\n---\n\n");
-                }
-                _ => {
-                    chat_text.push_str(&format!("**{}**: {}\n\n", role, content));
-                }
-            }
-        }
-
-        if app.is_streaming {
-            if !app.streaming_text.is_empty() {
-                chat_text.push_str("**Assistant**: ");
-                chat_text.push_str(&app.streaming_text);
-                chat_text.push('\n');
-            } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
-                chat_text.push_str("*⏳ Generating response...*\n\n");
-            }
-        }
-
-        if !app.status_messages.is_empty() {
-            chat_text.push_str("---\n");
-            for msg in &app.status_messages {
-                chat_text.push_str(msg);
-                chat_text.push('\n');
-            }
-        }
-
-        let markdown = from_str(&chat_text);
-        app.total_lines = markdown.lines.len() as u16;
-
-        if app.auto_scroll {
-            let chat_area_height = chunks[chat_chunk_index].height;
-            if app.total_lines > chat_area_height {
-                app.scroll = app.total_lines - chat_area_height;
-            } else {
-                app.scroll = 0;
-            }
-        }
-
-        let paragraph = Paragraph::new(markdown)
-            .scroll((app.scroll, 0))
-            .wrap(Wrap { trim: true })
-            .block(Block::default().borders(Borders::NONE));
-        f.render_widget(paragraph, chunks[chat_chunk_index]);
-    }
-
-     f.render_widget(&app.input, chunks[input_chunk_index]); 
-
-    // 渲染状态栏（左侧状态信息 + 右侧跑马灯）
-    let mut spans = Vec::new();
-    
-    // 左侧：状态信息
-    spans.push(Span::styled(
-        format!("Model: {}", app.config.llm.model.as_deref().unwrap_or("unknown")),
-        Style::default().fg(Color::DarkGray)
-    ));
-    
-    if let Some(ref turn_line) = app.turn_usage_line {
-        spans.push(Span::styled(
-            format!(" | {}", turn_line),
-            Style::default().fg(Color::DarkGray)
-        ));
-    }
-    
-    if app.is_streaming {
-        spans.push(Span::styled(
-            " | Streaming...",
-            Style::default().fg(Color::Yellow)
-        ));
-    } else {
-        spans.push(Span::styled(
-            " | Ready",
-            Style::default().fg(Color::Green)
-        ));
-    }
-    
-    // 计算左侧状态信息的宽度
-    let left_width: usize = spans.iter().map(|s| s.content.len()).sum();
-    
-    // 右侧：跑马灯动画（如果正在流式输出）
-    if app.is_streaming {
-        let total_width = chunks[status_chunk_index].width as usize;
-        if total_width > left_width + 5 {
-            let marquee_width = total_width - left_width - 1; // 跑马灯可用宽度
-            if marquee_width > 0 {
-                let marquee_text = "⏳ Processing... ";
-
-                // 构建缓冲区：前导空格 + 文本 + 尾部空格，实现循环滚动
-                let mut buffer = String::new();
-                buffer.push_str(&" ".repeat(marquee_width));  // 前导空格，让文本从右侧进入
-                buffer.push_str(marquee_text);
-                buffer.push_str(&" ".repeat(marquee_width));  // 尾部空格
-
-                // 根据帧数计算起始位置（每2帧移动1个字符，速度适中）
-                let speed = 1u64;
-                let mut start = ((app.marquee_frame / 2) * speed) as usize % (buffer.len() - marquee_width);
-                // Snap to valid UTF-8 boundary to avoid slicing inside multi-byte chars (e.g., ⏳)
-                start = buffer.floor_char_boundary(start);
-                let end = (start + marquee_width).min(buffer.len());
-                let end = buffer.floor_char_boundary(end);
-                let display = &buffer[start..end];
-
-                spans.push(Span::styled(
-                    display.to_string(),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                ));
-            }
-        }
-    }
-    
-    let status_bar = Paragraph::new(Line::from(spans));
-    f.render_widget(status_bar, chunks[status_chunk_index]);
-}
-
-fn process_stream_result(app: &mut App, result: StreamResult) {
-    app.is_streaming = false;
-    app.streaming_text.clear();
-    app.streaming_reasoning.clear();
-    app.streaming_events_rx = None;
-
-    if !result.full_response.is_empty() {
-        app.chat_history.push(("assistant".to_string(), result.full_response));
-    }
-
-    app.last_reasoning = result.last_reasoning;
-    app.status_messages = result.status_messages;
-    app.turn_usage_line = result.turn_usage_line;
-    app.auto_scroll = true;
-
-    if result.should_exit {
-        app.should_exit = true;
-    }
-    app.status_messages.clear();
-}
+use std::sync::Arc;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -346,6 +23,7 @@ async fn main() -> Result<()> {
     let mut token_usage = TokenUsage::with_config(&config);
     let mut last_reasoning = String::new();
 
+    // Try to resume session if enabled
     if config.session.enabled {
         if let Some(load_result) = SessionData::load_default(config.session.save_file.as_deref()) {
             if let Ok(data) = load_result {
@@ -358,62 +36,12 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Determine if we should show banner (only if no resumed chat history)
-    let show_banner = app_chat_history.is_empty();
-
     let mcp_tools = create_mcp_tools(&config).await;
     let agent = Arc::new(build_agent(&config, mcp_tools));
 
     let context_manager = ContextManager::new(&config);
 
     let (interrupt_tx, _) = tokio::sync::broadcast::channel::<()>(16);
-
-    enable_raw_mode()?;
-    let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    // Enable alternate scroll mode (DECSET 1007): mouse wheel sends arrow keys
-    // without requiring mouse capture, so text selection still works.
-    let _ = write!(std::io::stdout(), "\x1b[?1007h");
-    let _ = std::io::stdout().flush(); // 加上 flush！
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    let mut input_area = TextArea::default();
-    input_area.set_block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
-    );
-    input_area.set_cursor_line_style(Style::default());
-
-    let mut app = App {
-        chat_history: app_chat_history,
-        current_response: String::new(),
-        input: input_area,
-        scroll: 0,
-        total_lines: 0,
-        token_usage,
-        _session_name: None,
-        last_reasoning,
-        config: config.clone(),
-        should_exit: false,
-        is_streaming: false,
-        response_rx: None,
-        streaming_events_rx: None,
-        streaming_text: String::new(),
-        streaming_reasoning: String::new(),
-        _interrupt_tx: interrupt_tx.clone(),
-        _reasoning_tracker: ReasoningTracker::new(),
-        status_messages: Vec::new(),
-        turn_usage_line: None,
-        show_reasoning: true,  // 默认显示思考区域
-        reasoning_scroll: 0,
-        reasoning_total_lines: 0,
-        auto_scroll: true,
-        reasoning_auto_scroll: true,
-        show_banner,
-        marquee_frame: 0,
-    };
 
     // Ctrl+C handler sends interrupt on broadcast channel
     let interrupt_tx_ctrlc = interrupt_tx.clone();
@@ -424,6 +52,22 @@ async fn main() -> Result<()> {
         }
     });
 
+    // Enter alternate screen
+    let mut terminal = app::event_handler::enter_terminal()?;
+
+    // Create app
+    let mut app = App::new(
+        app_chat_history,
+        token_usage,
+        last_reasoning,
+        config,
+        agent,
+        interrupt_tx,
+    );
+
+    let mut context_manager = context_manager;
+
+    // Main loop
     loop {
         // 更新跑马灯帧计数器
         if app.is_streaming {
@@ -432,172 +76,22 @@ async fn main() -> Result<()> {
             app.marquee_frame = 0;
         }
         
-        terminal.draw(|f| ui(f, &mut app))?;
+        terminal.draw(|f| app::ui::ui(f, &mut app))?;
 
         // Check for completed stream result
-        if let Some(ref mut rx) = app.response_rx {
-            if let Ok(result) = rx.try_recv() {
-                process_stream_result(&mut app, result);
-                app.response_rx = None;
-            }
-        }
+        app::event_handler::check_stream_result(&mut app);
 
         // Poll streaming text events for live display
-        if let Some(ref mut rx) = app.streaming_events_rx {
-            loop {
-                match rx.try_recv() {
-                    Ok(StreamEvent::Text(delta)) => {
-                        app.streaming_text.push_str(&delta);
-                    }
-                    Ok(StreamEvent::ToolCall(name)) => {
-                        app.streaming_text.push_str(&format!("\n⟳ [`{}`]\n", name));
-                    }
-                    Ok(StreamEvent::ReasoningActive(active)) => {
-                        if !active {
-                            // 思考结束，保存内容到 last_reasoning
-                            if !app.streaming_reasoning.is_empty() {
-                                app.last_reasoning = app.streaming_reasoning.clone();
-                                app.streaming_reasoning.clear();
-                            }
-                        }
-                    }
-                    Ok(StreamEvent::ReasoningDelta(delta)) => {
-                        app.streaming_reasoning.push_str(&delta);
-                    }
-                    Err(mpsc::error::TryRecvError::Empty) => break,
-                    Err(mpsc::error::TryRecvError::Disconnected) => {
-                        app.streaming_events_rx = None;
-                        break;
-                    }
+        app::event_handler::process_streaming_events(&mut app);
+
+        if crossterm::event::poll(Duration::from_millis(100))? {
+            match crossterm::event::read()? {
+                crossterm::event::Event::Key(key) => {
+                    app::event_handler::handle_key_event(key, &mut app, &mut context_manager);
                 }
-            }
-        }
-
-        if event::poll(Duration::from_millis(100))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    match (key.code, key.modifiers) {
-                        (KeyCode::Char('c'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                            // Ctrl+C when streaming: handled by the broadcast interrupt
-                            if !app.is_streaming {
-                                app.should_exit = true;
-                            }
-                        }
-                        (KeyCode::Char('r'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                            // Ctrl+R: toggle reasoning display
-                            app.show_reasoning = !app.show_reasoning;
-                        }
-                        (KeyCode::Esc, _) => {
-                            if !app.is_streaming {
-                                app.should_exit = true;
-                            }
-                        }
-                        (KeyCode::Enter, modifiers) => {
-                            if modifiers.contains(KeyModifiers::SHIFT) {
-                                // Shift+Enter: insert newline in textarea
-                                app.input.input(key);
-                            } else {
-                                // Plain Enter or Ctrl+Enter: send
-                                let input_text = app.input.lines().join("\n").trim().to_string();
-                                if !input_text.is_empty() && !app.is_streaming {
-                                    app.show_banner = false; // Hide startup banner
-                                    app.chat_history.push(("user".to_string(), input_text.clone()));
-                                    app.input = {
-                                        let mut ta = TextArea::default();
-                                        ta.set_block(
-                                            Block::default()
-                                                .borders(Borders::ALL)
-                                                .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
-                                        );
-                                        ta.set_cursor_line_style(Style::default());
-                                        ta
-                                    };
-                                    app.is_streaming = true;
-                                    app.auto_scroll = true;
-                                    app.reasoning_auto_scroll = true;
-                                    app.reasoning_scroll = 0;
-                                    app.streaming_text.clear();
-                                    app.streaming_reasoning.clear();
-                                    app.current_response.clear();
-                                    app.status_messages.clear();
-                                    app.turn_usage_line = None;
-
-                                    let expanded = expand_file_refs(&input_text, &app.config);
-                                    
-                                    let mut rig_chat_history = convert_app_to_rig(&app.chat_history);
-                                    let agent_clone = agent.clone();
-                                    let config_clone = app.config.clone();
-                                    let mut token_usage_clone = app.token_usage.clone();
-                                    let interrupt_rx = interrupt_tx.subscribe();
-                                    let (response_tx, response_rx) = mpsc::channel::<StreamResult>(1);
-                                    let (event_tx, event_rx) = mpsc::unbounded_channel::<StreamEvent>();
-
-                                    let mut ctx_mgr = context_manager.clone();
-
-                                    app.response_rx = Some(response_rx);
-                                    app.streaming_events_rx = Some(event_rx);
-
-                                    tokio::spawn(async move {
-                                        let mut interrupt_rx = interrupt_rx;
-
-                                        let result = stream_response(
-                                            &agent_clone,
-                                            &expanded.expanded,
-                                            &mut rig_chat_history,
-                                            &mut token_usage_clone,
-                                            &mut interrupt_rx,
-                                            &mut ctx_mgr,
-                                            &config_clone.agent,
-                                            Some(event_tx),
-                                        ).await;
-
-                                        response_tx.send(result).await.ok();
-                                    });
-                                }
-                            }
-                        }
-                        (KeyCode::PageUp, _) => {
-                            app.scroll = app.scroll.saturating_sub(3);
-                            app.auto_scroll = false;
-                        }
-                        (KeyCode::PageDown, _) => {
-                            let max_scroll = app.total_lines.saturating_sub(1);
-                            app.scroll = (app.scroll + 3).min(max_scroll);
-                            app.auto_scroll = false;
-                        }
-                        (KeyCode::Up, modifiers) if modifiers.is_empty() => {
-                            app.scroll = app.scroll.saturating_sub(3);
-                            app.auto_scroll = false;
-                        }
-                        (KeyCode::Down, modifiers) if modifiers.is_empty() => {
-                            let max_scroll = app.total_lines.saturating_sub(1);
-                            app.scroll = (app.scroll + 3).min(max_scroll);
-                            if app.scroll >= max_scroll {
-                                app.auto_scroll = true;
-                            }
-                        }
-                        _ => {
-                            app.input.input(key);
-                        }
-                    }
+                crossterm::event::Event::Mouse(mouse) => {
+                    app::event_handler::handle_mouse_event(mouse, &mut app);
                 }
-                Event::Mouse(mouse) => {
-                    match mouse.kind {
-                        crossterm::event::MouseEventKind::ScrollUp => {
-                            app.scroll = app.scroll.saturating_sub(3);
-                            app.auto_scroll = false;
-                        }
-                        crossterm::event::MouseEventKind::ScrollDown => {
-                            let max_scroll = app.total_lines.saturating_sub(1);
-                            app.scroll = (app.scroll + 3).min(max_scroll);
-                            // 滚到底部时重新启用 auto_scroll
-                            if app.scroll >= max_scroll {
-                                app.auto_scroll = true;
-                            }
-                        }
-                        _ => {} // 其他鼠标事件忽略，不影响文本选中
-                    }
-                },
                 _ => {}
             }
         }
@@ -607,22 +101,27 @@ async fn main() -> Result<()> {
         }
     }
 
-    let _ = write!(std::io::stdout(), "\x1b[?1007l");
-    let _ = std::io::stdout().flush();
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    // Leave alternate screen
+    app::event_handler::leave_terminal(&mut terminal)?;
 
-    if config.session.enabled && !app.chat_history.is_empty() {
+    // Save session if enabled
+    if app.config.session.enabled && !app.chat_history.is_empty() {
+        use my_code_agent::core::session::SessionData;
+        
+        let rig_history: Vec<_> = app.chat_history.into_iter()
+            .map(|(r, c)| match r.as_str() {
+                "user" => rig::completion::Message::user(c),
+                "assistant" => rig::completion::Message::assistant(c),
+                _ => rig::completion::Message::user(c),
+            })
+            .collect();
+        
         let data = SessionData::new(
-            app.chat_history.into_iter().map(|(r, c)| match r.as_str() {
-                "user" => RigMessage::user(c),
-                "assistant" => RigMessage::assistant(c),
-                _ => RigMessage::user(c),
-            }).collect(),
+            rig_history,
             app.token_usage.clone(),
             app.last_reasoning.clone(),
         );
-        if let Err(e) = data.save_default(config.session.save_file.as_deref()) {
+        if let Err(e) = data.save_default(app.config.session.save_file.as_deref()) {
             eprintln!("Failed to save session: {}", e);
         }
     }
