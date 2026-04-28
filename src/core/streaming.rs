@@ -208,6 +208,9 @@ where
                     plan_tracker.complete_current_step();
                     plan_tracker.log_progress();
                 }
+                let tool_call_marker = format!("\n⟳ *Tool Call:* `{}`\n", tool_call.function.name);
+                // 追加到 full_response，让工具调用日志保存在对话历史中
+                full_response.push_str(&tool_call_marker);
                 status_messages.push(format!("⟳ [{}]", tool_call.function.name.cyan()));
                 send_event(StreamEvent::ToolCall(tool_call.function.name.clone()));
             }

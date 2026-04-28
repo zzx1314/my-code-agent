@@ -59,3 +59,35 @@ pub fn style_text(text: &str, fg: Option<Color>, bold: bool, dim: bool) -> Strin
     result.push_str(ansi_reset());
     result
 }
+
+/// The ASCII art banner displayed on startup.
+pub const BANNER_ART: &str = r#"
+ _                               _   
+  _ __ ___  _   _    ___ ___   __| | ___    __ _  __ _  ___ _ __ | |_ 
+ | '_ ` _ \ | | | |  / __/ _ \ / _` |/ _ \  / _` |/ _` |/ _ \ '_ \| __|
+ | | | | | | |_| | | (_| (_) | (_| |  __/ | (_| | (_| |  __/ | | | |_ 
+ |_| |_| |_|\__, |  \___\___/ \__,_|\___|  \__,_|\__, |\___|_| |_|\__|
+            |___/                                |___/ 
+"#;
+
+/// Returns the startup banner lines with styling applied (for TUI rendering).
+pub fn make_banner_text() -> String {
+    format!(
+        "{}\n{}\n",
+        style_text("My Code Agent", Some(Color::Cyan), true, false),
+        style_text("  Interactive AI Coding Assistant", Some(Color::DarkGray), false, true),
+    )
+}
+
+/// Returns the full startup banner (ASCII + info) for the chat area.
+pub fn make_startup_display() -> String {
+    let mut text = String::new();
+    text.push_str(BANNER_ART);
+    text.push_str("\n");
+    text.push_str(&make_banner_text());
+    text.push_str("\n");
+    text.push_str(&style_text("Type your message below to start chatting.", Some(Color::DarkGray), false, true));
+    text.push_str("\n");
+    text.push_str(&style_text("Commands: /help  /save  /load  /new  /think", Some(Color::DarkGray), false, true));
+    text
+}

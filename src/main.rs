@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers, MouseEventKind, EnableMouseCapture, DisableMouseCapture},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
 };
@@ -13,6 +13,7 @@ use tui_markdown::from_str;
 use tokio::sync::mpsc;
 use std::time::Duration;
 use std::sync::Arc;
+use std::io::Write;
 
 use my_code_agent::core::config::Config;
 use my_code_agent::core::context::expand_file_refs;
@@ -97,6 +98,8 @@ struct App {
     auto_scroll: bool,
     /// 思考区域是否自动滚动
     reasoning_auto_scroll: bool,
+    /// 是否在启动时显示 banner（首次发送消息后隐藏）
+    show_banner: bool,
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
@@ -178,6 +181,12 @@ fn ui(f: &mut Frame, app: &mut App) {
     let status_chunk_index = if has_reasoning { 3 } else { 2 };
 
     let mut chat_text = String::new();
+
+    // Show startup banner if no messages yet
+    if app.show_banner {
+        chat_text.push_str(&my_code_agent::ui::terminal::make_startup_display());
+        chat_text.push_str("\n\n---\n\n");
+    }
 
     for (role, content) in &app.chat_history {
         match role.as_str() {
@@ -312,6 +321,9 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Determine if we should show banner (only if no resumed chat history)
+    let show_banner = app_chat_history.is_empty();
+
     let mcp_tools = create_mcp_tools(&config).await;
     let agent = Arc::new(build_agent(&config, mcp_tools));
 
@@ -321,7 +333,11 @@ async fn main() -> Result<()> {
 
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen)?;
+    // Enable alternate scroll mode (DECSET 1007): mouse wheel sends arrow keys
+    // without requiring mouse capture, so text selection still works.
+    let _ = write!(std::io::stdout(), "\x1b[?1007h");
+    let _ = std::io::stdout().flush(); // 加上 flush！
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -358,6 +374,7 @@ async fn main() -> Result<()> {
         reasoning_total_lines: 0,
         auto_scroll: true,
         reasoning_auto_scroll: true,
+        show_banner,
     };
 
     // Ctrl+C handler sends interrupt on broadcast channel
@@ -438,6 +455,7 @@ async fn main() -> Result<()> {
                                 // Plain Enter or Ctrl+Enter: send
                                 let input_text = app.input.lines().join("\n").trim().to_string();
                                 if !input_text.is_empty() && !app.is_streaming {
+                                    app.show_banner = false; // Hide startup banner
                                     app.chat_history.push(("user".to_string(), input_text.clone()));
                                     app.input = {
                                         let mut ta = TextArea::default();
@@ -502,19 +520,15 @@ async fn main() -> Result<()> {
                             app.scroll = (app.scroll + 3).min(max_scroll);
                             app.auto_scroll = false;
                         }
-                        (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                            // Ctrl+Up: scroll reasoning area (when visible)
-                            if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
-                                app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
-                                app.reasoning_auto_scroll = false;
-                            }
+                        (KeyCode::Up, modifiers) if modifiers.is_empty() => {
+                            app.scroll = app.scroll.saturating_sub(3);
+                            app.auto_scroll = false;
                         }
-                        (KeyCode::Down, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
-                            // Ctrl+Down: scroll reasoning area (when visible)
-                            if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
-                                let max_scroll = app.reasoning_total_lines.saturating_sub(1);
-                                app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
-                                app.reasoning_auto_scroll = false;
+                        (KeyCode::Down, modifiers) if modifiers.is_empty() => {
+                            let max_scroll = app.total_lines.saturating_sub(1);
+                            app.scroll = (app.scroll + 3).min(max_scroll);
+                            if app.scroll >= max_scroll {
+                                app.auto_scroll = true;
                             }
                         }
                         _ => {
@@ -523,29 +537,20 @@ async fn main() -> Result<()> {
                     }
                 }
                 Event::Mouse(mouse) => {
-                    let shift = mouse.modifiers.contains(KeyModifiers::SHIFT);
                     match mouse.kind {
-                        MouseEventKind::ScrollUp => {
-                            if shift && app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
-                                app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
-                                app.reasoning_auto_scroll = false;
-                            } else {
-                                app.scroll = app.scroll.saturating_sub(3);
-                                app.auto_scroll = false;
+                        crossterm::event::MouseEventKind::ScrollUp => {
+                            app.scroll = app.scroll.saturating_sub(3);
+                            app.auto_scroll = false;
+                        }
+                        crossterm::event::MouseEventKind::ScrollDown => {
+                            let max_scroll = app.total_lines.saturating_sub(1);
+                            app.scroll = (app.scroll + 3).min(max_scroll);
+                            // 滚到底部时重新启用 auto_scroll
+                            if app.scroll >= max_scroll {
+                                app.auto_scroll = true;
                             }
                         }
-                        MouseEventKind::ScrollDown => {
-                            if shift && app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
-                                let max_scroll = app.reasoning_total_lines.saturating_sub(1);
-                                app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
-                                app.reasoning_auto_scroll = false;
-                            } else {
-                                let max_scroll = app.total_lines.saturating_sub(1);
-                                app.scroll = (app.scroll + 3).min(max_scroll);
-                                app.auto_scroll = false;
-                            }
-                        }
-                        _ => {}
+                        _ => {} // 其他鼠标事件忽略，不影响文本选中
                     }
                 },
                 _ => {}
@@ -557,8 +562,10 @@ async fn main() -> Result<()> {
         }
     }
 
+    let _ = write!(std::io::stdout(), "\x1b[?1007l");
+    let _ = std::io::stdout().flush();
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 
     if !app.chat_history.is_empty() {
         let data = SessionData::new(

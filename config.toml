@@ -6,9 +6,9 @@
 
 # ── LLM Provider Settings ──
 [llm]
-provider = "openrouter"
-model = "tencent/hy3-preview:free"
-api_key_env = "OPENROUTER_API_KEY"
+provider = "deepseek"
+model = "deepseek-reasoner"
+api_key_env = "DEEPSEEK_API_KEY"
 
 # Custom base URL for OpenAI-compatible providers
 # Use with provider = "custom" or to override any provider's endpoint
