@@ -384,7 +384,7 @@ async fn main() -> Result<()> {
             .borders(Borders::ALL)
             .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
     );
-    input_area.set_cursor_line_style(Style::default().add_modifier(Modifier::UNDERLINED));
+    input_area.set_cursor_line_style(Style::default());
 
     let mut app = App {
         chat_history: app_chat_history,
@@ -509,7 +509,7 @@ async fn main() -> Result<()> {
                                                 .borders(Borders::ALL)
                                                 .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
                                         );
-                                        ta.set_cursor_line_style(Style::default().add_modifier(Modifier::UNDERLINED));
+                                        ta.set_cursor_line_style(Style::default());
                                         ta
                                     };
                                     app.is_streaming = true;
