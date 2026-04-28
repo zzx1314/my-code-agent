@@ -174,6 +174,14 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
 fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
     let input_text = app.input.lines().join("\n").trim().to_string();
     if !input_text.is_empty() && !app.is_streaming {
+        // Check if it's a command (starts with /)
+        if input_text.starts_with('/') {
+            // Handle commands locally without sending to LLM
+            if handle_command(app, &input_text) {
+                return; // Command was handled, don't send to LLM
+            }
+        }
+
         app.show_banner = false; // Hide startup banner
         app.chat_history.push(("user".to_string(), input_text.clone()));
         app.input = {
@@ -511,4 +519,127 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
         }
         _ => Vec::new(),
     }
+}
+
+/// 处理命令（以 / 开头的输入）
+/// 返回 true 表示命令已处理，false 表示需要发送给 LLM
+fn handle_command(app: &mut App, input: &str) -> bool {
+    let command = input.trim().to_lowercase();
+    
+    match command.as_str() {
+        "/help" => {
+            let help_text = generate_help_text();
+            app.chat_history.push(("user".to_string(), "/help".to_string()));
+            app.chat_history.push(("assistant".to_string(), help_text));
+            app.show_banner = false;
+            true
+        }
+        "/quit" => {
+            app.should_exit = true;
+            true
+        }
+        "/clear" => {
+            app.chat_history.clear();
+            app.token_usage = crate::core::token_usage::TokenUsage::with_config(&app.config);
+            app.show_banner = true;
+            // 删除会话文件
+            if app.config.session.enabled {
+                if let Some(save_file) = &app.config.session.save_file {
+                    let _ = std::fs::remove_file(save_file);
+                }
+            }
+            true
+        }
+        "/save" => {
+            // 保存会话（会通过主循环自动处理）
+            app.chat_history.push(("user".to_string(), "/save".to_string()));
+            app.chat_history.push(("assistant".to_string(), "Session will be saved on exit. Use /quit to exit and save.".to_string()));
+            app.show_banner = false;
+            true
+        }
+        "/load" => {
+            app.chat_history.push(("user".to_string(), "/load".to_string()));
+            app.chat_history.push(("assistant".to_string(), "Session auto-resumes on startup if session.enabled is true in config.toml".to_string()));
+            app.show_banner = false;
+            true
+        }
+        "/status" => {
+            let status = format!("Session enabled: {}\nModel: {}\nProvider: {}\nTotal tokens used: {}", 
+                app.config.session.enabled,
+                app.config.llm.model.as_deref().unwrap_or("default"),
+                app.config.llm.provider,
+                app.token_usage.total_tokens());
+            app.chat_history.push(("user".to_string(), "/status".to_string()));
+            app.chat_history.push(("assistant".to_string(), status));
+            app.show_banner = false;
+            true
+        }
+        "/tokens" => {
+            let token_info = format!("Total tokens used: {}\nInput tokens: {}\nOutput tokens: {}", 
+                app.token_usage.total_tokens(),
+                app.token_usage.input_tokens(),
+                app.token_usage.output_tokens());
+            app.chat_history.push(("user".to_string(), "/tokens".to_string()));
+            app.chat_history.push(("assistant".to_string(), token_info));
+            app.show_banner = false;
+            true
+        }
+        "/reasoning" => {
+            app.show_reasoning = !app.show_reasoning;
+            let status = if app.show_reasoning { "Reasoning display enabled" } else { "Reasoning display disabled" };
+            app.chat_history.push(("user".to_string(), "/reasoning".to_string()));
+            app.chat_history.push(("assistant".to_string(), status.to_string()));
+            app.show_banner = false;
+            true
+        }
+        _ => {
+            // 未知命令，发送给 LLM 处理
+            false
+        }
+    }
+}
+
+/// 生成帮助文本
+fn generate_help_text() -> String {
+    let help = r#"# My Code Agent - Command Help
+
+## Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show this help message |
+| `/quit` | Exit the application |
+| `/clear` | Clear chat history and start fresh |
+| `/save` | Save session (auto-saves on exit) |
+| `/load` | Load/resume a saved session |
+| `/status` | Show current configuration and status |
+| `/tokens` | Show token usage statistics |
+| `/reasoning` | Toggle reasoning display on/off |
+| `/think` | Switch to deep thinking mode (if supported) |
+
+## Input Features
+
+- **`@filepath`** - Attach a file inline (e.g., `@src/main.rs`)
+  - Use `@path:N` to read from line N (e.g., `@src/main.rs:50`)
+  - Large files (>500 lines or 50KB) are truncated with a notice
+
+- **Shift+Enter** - Insert newline in input
+- **Enter** - Send message
+- **Ctrl+C** - Interrupt response (once) or quit (twice)
+- **Ctrl+R** - Toggle reasoning display
+- **PageUp/PageDown** - Scroll chat history
+- **Mouse wheel** - Scroll chat history
+
+## Tools Available (13 total)
+
+`file_read` · `file_write` · `file_update` · `file_delete` · `shell_exec` · `code_search` · `code_review` · `list_dir` · `glob` · `git_status` · `git_diff` · `git_log` · `git_commit`
+
+## Tips
+
+- Type your question or task in natural language
+- Attach files using `@filepath` for context
+- The AI will automatically use tools when needed
+- Sessions auto-save to `.session.json` if enabled in config.toml
+"#;
+    help.to_string()
 }
