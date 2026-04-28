@@ -93,6 +93,8 @@ struct App {
     reasoning_scroll: u16,
     /// 思考区域的总行数
     reasoning_total_lines: u16,
+    /// 是否自动滚动到最新内容
+    auto_scroll: bool,
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
@@ -165,12 +167,20 @@ fn ui(f: &mut Frame, app: &mut App) {
     let mut chat_text = String::new();
 
     for (role, content) in &app.chat_history {
-        let role_display = match role.as_str() {
-            "user" => "**User**",
-            "assistant" => "**Assistant**",
-            _ => "**Unknown**",
-        };
-        chat_text.push_str(&format!("{}: {}\n\n", role_display, content));
+        match role.as_str() {
+            "user" => {
+                chat_text.push_str(&format!("**You**: {}\n\n", content));
+            }
+            "assistant" => {
+                // Render assistant content directly as markdown (no prefix)
+                // so that headings, code blocks, etc. are parsed correctly
+                chat_text.push_str(content);
+                chat_text.push_str("\n\n---\n\n");
+            }
+            _ => {
+                chat_text.push_str(&format!("**{}**: {}\n\n", role, content));
+            }
+        }
     }
 
     if app.is_streaming {
@@ -196,6 +206,12 @@ fn ui(f: &mut Frame, app: &mut App) {
     let markdown = from_str(&chat_text);
     let line_count = markdown.lines.len() as u16;
     app.total_lines = line_count;
+
+    // Auto-scroll: follow the auto_scroll flag.
+    // Set true on new content, false when user manually scrolls.
+    if app.auto_scroll {
+        app.scroll = app.total_lines.saturating_sub(1);
+    }
     let lines: Vec<ratatui::text::Line> = markdown.lines;
     let text = ratatui::text::Text::from(lines);
     let paragraph = Paragraph::new(text)
@@ -250,9 +266,7 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
     app.last_reasoning = result.last_reasoning;
     app.status_messages = result.status_messages;
     app.turn_usage_line = result.turn_usage_line;
-    // Auto-scroll to bottom after receiving response (show last ~10 visible lines)
-    let max_scroll = app.total_lines.saturating_sub(1);
-    app.scroll = app.total_lines.saturating_sub(10).min(max_scroll);
+    app.auto_scroll = true;
 
     if result.should_exit {
         app.should_exit = true;
@@ -323,6 +337,7 @@ async fn main() -> Result<()> {
         show_reasoning: true,  // 默认显示思考区域
         reasoning_scroll: 0,
         reasoning_total_lines: 0,
+        auto_scroll: true,
     };
 
     // Ctrl+C handler sends interrupt on broadcast channel
@@ -351,9 +366,11 @@ async fn main() -> Result<()> {
                 match rx.try_recv() {
                     Ok(StreamEvent::Text(delta)) => {
                         app.streaming_text.push_str(&delta);
+                        app.auto_scroll = true;
                     }
                     Ok(StreamEvent::ToolCall(name)) => {
                         app.streaming_text.push_str(&format!("\n⟳ [{}]\n", name));
+                        app.auto_scroll = true;
                     }
                     Ok(StreamEvent::ReasoningActive(active)) => {
                         if !active {
@@ -415,6 +432,7 @@ async fn main() -> Result<()> {
                                         ta
                                     };
                                     app.is_streaming = true;
+                                    app.auto_scroll = true;
                                     app.streaming_text.clear();
                                     app.streaming_reasoning.clear();
                                     app.current_response.clear();
@@ -460,6 +478,7 @@ async fn main() -> Result<()> {
                                 app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
                             } else {
                                 app.scroll = app.scroll.saturating_sub(3);
+                                app.auto_scroll = false;
                             }
                         }
                         (KeyCode::PageDown, _) => {
@@ -469,6 +488,7 @@ async fn main() -> Result<()> {
                             } else {
                                 let max_scroll = app.total_lines.saturating_sub(1);
                                 app.scroll = (app.scroll + 3).min(max_scroll);
+                                app.auto_scroll = false;
                             }
                         }
                         (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -476,6 +496,7 @@ async fn main() -> Result<()> {
                                 app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
                             } else {
                                 app.scroll = app.scroll.saturating_sub(3);
+                                app.auto_scroll = false;
                             }
                         }
                         (KeyCode::Down, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -485,6 +506,7 @@ async fn main() -> Result<()> {
                             } else {
                                 let max_scroll = app.total_lines.saturating_sub(1);
                                 app.scroll = (app.scroll + 3).min(max_scroll);
+                                app.auto_scroll = false;
                             }
                         }
                         _ => {
@@ -495,10 +517,12 @@ async fn main() -> Result<()> {
                 Event::Mouse(mouse) => match mouse.kind {
                     MouseEventKind::ScrollUp => {
                         app.scroll = app.scroll.saturating_sub(3);
+                        app.auto_scroll = false;
                     }
                     MouseEventKind::ScrollDown => {
                         let max_scroll = app.total_lines.saturating_sub(1);
                         app.scroll = (app.scroll + 3).min(max_scroll);
+                        app.auto_scroll = false;
                     }
                     _ => {}
                 },
