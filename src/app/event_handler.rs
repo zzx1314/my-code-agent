@@ -362,6 +362,14 @@ fn hide_completion(app: &mut App) {
     app.completion_trigger_pos = 0;
 }
 
+/// 将字符索引转换为字节索引（处理多字节字符）
+fn char_idx_to_byte(s: &str, char_idx: usize) -> usize {
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(byte_idx, _)| byte_idx)
+        .unwrap_or(s.len())
+}
+
 /// 应用选中的补全
 fn apply_completion(app: &mut App) {
     if app.completion_items.is_empty() {
@@ -385,7 +393,7 @@ fn apply_completion(app: &mut App) {
     // 找到当前行
     if cursor.0 < lines.len() {
         let line = &mut lines[cursor.0];
-        let pos = cursor.1;
+        let pos = char_idx_to_byte(line, cursor.1);
         
         // 找到触发字符的位置（从光标位置向前找）
         let trigger_pos = line[..pos].rfind(trigger_char).unwrap_or(pos.saturating_sub(1));
@@ -428,10 +436,10 @@ fn update_completion_query(app: &mut App) {
     
     if cursor.0 < lines.len() {
         let line = &lines[cursor.0];
-        let start = app.completion_trigger_pos.min(line.len());
-        let end = cursor_pos.min(line.len());
-        if start <= end {
-            app.completion_query = line[start..end].to_string();
+        let byte_start = char_idx_to_byte(line, app.completion_trigger_pos);
+        let byte_end = char_idx_to_byte(line, cursor_pos);
+        if byte_start <= byte_end && byte_end <= line.len() {
+            app.completion_query = line[byte_start..byte_end].to_string();
         }
     }
     
