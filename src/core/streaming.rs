@@ -2,6 +2,7 @@ use futures::StreamExt;
 use rig::agent::MultiTurnStreamItem;
 use rig::completion::{CompletionModel, GetTokenUsage, Message};
 use rig::streaming::{StreamedAssistantContent, StreamingChat};
+use tokio::sync::mpsc;
 
 use super::config::AgentConfig;
 use super::context_manager::ContextManager;
@@ -11,7 +12,7 @@ use crate::core::preamble::Agent;
 use crate::ui::render::ReasoningTracker;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// StreamResult
+// StreamResult & StreamEvent
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub struct StreamResult {
@@ -22,6 +23,19 @@ pub struct StreamResult {
     pub plan_tracker: PlanTracker,
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
+}
+
+/// Events emitted during streaming for real-time UI display.
+#[derive(Debug, Clone)]
+pub enum StreamEvent {
+    /// A chunk of response text to display incrementally.
+    Text(String),
+    /// A tool call is being executed.
+    ToolCall(String),
+    /// Reasoning is active (showing/hiding indicator).
+    ReasoningActive(bool),
+    /// Reasoning content delta.
+    ReasoningDelta(String),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +68,7 @@ pub async fn stream_response(
     interrupt_rx: &mut tokio::sync::broadcast::Receiver<()>,
     context_manager: &mut ContextManager,
     agent_config: &AgentConfig,
+    event_tx: Option<mpsc::UnboundedSender<StreamEvent>>,
 ) -> StreamResult {
     match agent {
         Agent::OpenAI(inner) => {
@@ -65,6 +80,7 @@ pub async fn stream_response(
                 interrupt_rx,
                 context_manager,
                 agent_config,
+                event_tx,
             )
             .await
         }
@@ -77,6 +93,7 @@ pub async fn stream_response(
                 interrupt_rx,
                 context_manager,
                 agent_config,
+                event_tx,
             )
             .await
         }
@@ -94,6 +111,7 @@ async fn stream_inner<M>(
     interrupt_rx: &mut tokio::sync::broadcast::Receiver<()>,
     context_manager: &mut ContextManager,
     agent_config: &AgentConfig,
+    event_tx: Option<mpsc::UnboundedSender<StreamEvent>>,
 ) -> StreamResult
 where
     M: CompletionModel + Send + Sync + 'static,
@@ -112,6 +130,13 @@ where
     let mut status_messages: Vec<String> = Vec::new();
 
     let display_mode = agent_config.thinking_display.as_str();
+
+    // Helper to send event if channel exists
+    let send_event = |ev: StreamEvent| {
+        if let Some(ref tx) = event_tx {
+            let _ = tx.send(ev);
+        }
+    };
 
     loop {
         let item = tokio::select! {
@@ -150,7 +175,11 @@ where
             ))) => {
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
+                    send_event(StreamEvent::ReasoningActive(false));
                 }
+
+                // Send text delta for live display (plain text during streaming)
+                send_event(StreamEvent::Text(text_content.text.clone()));
 
                 if !plan_detected && detect_task_plan(&text_content.text) {
                     plan_detected = true;
@@ -178,6 +207,7 @@ where
                     plan_tracker.log_progress();
                 }
                 status_messages.push(format!("⟳ [{}]", tool_call.function.name));
+                send_event(StreamEvent::ToolCall(tool_call.function.name.clone()));
             }
 
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Reasoning(
@@ -185,6 +215,8 @@ where
             ))) => {
                 if display_mode != "hidden" {
                     reasoning.append(&r.display_text());
+                    send_event(StreamEvent::ReasoningActive(true));
+                    send_event(StreamEvent::ReasoningDelta(r.display_text()));
                 }
             }
 
@@ -195,6 +227,8 @@ where
             )) => {
                 if display_mode != "hidden" {
                     reasoning.append(&delta);
+                    send_event(StreamEvent::ReasoningActive(true));
+                    send_event(StreamEvent::ReasoningDelta(delta));
                 }
             }
 

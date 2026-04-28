@@ -19,7 +19,7 @@ use my_code_agent::core::context::expand_file_refs;
 use my_code_agent::core::context_manager::ContextManager;
 use my_code_agent::core::preamble::build_agent;
 use my_code_agent::core::session::SessionData;
-use my_code_agent::core::streaming::{stream_response, StreamResult};
+use my_code_agent::core::streaming::{stream_response, StreamResult, StreamEvent};
 use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::tools::create_mcp_tools;
 use my_code_agent::ui::render::{ReasoningTracker, get_reasoning_summary};
@@ -80,6 +80,9 @@ struct App {
     should_exit: bool,
     is_streaming: bool,
     response_rx: Option<mpsc::Receiver<StreamResult>>,
+    streaming_events_rx: Option<mpsc::UnboundedReceiver<StreamEvent>>,
+    streaming_text: String,
+    streaming_reasoning: String,
     _interrupt_tx: tokio::sync::broadcast::Sender<()>,
     _reasoning_tracker: ReasoningTracker,
     status_messages: Vec<String>,
@@ -114,8 +117,16 @@ fn ui(f: &mut Frame, app: &mut App) {
     }
 
     if app.is_streaming {
-        if !app.current_response.is_empty() {
-            chat_text.push_str(&format!("**Assistant**: {}", app.current_response));
+        // During streaming: show plain streaming text (markdown re-rendered after completion)
+        if !app.streaming_text.is_empty() {
+            if !app.streaming_reasoning.is_empty() {
+                chat_text.push_str(&format!("💭 *{}*\n\n", app.streaming_reasoning));
+            }
+            chat_text.push_str("**Assistant**: ");
+            chat_text.push_str(&app.streaming_text);
+            chat_text.push('\n');
+        } else if !app.streaming_reasoning.is_empty() {
+            chat_text.push_str(&format!("💭 *{}*\n\n", app.streaming_reasoning));
         } else {
             chat_text.push_str("*⏳ Generating response...*\n\n");
         }
@@ -169,7 +180,9 @@ fn ui(f: &mut Frame, app: &mut App) {
 
 fn process_stream_result(app: &mut App, result: StreamResult) {
     app.is_streaming = false;
-    app.current_response = result.full_response.clone();
+    app.streaming_text.clear();
+    app.streaming_reasoning.clear();
+    app.streaming_events_rx = None;
 
     if !result.full_response.is_empty() {
         app.chat_history.push(("assistant".to_string(), result.full_response));
@@ -241,6 +254,9 @@ async fn main() -> Result<()> {
         should_exit: false,
         is_streaming: false,
         response_rx: None,
+        streaming_events_rx: None,
+        streaming_text: String::new(),
+        streaming_reasoning: String::new(),
         _interrupt_tx: interrupt_tx.clone(),
         _reasoning_tracker: ReasoningTracker::new(),
         status_messages: Vec::new(),
@@ -264,6 +280,33 @@ async fn main() -> Result<()> {
             if let Ok(result) = rx.try_recv() {
                 process_stream_result(&mut app, result);
                 app.response_rx = None;
+            }
+        }
+
+        // Poll streaming text events for live display
+        if let Some(ref mut rx) = app.streaming_events_rx {
+            loop {
+                match rx.try_recv() {
+                    Ok(StreamEvent::Text(delta)) => {
+                        app.streaming_text.push_str(&delta);
+                    }
+                    Ok(StreamEvent::ToolCall(name)) => {
+                        app.streaming_text.push_str(&format!("\n⟳ [{}]\n", name));
+                    }
+                    Ok(StreamEvent::ReasoningActive(active)) => {
+                        if !active {
+                            app.streaming_reasoning.clear();
+                        }
+                    }
+                    Ok(StreamEvent::ReasoningDelta(delta)) => {
+                        app.streaming_reasoning.push_str(&delta);
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        app.streaming_events_rx = None;
+                        break;
+                    }
+                }
             }
         }
 
@@ -302,6 +345,8 @@ async fn main() -> Result<()> {
                                         ta
                                     };
                                     app.is_streaming = true;
+                                    app.streaming_text.clear();
+                                    app.streaming_reasoning.clear();
                                     app.current_response.clear();
                                     app.status_messages.clear();
                                     app.turn_usage_line = None;
@@ -314,10 +359,12 @@ async fn main() -> Result<()> {
                                     let mut token_usage_clone = app.token_usage.clone();
                                     let interrupt_rx = interrupt_tx.subscribe();
                                     let (response_tx, response_rx) = mpsc::channel::<StreamResult>(1);
+                                    let (event_tx, event_rx) = mpsc::unbounded_channel::<StreamEvent>();
 
                                     let mut ctx_mgr = context_manager.clone();
 
                                     app.response_rx = Some(response_rx);
+                                    app.streaming_events_rx = Some(event_rx);
 
                                     tokio::spawn(async move {
                                         let mut interrupt_rx = interrupt_rx;
@@ -330,6 +377,7 @@ async fn main() -> Result<()> {
                                             &mut interrupt_rx,
                                             &mut ctx_mgr,
                                             &config_clone.agent,
+                                            Some(event_tx),
                                         ).await;
 
                                         response_tx.send(result).await.ok();
