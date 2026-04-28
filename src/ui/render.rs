@@ -1,98 +1,26 @@
-use colored::*;
-use std::io::Write;
-use termimad::MadSkin;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MarkdownRenderer — line-buffered Markdown streaming
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Manages line-buffered Markdown rendering during a streaming response.
-///
-/// Complete lines (ending with `\n`) are rendered through [`termimad`] for rich
-/// formatting. The current incomplete line is printed raw for instant visual feedback,
-/// then replaced once a newline arrives.
-///
-/// Known limitation: if the raw `current_line` wraps across multiple physical terminal
-/// lines, `\x1b[2K` only erases the cursor's current physical line, leaving orphaned
-/// wrapped lines visible briefly until the Markdown render overwrites them. This is
-/// rare in typical LLM output where lines are short.
 pub struct MarkdownRenderer {
-    skin: MadSkin,
-    /// Complete lines accumulated since the last flush through termimad.
-    complete_lines: String,
-    /// Current incomplete line being streamed raw to the terminal.
-    current_line: String,
+    buffer: String,
 }
 
 impl MarkdownRenderer {
     pub fn new() -> Self {
         Self {
-            skin: MadSkin::default(),
-            complete_lines: String::new(),
-            current_line: String::new(),
+            buffer: String::new(),
         }
     }
 
-    /// Appends incoming text, rendering complete lines through Markdown immediately
-    /// and printing partial lines raw for instant feedback.
     pub fn push_text(&mut self, text: &str) {
-        if text.contains('\n') {
-            // Erase the raw current line before rendering (only if one exists)
-            if !self.current_line.is_empty() {
-                print!("\r\x1b[2K");
-                let _ = std::io::stdout().flush();
-            }
-
-            // Split new text at the last newline
-            let last_nl = text.rfind('\n').unwrap();
-            let before_last_nl = &text[..=last_nl]; // includes the \n
-
-            let after_last_nl = &text[last_nl + 1..];
-
-            // Accumulate current_line + before_last_nl, render through termimad
-            self.complete_lines
-                .push_str(&std::mem::take(&mut self.current_line));
-            self.complete_lines.push_str(before_last_nl);
-            self.skin.print_text(&self.complete_lines);
-            self.complete_lines.clear();
-
-            // Remaining partial line becomes the new current_line
-            self.current_line.push_str(after_last_nl);
-            if !self.current_line.is_empty() {
-                print!("{}", self.current_line);
-                let _ = std::io::stdout().flush();
-            }
-        } else {
-            // No newline — accumulate into current_line, print raw
-            self.current_line.push_str(text);
-            print!("{}", text);
-            let _ = std::io::stdout().flush();
-        }
+        self.buffer.push_str(text);
     }
 
-    /// Flushes all buffered text (complete lines + current line) through termimad.
-    /// Called when a text segment ends (tool call, final response, stream end).
-    pub fn flush(&mut self) {
-        if !self.current_line.is_empty() {
-            print!("\r\x1b[2K");
-            let _ = std::io::stdout().flush();
-            self.complete_lines
-                .push_str(&std::mem::take(&mut self.current_line));
-        }
-        if !self.complete_lines.is_empty() {
-            self.skin.print_text(&self.complete_lines);
-            self.complete_lines.clear();
-        }
+    pub fn flush(&mut self) {}
+
+    pub fn get_buffer(&self) -> &str {
+        &self.buffer
     }
 
-    /// Returns the current incomplete line content (for testing).
-    pub fn current_line(&self) -> &str {
-        &self.current_line
-    }
-
-    /// Returns the buffered complete lines content (for testing).
-    pub fn complete_lines(&self) -> &str {
-        &self.complete_lines
+    pub fn take_buffer(&mut self) -> String {
+        std::mem::take(&mut self.buffer)
     }
 }
 
@@ -102,93 +30,38 @@ impl Default for MarkdownRenderer {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ReasoningTracker — reasoning segment accumulation
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Tracks reasoning (chain-of-thought) segments during a streaming response.
-///
-/// Reasoning text is buffered per-segment. When a segment ends, a collapsed summary
-/// is printed and the text is accumulated into `total_reasoning` for the `think` command.
 pub struct ReasoningTracker {
-    /// Whether we are currently inside a reasoning segment.
     is_reasoning: bool,
-    /// Buffered reasoning text for the current segment (cleared after summary).
     reasoning_buf: String,
-    /// Accumulated reasoning across the entire stream (for the `think` command).
     total_reasoning: String,
-    /// Current dot count for the bouncing ellipsis animation (1-3).
-    dot_count: u8,
 }
 
 impl ReasoningTracker {
-    pub fn new_with_config(thinking_display: &str) -> Self {
-        let tracker = Self {
+    pub fn new_with_config(_thinking_display: &str) -> Self {
+        Self {
             is_reasoning: false,
             reasoning_buf: String::new(),
             total_reasoning: String::new(),
-            dot_count: 1, // Start with 1 dot
-        };
-        if thinking_display == "streaming" {
-            print!("\n  {} ", "💭".bright_magenta());
-            let _ = std::io::stdout().flush();
         }
-        tracker
     }
 
     pub fn new() -> Self {
         Self::new_with_config("collapsed")
     }
 
-    /// Returns `true` if currently inside a reasoning segment.
     pub fn is_reasoning(&self) -> bool {
         self.is_reasoning
     }
 
-    /// Updates the bouncing ellipsis animation (called periodically).
-    /// Cycles through 1, 2, 3 dots: Thinking. → Thinking.. → Thinking... → Thinking.
-    pub fn update_animation(&mut self) {
-        if !self.is_reasoning {
-            return;
-        }
-        // Cycle: 1 → 2 → 3 → 1
-        self.dot_count = match self.dot_count {
-            1 => 2,
-            2 => 3,
-            _ => 1, // 3 wraps back to 1
-        };
-        // Move to start of line and update the animation in place
-        print!(
-            "\r  {} {}",
-            "💭".bright_magenta(),
-            format!("Thinking{}", ".".repeat(self.dot_count as usize))
-                .bright_magenta()
-                .dimmed()
-        );
-        let _ = std::io::stdout().flush();
-    }
-
-    /// Starts a new reasoning segment (if not already in one) and appends text.
     pub fn append(&mut self, text: &str) {
         if !self.is_reasoning {
             self.is_reasoning = true;
-            self.dot_count = 1; // Start with 1 dot
-            print!(
-                "{}",
-                format!("Thinking{}", ".".repeat(self.dot_count as usize))
-                    .bright_magenta()
-                    .dimmed()
-            );
-            let _ = std::io::stdout().flush();
         }
         self.reasoning_buf.push_str(text);
     }
 
-    /// Ends the current reasoning segment: prints a collapsed summary,
-    /// accumulates the text into `total_reasoning`, and clears the buffer.
     pub fn end_segment(&mut self) {
         self.is_reasoning = false;
-        print_reasoning_summary(&self.reasoning_buf);
         if !self.reasoning_buf.is_empty() {
             self.total_reasoning.push_str(&self.reasoning_buf);
             self.total_reasoning.push('\n');
@@ -196,31 +69,22 @@ impl ReasoningTracker {
         self.reasoning_buf.clear();
     }
 
-    /// Flushes any in-progress reasoning into `total_reasoning` without printing
-    /// a summary. Used when the stream is interrupted or errors out.
     pub fn flush_unfinished(&mut self) {
         if !self.reasoning_buf.is_empty() {
-            // Clear any residual animation line
-            if self.is_reasoning {
-                print!("\r\x1b[2K");
-                let _ = std::io::stdout().flush();
-            }
             self.total_reasoning.push_str(&self.reasoning_buf);
             self.total_reasoning.push('\n');
+            self.reasoning_buf.clear();
         }
     }
 
-    /// Consumes the tracker and returns the total accumulated reasoning text.
     pub fn into_total_reasoning(self) -> String {
         self.total_reasoning
     }
 
-    /// Returns the current reasoning buffer (for testing).
     pub fn reasoning_buf(&self) -> &str {
         &self.reasoning_buf
     }
 
-    /// Returns the total accumulated reasoning text (for testing).
     pub fn total_reasoning(&self) -> &str {
         &self.total_reasoning
     }
@@ -232,22 +96,11 @@ impl Default for ReasoningTracker {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Reasoning summary display
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Prints a collapsed summary of the reasoning content.
-/// Shows the first line of reasoning (or a truncation hint) so the user knows reasoning occurred
-/// without flooding the terminal. The full reasoning can be reviewed with the `think` command.
-pub fn print_reasoning_summary(reasoning: &str) {
+pub fn get_reasoning_summary(reasoning: &str) -> String {
     if reasoning.is_empty() {
-        return;
+        return String::new();
     }
-    // Erase the "Thinking..." line first
-    print!("\r\x1b[2K");
-    let _ = std::io::stdout().flush();
 
-    // Get first non-empty line as summary
     let first_line = reasoning
         .lines()
         .find(|l| !l.trim().is_empty())
@@ -256,23 +109,17 @@ pub fn print_reasoning_summary(reasoning: &str) {
     let char_count = reasoning.len();
     let line_count = reasoning.lines().count();
 
-    // Build display text, handling empty first line
     let display_line = if first_line.is_empty() {
         "(see full reasoning)".to_string()
     } else if first_line.chars().count() > 80 {
-        // Truncate first line if too long (char-based to avoid UTF-8 panic)
         let truncated: String = first_line.chars().take(77).collect();
         format!("{}...", truncated)
     } else {
         first_line.to_string()
     };
 
-    println!(
-        "  {} {} ({} chars, {} lines) {}",
-        "💭".bright_magenta(),
-        display_line.bright_magenta().dimmed(),
-        char_count.to_string().bright_magenta().dimmed(),
-        line_count.to_string().bright_magenta().dimmed(),
-        "[type 'think' to expand]".bright_black()
-    );
+    format!(
+        "💭 {} ({} chars, {} lines) [type 'think' to expand]",
+        display_line, char_count, line_count
+    )
 }

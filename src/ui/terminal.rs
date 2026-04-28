@@ -1,331 +1,61 @@
-use crate::core::preamble::KNOWLEDGE_FILE;
-use crate::core::token_usage::TokenUsage;
-use colored::*;
+use ratatui::prelude::*;
 
-pub fn print_banner() {
-    println!();
-    println!("{}", " _                               _   ".bright_cyan());
-    println!(
-        "{}",
-        "  _ __ ___  _   _    ___ ___   __| | ___    __ _  __ _  ___ _ __ | |_ ".bright_cyan()
-    );
-    println!(
-        "{}",
-        " | '_ ` _ \\ | | | |  / __/ _ \\ / _` |/ _ \\  / _` |/ _` |/ _ \\ '_ \\| __|"
-            .bright_cyan()
-    );
-    println!(
-        "{}",
-        " | | | | | | |_| | | (_| (_) | (_| |  __/ | (_| | (_| |  __/ | | | |_ ".bright_cyan()
-    );
-    println!(
-        "{}",
-        " |_| |_| |_|\\__, |  \\___\\___/ \\__,_|\\___|  \\__,_|\\__, |\\___|_| |_|\\__|"
-            .bright_cyan()
-    );
-    println!(
-        "{}",
-        "            |___/                                |___/".bright_cyan()
-    );
-    println!();
-    println!(
-        "  {}",
-        "🤖 My Code Agent v0.1.0 (reasoner)".bright_white().bold()
-    );
-    println!();
-    println!(
-        "  {} {}",
-        "Tools:".bright_white().bold(),
-        "file_read · file_write · file_update · file_delete · shell_exec · code_search · code_review · list_dir · glob · git_status · git_diff · git_log · git_commit"
-            .bright_green()
-    );
-    println!(
-        "  {} {}",
-        "Knowledge:".bright_white().bold(),
-        format!("auto-loads {} into context", KNOWLEDGE_FILE).bright_green()
-    );
-    println!(
-        "  {} {}",
-        "Files:".bright_white().bold(),
-        "@<path> to attach file contents".bright_green()
-    );
-    println!(
-        "  {} {}",
-        "Type:".bright_white().bold(),
-        "your request to get started, 'help' for commands".dimmed()
-    );
-    println!(
-        "  {} {}",
-        "Ctrl+C:".bright_white().bold(),
-        "interrupt response / double-press to quit".dimmed()
-    );
-    println!();
-}
-
-pub fn print_help() {
-    println!();
-    println!("  {}  Read file contents", "file_read".bright_yellow());
-    println!("  {}  Write to a file", "file_write".bright_yellow());
-    println!(
-        "  {}  Edit existing files (find & replace)",
-        "file_update".bright_yellow()
-    );
-    println!(
-        "  {}  Delete files, directories, or code snippets",
-        "file_delete".bright_yellow()
-    );
-    println!("  {}  Run shell commands", "shell_exec".bright_yellow());
-    println!("  {}  Search code patterns", "code_search".bright_yellow());
-    println!(
-        "  {}  Review code files for quality and issues",
-        "code_review".bright_yellow()
-    );
-    println!("  {}  List directory contents", "list_dir".bright_yellow());
-    println!("  {}  Find files by glob pattern", "glob".bright_yellow());
-    println!(
-        "  {}  Show git repository status (structured)",
-        "git_status".bright_yellow()
-    );
-    println!(
-        "  {}  Show git diff for files or entire repo",
-        "git_diff".bright_yellow()
-    );
-    println!(
-        "  {}  Show git commit history",
-        "git_log".bright_yellow()
-    );
-    println!(
-        "  {}  Commit changes with safety checks",
-        "git_commit".bright_yellow()
-    );
-    println!();
-    println!("  {}  Show token usage statistics", "usage".dimmed());
-    println!(
-        "  {}  Save conversation session as <name>",
-        "save".bright_green()
-    );
-    println!("  {}  List saved sessions", "sessions".dimmed());
-    println!("  {}  Load a saved session by name", "load".dimmed());
-    println!("  {}  Clear conversation history and delete session file", "clear".dimmed());
-    println!("  {}  Start a new session (clears current, optionally saves)", "new".bright_green());
-    println!(
-        "  {}  Search sessions for keyword",
-        "search".bright_green()
-    );
-    println!(
-        "  {}  Review code at <path> for quality and issues",
-        "review".bright_green()
-    );
-    println!(
-        "  {}  Expand last reasoning content",
-        "think".bright_magenta()
-    );
-    println!("  {}  Exit the agent (auto-saves session)", "quit".dimmed());
-    println!();
-    println!(
-        "  {}  Auto-loaded into every conversation",
-        KNOWLEDGE_FILE.bright_cyan()
-    );
-    println!(
-        "  {}  Attach file contents to your message",
-        "@".bright_cyan()
-    );
-    println!();
-}
-
-pub fn print_reasoning_full(reasoning: &str) {
-    if reasoning.is_empty() {
-        println!("  {}", "No reasoning content available.".dimmed());
-        return;
+pub fn color_to_fg_ansi(color: Color) -> String {
+    match color {
+        Color::Reset => "\x1b[39m".to_string(),
+        Color::Black => "\x1b[30m".to_string(),
+        Color::Red => "\x1b[31m".to_string(),
+        Color::Green => "\x1b[32m".to_string(),
+        Color::Yellow => "\x1b[33m".to_string(),
+        Color::Blue => "\x1b[34m".to_string(),
+        Color::Magenta => "\x1b[35m".to_string(),
+        Color::Cyan => "\x1b[36m".to_string(),
+        Color::White => "\x1b[37m".to_string(),
+        Color::Rgb(r, g, b) => format!("\x1b[38;2;{};{};{}m", r, g, b),
+        Color::Indexed(i) => format!("\x1b[38;5;{}m", i),
+        Color::LightRed => "\x1b[91m".to_string(),
+        Color::LightGreen => "\x1b[92m".to_string(),
+        Color::LightYellow => "\x1b[93m".to_string(),
+        Color::LightBlue => "\x1b[94m".to_string(),
+        Color::LightMagenta => "\x1b[95m".to_string(),
+        Color::LightCyan => "\x1b[96m".to_string(),
+        _ => "".to_string(),
     }
-    println!();
-    println!(
-        "  {} {}",
-        "💭".bright_magenta(),
-        "Reasoning:".bright_magenta().bold()
-    );
-    println!(
-        "  {}",
-        "─────────────────────────────────────────"
-            .bright_magenta()
-            .dimmed()
-    );
-    for line in reasoning.lines() {
-        println!("  {}", line.bright_magenta().dimmed());
-    }
-    println!(
-        "  {}",
-        "─────────────────────────────────────────"
-            .bright_magenta()
-            .dimmed()
-    );
-    println!();
 }
 
-pub fn print_sessions_list(sessions: &[crate::core::session::SessionInfo]) {
-    println!();
-    println!(
-        "  {} {}",
-        "📂".bright_cyan(),
-        "Saved Sessions".bright_white().bold()
-    );
-    println!("  {}", "─".repeat(50).dimmed());
-
-    if sessions.is_empty() {
-        println!("  {}", "No saved sessions.".dimmed());
-        println!("  {}", "Use /save <name> to save current session.".dimmed());
+pub fn modifier_to_ansi(modifier: Modifier) -> String {
+    let mut codes = Vec::new();
+    if modifier.contains(Modifier::BOLD) {
+        codes.push("1");
+    }
+    if modifier.contains(Modifier::DIM) {
+        codes.push("2");
+    }
+    if modifier.contains(Modifier::ITALIC) {
+        codes.push("3");
+    }
+    if modifier.contains(Modifier::UNDERLINED) {
+        codes.push("4");
+    }
+    if codes.is_empty() {
+        "".to_string()
     } else {
-        for (i, session) in sessions.iter().enumerate() {
-            let when = crate::core::session::format_timestamp(session.saved_at);
-            println!(
-                "  [{}] {}  {}  •  {} turns",
-                (i + 1).to_string().bright_yellow(),
-                session.name.bright_white(),
-                when.dimmed(),
-                session.turns
-            );
-        }
-    }
-    println!("  {}", "─".repeat(50).dimmed());
-    println!("  {} {}", "n".bright_yellow(), "New session".dimmed());
-    println!();
-}
-
-pub fn print_interrupted_notice(full_response: &str, interrupted: bool) {
-    if !full_response.is_empty() {
-        println!();
-        if interrupted {
-            println!(
-                "  {}",
-                "(response was interrupted, context and token usage not recorded)".dimmed()
-            );
-            println!();
-        } else {
-            println!();
-        }
-    } else if interrupted {
-        println!(
-            "  {}",
-            "(response was interrupted, token usage not recorded)".dimmed()
-        );
+        format!("\x1b[{}m", codes.join(";"))
     }
 }
 
-pub enum Command {
-    Help,
-    Usage,
-    Clear,
-    New,
-    Quit,
-    Think,
-    Save,
-    Sessions,
-    Load,
-    Review(String),  // Contains the path to review
-    Search(String),  // Search sessions for keyword
+pub fn ansi_reset() -> &'static str {
+    "\x1b[0m"
 }
 
-pub fn parse_command(input: &str) -> Option<Command> {
-    let input = input.strip_prefix('/').unwrap_or(input);
-    let parts: Vec<&str> = input.splitn(2, ' ').collect();
-    let cmd = parts[0];
-    let arg = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty());
-
-    match cmd {
-        "help" => Some(Command::Help),
-        "usage" => Some(Command::Usage),
-        "clear" => Some(Command::Clear),
-        "new" => Some(Command::New),
-        "quit" | "exit" | "q" => Some(Command::Quit),
-        "think" => Some(Command::Think),
-        "save" => Some(Command::Save),
-        "sessions" => Some(Command::Sessions),
-        "load" => Some(Command::Load),
-        "review" => Some(Command::Review(arg.unwrap_or("").to_string())),
-        "search" => Some(Command::Search(arg?.to_string())),
-        _ => None,
+pub fn style_text(text: &str, fg: Option<Color>, bold: bool, dim: bool) -> String {
+    let mut result = String::new();
+    if let Some(color) = fg {
+        result.push_str(&color_to_fg_ansi(color));
     }
-}
-
-pub fn run_command(cmd: Command, session_usage: &mut TokenUsage, last_reasoning: &str, think_enabled: bool) -> bool {
-    match cmd {
-        Command::Help => print_help(),
-        Command::Usage => session_usage.print_session_report(),
-        Command::Think => {
-            if think_enabled {
-                print_reasoning_full(last_reasoning);
-            } else {
-                println!("  {} Command not enabled", "⚠".bright_yellow());
-            }
-        }
-        Command::Review(_) | Command::Search(_) => {
-            // These commands are handled in main.rs, not here
-        }
-        Command::Clear | Command::Quit | Command::Save | Command::Sessions | Command::Load | Command::New => {}
-    }
-    false
-}
-
-/// Print search results in a formatted way
-pub fn print_search_results(results: &[crate::core::session::SearchResult], keyword: &str) {
-    use crate::core::session::format_timestamp;
-
-    println!();
-    println!(
-        "  {} {} '{}'",
-        "🔍".bright_cyan(),
-        "Search results for".bright_white().bold(),
-        keyword.bright_yellow()
-    );
-    println!("  {}", "─".repeat(50).dimmed());
-
-    if results.is_empty() {
-        println!("  {}", "No matches found.".dimmed());
-        println!();
-        return;
-    }
-
-    for (i, result) in results.iter().enumerate() {
-        let when = format_timestamp(result.saved_at);
-        println!(
-            "  [{}/{}] {}  {}",
-            (i + 1).to_string().bright_yellow(),
-            result.matches.len().to_string().bright_green(),
-            result.session_name.bright_white(),
-            when.dimmed()
-        );
-
-        // Show at most 3 matches per session to avoid excessive output
-        let display_count = result.matches.len().min(3);
-        for msg_match in &result.matches[..display_count] {
-            let role_color = match msg_match.role.as_str() {
-                "User" => "bright_green",
-                "Assistant" => "bright_blue",
-                _ => "white",
-            };
-            println!(
-                "    {} {}: {}",
-                "└".dimmed(),
-                msg_match.role.color(role_color).bold(),
-                msg_match.content_snippet.dimmed()
-            );
-        }
-
-        if result.matches.len() > display_count {
-            println!(
-                "    {} {} more matches...",
-                "└".dimmed(),
-                (result.matches.len() - display_count).to_string().bright_cyan()
-            );
-        }
-
-        println!("  {}", "─".repeat(50).dimmed());
-    }
-
-    println!(
-        "  {} Use {} to load a session",
-        "→".dimmed(),
-        "/load <session_name>".bright_green()
-    );
-    println!();
+    if bold { result.push_str("\x1b[1m"); }
+    if dim { result.push_str("\x1b[2m"); }
+    result.push_str(text);
+    result.push_str(ansi_reset());
+    result
 }

@@ -1,5 +1,4 @@
 use crate::core::config::Config;
-use colored::*;
 use rig::completion::Usage;
 use serde::{Deserialize, Serialize};
 
@@ -93,25 +92,24 @@ impl TokenUsage {
         }
     }
 
-    /// Print a detailed session usage report.
-    pub fn print_session_report(&self) {
-        println!();
-        println!("{}", "  ──────── Token Usage ────────".bright_cyan());
-        println!(
-            "  {} Input tokens:              {}",
-            "→".bright_blue(),
-            self.usage.input_tokens.to_string().bright_white()
-        );
-        println!(
-            "  {} Output tokens:             {}",
-            "←".bright_magenta(),
-            self.usage.output_tokens.to_string().bright_white()
-        );
-        println!(
-            "  {} Total tokens:              {}",
-            "Σ".bright_yellow(),
-            self.usage.total_tokens.to_string().bright_white().bold()
-        );
+    /// Format a detailed session usage report as lines of text.
+    pub fn format_session_report(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+
+        lines.push(String::new());
+        lines.push("  ──────── Token Usage ────────".to_string());
+        lines.push(format!(
+            "  → Input tokens:              {}",
+            self.usage.input_tokens
+        ));
+        lines.push(format!(
+            "  ← Output tokens:             {}",
+            self.usage.output_tokens
+        ));
+        lines.push(format!(
+            "  Σ Total tokens:              {}",
+            self.usage.total_tokens
+        ));
 
         // Context window usage bar
         let pct = self.context_usage_percent();
@@ -119,49 +117,51 @@ impl TokenUsage {
         let bar_width = 20;
         let filled = ((pct as usize) * bar_width / 100).min(bar_width);
         let empty = bar_width - filled;
-        let bar_color = if pct >= CRITICAL_THRESHOLD_PERCENT {
-            "█".bright_red()
+        let bar_fill = if pct >= CRITICAL_THRESHOLD_PERCENT {
+            "█"
         } else if pct >= WARN_THRESHOLD_PERCENT {
-            "█".bright_yellow()
+            "█"
         } else {
-            "█".bright_green()
+            "█"
         };
-        println!(
-            "  {} Context: [{}{}] {}% · {}/{} tokens · {} remaining",
-            "◈".bright_cyan(),
-            bar_color.to_string().repeat(filled),
-            "░".bright_black().to_string().repeat(empty),
-            pct.to_string().bright_white().bold(),
-            self.usage.input_tokens.to_string().bright_white(),
-            self.context_window.to_string().bright_white(),
-            remaining.to_string().bright_white(),
-        );
+        lines.push(format!(
+            "  ◈ Context: [{}{}] {}% · {}/{} tokens · {} remaining",
+            bar_fill.repeat(filled),
+            "░".repeat(empty),
+            pct,
+            self.usage.input_tokens,
+            self.context_window,
+            remaining,
+        ));
 
         if self.usage.cached_input_tokens > 0 {
-            println!(
-                "  {} Cached input tokens:       {}",
-                "⛃".bright_green(),
-                self.usage.cached_input_tokens.to_string().bright_green()
-            );
+            lines.push(format!(
+                "  ⛃ Cached input tokens:       {}",
+                self.usage.cached_input_tokens
+            ));
         }
         if self.usage.cache_creation_input_tokens > 0 {
-            println!(
-                "  {} Cache creation tokens:     {}",
-                "⚙".bright_green(),
-                self.usage
-                    .cache_creation_input_tokens
-                    .to_string()
-                    .bright_green()
-            );
+            lines.push(format!(
+                "  ⚙ Cache creation tokens:     {}",
+                self.usage.cache_creation_input_tokens
+            ));
         }
-        println!("{}", "  ────────────────────────────".bright_cyan());
+        lines.push("  ────────────────────────────".to_string());
 
-        // Print warning if approaching or exceeding context limit
+        // Append warning if approaching or exceeding context limit
         if let Some(warning) = self.context_warning() {
-            warning.print();
+            lines.extend(warning.format());
         }
 
-        println!();
+        lines.push(String::new());
+        lines
+    }
+
+    /// Print a detailed session usage report (for tests/non-TUI usage).
+    pub fn print_session_report(&self) {
+        for line in self.format_session_report() {
+            println!("{}", line);
+        }
     }
 
     /// Returns a reference to the underlying [`Usage`] for programmatic access.
@@ -186,27 +186,33 @@ pub enum ContextWarning {
 }
 
 impl ContextWarning {
-    /// Prints a warning message to the terminal.
-    pub fn print(&self) {
+    /// Format warning messages as lines of text.
+    pub fn format(&self) -> Vec<String> {
         match self {
             ContextWarning::Approaching => {
-                println!(
-                    "  {} {} Context window getting full. Consider using 'clear' to reset history.",
-                    "⚠".bright_yellow(),
-                    "Approaching limit:".bright_yellow().bold(),
-                );
+                vec![
+                    format!(
+                        "  ⚠ Approaching limit: Context window getting full. Consider using 'clear' to reset history.",
+                    ),
+                ]
             }
             ContextWarning::Critical => {
-                println!(
-                    "  {} {} Context window almost full — conversation history may be truncated.",
-                    "🔴".bright_red(),
-                    "Critical:".bright_red().bold(),
-                );
-                println!(
-                    "  {} Use 'clear' to reset conversation history, or start a new session.",
-                    "→".bright_red(),
-                );
+                vec![
+                    format!(
+                        "  🔴 Critical: Context window almost full — conversation history may be truncated.",
+                    ),
+                    format!(
+                        "  → Use 'clear' to reset conversation history, or start a new session.",
+                    ),
+                ]
             }
+        }
+    }
+
+    /// Print warnings (for tests/non-TUI usage).
+    pub fn print(&self) {
+        for line in self.format() {
+            println!("{}", line);
         }
     }
 
@@ -219,18 +225,31 @@ impl ContextWarning {
     }
 }
 
-/// Print a brief one-line usage summary for a single turn.
-pub fn print_turn_usage(turn_usage: &Usage) {
-    println!(
-        "  {} in: {} · out: {} · total: {}",
-        "📊".dimmed(),
-        turn_usage.input_tokens.to_string().bright_cyan(),
-        turn_usage.output_tokens.to_string().bright_magenta(),
-        turn_usage.total_tokens.to_string().bright_white().bold(),
-    );
+/// Format a brief one-line usage summary for a single turn.
+pub fn format_turn_usage(turn_usage: &Usage) -> String {
+    format!(
+        "📊 in: {} · out: {} · total: {}",
+        turn_usage.input_tokens,
+        turn_usage.output_tokens,
+        turn_usage.total_tokens,
+    )
 }
 
-/// Print a context window warning after a turn, if usage is approaching the limit.
+/// Print a brief one-line usage summary for a single turn (for tests/non-TUI usage).
+pub fn print_turn_usage(turn_usage: &Usage) {
+    println!("  {}", format_turn_usage(turn_usage));
+}
+
+/// Format context window warnings, if any.
+pub fn format_context_warning(session_usage: &TokenUsage) -> Vec<String> {
+    if let Some(warning) = session_usage.context_warning() {
+        warning.format()
+    } else {
+        Vec::new()
+    }
+}
+
+/// Print a context window warning after a turn (for tests/non-TUI usage).
 pub fn print_context_warning(session_usage: &TokenUsage) {
     if let Some(warning) = session_usage.context_warning() {
         warning.print();

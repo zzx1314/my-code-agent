@@ -1,4 +1,3 @@
-use colored::*;
 use futures::StreamExt;
 use rig::agent::MultiTurnStreamItem;
 use rig::completion::{CompletionModel, GetTokenUsage, Message};
@@ -7,9 +6,9 @@ use rig::streaming::{StreamedAssistantContent, StreamingChat};
 use super::config::AgentConfig;
 use super::context_manager::ContextManager;
 use super::plan_tracker::PlanTracker;
-use super::token_usage::{TokenUsage, print_context_warning, print_turn_usage};
+use super::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::core::preamble::Agent;
-use crate::ui::render::{MarkdownRenderer, ReasoningTracker};
+use crate::ui::render::ReasoningTracker;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // StreamResult
@@ -21,6 +20,8 @@ pub struct StreamResult {
     pub should_exit: bool,
     pub last_reasoning: String,
     pub plan_tracker: PlanTracker,
+    pub status_messages: Vec<String>,
+    pub turn_usage_line: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +51,7 @@ pub async fn stream_response(
     input: &str,
     chat_history: &mut Vec<Message>,
     session_usage: &mut TokenUsage,
-    interrupt_rx: &mut tokio::sync::mpsc::Receiver<()>,
+    interrupt_rx: &mut tokio::sync::broadcast::Receiver<()>,
     context_manager: &mut ContextManager,
     agent_config: &AgentConfig,
 ) -> StreamResult {
@@ -90,7 +91,7 @@ async fn stream_inner<M>(
     input: &str,
     chat_history: &mut Vec<Message>,
     session_usage: &mut TokenUsage,
-    interrupt_rx: &mut tokio::sync::mpsc::Receiver<()>,
+    interrupt_rx: &mut tokio::sync::broadcast::Receiver<()>,
     context_manager: &mut ContextManager,
     agent_config: &AgentConfig,
 ) -> StreamResult
@@ -104,40 +105,23 @@ where
 
     let mut full_response = String::new();
     let mut interrupted = false;
-    let mut renderer = MarkdownRenderer::new();
     let mut reasoning = ReasoningTracker::new_with_config(&agent_config.thinking_display);
     let mut plan_tracker = PlanTracker::new();
     let mut plan_detected = false;
     let mut plan_text = String::new();
+    let mut status_messages: Vec<String> = Vec::new();
 
     let display_mode = agent_config.thinking_display.as_str();
 
-    // Animation timer: update bouncing ellipsis every 100ms
-    let mut anim_interval = tokio::time::interval(std::time::Duration::from_millis(100));
-    anim_interval.tick().await; // Skip immediate first tick
-
     loop {
         let item = tokio::select! {
-            // Animation update tick
-            _ = anim_interval.tick() => {
-                if display_mode != "hidden" && reasoning.is_reasoning() {
-                    reasoning.update_animation();
-                }
-                continue;
-            }
-
             _ = interrupt_rx.recv() => {
-                renderer.flush();
-                println!(
-                    "\n  {} {}",
-                    "⚠".bright_yellow(),
-                    "Interrupt response — press Ctrl+C again to quit".dimmed()
-                );
+                reasoning.flush_unfinished();
+                status_messages.push("⚠ Interrupted response — press Ctrl+C again to quit".to_string());
                 let second_interrupt = tokio::select! {
                     _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => false,
                     _ = interrupt_rx.recv() => true,
                 };
-                reasoning.flush_unfinished();
                 if second_interrupt {
                     return StreamResult {
                         full_response,
@@ -145,6 +129,8 @@ where
                         should_exit: true,
                         last_reasoning: reasoning.into_total_reasoning(),
                         plan_tracker,
+                        status_messages,
+                        turn_usage_line: None,
                     };
                 }
                 interrupted = true;
@@ -169,43 +155,12 @@ where
                 if !plan_detected && detect_task_plan(&text_content.text) {
                     plan_detected = true;
                     plan_text.clear();
-                    renderer.flush();
-                    // Don't print the heading here - let it stream through renderer
                     plan_text.push_str(&text_content.text);
-                    continue;  // Accumulate, don't print yet
+                    continue;
                 }
 
                 if plan_detected {
                     plan_text.push_str(&text_content.text);
-                    let lines: Vec<&str> = plan_text.lines().collect();
-                    let mut in_plan = true;
-                    let mut plan_ended = false;
-                    for line in lines {
-                        let trimmed = line.trim();
-                        let is_numbered = trimmed.len() > 2
-                            && trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
-                            && trimmed.chars().nth(1) == Some('.');
-
-                        if is_numbered && in_plan {
-                            renderer.push_text(line);
-                            renderer.push_text("\n");
-                        } else {
-                            if in_plan && !trimmed.is_empty() && !is_numbered {
-                                plan_tracker.parse_plan(&plan_text);
-                                in_plan = false;
-                                plan_ended = true;
-                            }
-                            renderer.push_text(line);
-                            if !line.is_empty() {
-                                renderer.push_text("\n");
-                            }
-                        }
-                    }
-                    if plan_ended {
-                        plan_text.clear();
-                    }
-                } else {
-                    renderer.push_text(&text_content.text);
                 }
 
                 full_response.push_str(&text_content.text);
@@ -220,15 +175,9 @@ where
                 }
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
                     plan_tracker.complete_current_step();
-                    plan_tracker.print_progress();
-                    println!();
+                    plan_tracker.log_progress();
                 }
-                renderer.flush();
-                println!(
-                    "\n  {} {}",
-                    "⟳".bright_yellow(),
-                    format!("[{}]", tool_call.function.name).bright_yellow().bold()
-                );
+                status_messages.push(format!("⟳ [{}]", tool_call.function.name));
             }
 
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Reasoning(
@@ -253,40 +202,48 @@ where
                 if reasoning.is_reasoning() && display_mode != "hidden" {
                     reasoning.end_segment();
                 }
-                renderer.flush();
 
                 if plan_tracker.has_active_plan() {
-                    println!("\n  {} {}", "📋".bright_green(), "Task Plan".bold());
-                    plan_tracker.print_completion();
+                    status_messages.push("📋 Task Plan".to_string());
+                    plan_tracker.log_completion();
                 }
 
                 if let Some(history) = final_res.history() {
                     *chat_history = history.to_vec();
                 }
                 let turn_usage = final_res.usage();
-                print_turn_usage(&turn_usage);
+                let turn_usage_line = Some(format_turn_usage(&turn_usage));
                 session_usage.add(turn_usage);
-                print_context_warning(session_usage);
+
+                status_messages.extend(format_context_warning(session_usage));
 
                 let input_tokens = session_usage.input_tokens();
                 if context_manager.should_compact(input_tokens) {
-                    println!(
-                        "\n  {} {}",
-                        "📝".bright_cyan(),
-                        "Context window full - pruning old messages...".dimmed()
-                    );
+                    status_messages.push("📝 Context window full - pruning old messages...".to_string());
                     let pruned_messages = context_manager.prune_messages(chat_history);
                     let pruned_count = chat_history.len() - pruned_messages.len();
                     *chat_history = pruned_messages;
                     context_manager.set_prune_triggered(true);
                     context_manager.increment_compact_count();
-                    println!(
-                        "  {} Pruned {} old messages ({} remaining)",
-                        "✓".bright_green(),
+                    status_messages.push(format!(
+                        "✓ Pruned {} old messages ({} remaining)",
                         pruned_count,
                         chat_history.len()
-                    );
+                    ));
                 }
+
+                // Collect plan tracker messages
+                status_messages.extend(plan_tracker.take_messages());
+
+                return StreamResult {
+                    full_response,
+                    interrupted,
+                    should_exit: false,
+                    last_reasoning: reasoning.into_total_reasoning(),
+                    plan_tracker,
+                    status_messages,
+                    turn_usage_line,
+                };
             }
 
             Ok(_) => {}
@@ -295,31 +252,20 @@ where
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
                 }
-                renderer.flush();
                 let err_msg = e.to_string();
                 if err_msg.contains("MaxTurnError") || err_msg.contains("max turn limit") {
                     if full_response.is_empty() {
-                        println!(
-                            "\n{} {}",
-                            "⚠".bright_yellow(),
-                            "Reached tool call limit without producing a response.".dimmed()
-                        );
+                        status_messages.push("⚠ Reached tool call limit without producing a response.".to_string());
                     } else {
-                        println!(
-                            "\n{} {}",
-                            "⚠".bright_yellow(),
-                            "Reached tool call limit. Here is what I have so far:".dimmed()
-                        );
+                        status_messages.push("⚠ Reached tool call limit. Here is what I have so far:".to_string());
                     }
                 } else {
-                    eprintln!("\n{} Error: {}", "✗".bright_red(), e);
+                    status_messages.push(format!("✗ Error: {}", e));
                 }
                 break;
             }
         }
     }
-
-    renderer.flush();
 
     StreamResult {
         full_response,
@@ -327,5 +273,7 @@ where
         should_exit: false,
         last_reasoning: reasoning.into_total_reasoning(),
         plan_tracker,
+        status_messages,
+        turn_usage_line: None,
     }
 }

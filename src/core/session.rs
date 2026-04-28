@@ -1,4 +1,3 @@
-use colored::*;
 use rig::completion::Message;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -255,23 +254,23 @@ pub fn format_timestamp(secs: u64) -> String {
     format!("epoch:{}", secs)
 }
 
-pub fn print_saved_confirmation(path: &str, data: &SessionData) {
+pub fn format_saved_confirmation(path: &str, data: &SessionData) -> String {
     let turns = data
         .chat_history
         .iter()
         .filter(|m| matches!(m, Message::User { .. }))
         .count();
-    println!(
-        "  {} {}",
-        "💾".bright_green(),
-        format!(
-            "session saved to {} ({} turns, {} tokens)",
-            path,
-            turns,
-            data.token_usage.total_tokens()
-        )
-        .dimmed()
-    );
+    format!(
+        "💾 session saved to {} ({} turns, {} tokens)",
+        path,
+        turns,
+        data.token_usage.total_tokens()
+    )
+}
+
+/// Print saved confirmation (for non-TUI usage).
+pub fn print_saved_confirmation(path: &str, data: &SessionData) {
+    println!("  {}", format_saved_confirmation(path, data));
 }
 
 /// Search all sessions for a keyword

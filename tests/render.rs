@@ -5,81 +5,47 @@ use my_code_agent::ui::render::{MarkdownRenderer, ReasoningTracker};
 #[test]
 fn test_renderer_new_is_empty() {
     let r = MarkdownRenderer::new();
-    assert!(r.current_line().is_empty());
-    assert!(r.complete_lines().is_empty());
+    assert!(r.get_buffer().is_empty());
 }
 
 #[test]
 fn test_renderer_default_is_empty() {
     let r = MarkdownRenderer::default();
-    assert!(r.current_line().is_empty());
-    assert!(r.complete_lines().is_empty());
+    assert!(r.get_buffer().is_empty());
 }
 
 #[test]
-fn test_renderer_partial_line_accumulates() {
+fn test_renderer_push_text_accumulates() {
     let mut r = MarkdownRenderer::new();
-    // No newline — text goes into current_line
     r.push_text("hello ");
     r.push_text("world");
-    assert_eq!(r.current_line(), "hello world");
-    assert!(r.complete_lines().is_empty());
+    assert_eq!(r.get_buffer(), "hello world");
 }
 
 #[test]
-fn test_renderer_newline_moves_to_complete() {
+fn test_renderer_flush_noop() {
     let mut r = MarkdownRenderer::new();
-    // Text with a newline: before-last-newline (including \n) is a complete line,
-    // after-last-newline becomes the new current_line
-    r.push_text("line one\nline two");
-    // After processing, "line one\n" was rendered (complete_lines was cleared after render)
-    // and "line two" is the new current_line
-    assert_eq!(r.current_line(), "line two");
-    assert!(r.complete_lines().is_empty()); // cleared after rendering
+    r.push_text("some text");
+    r.flush(); // currently no-op, should not panic
+    assert_eq!(r.get_buffer(), "some text");
 }
 
 #[test]
-fn test_renderer_trailing_newline_clears_current() {
+fn test_renderer_take_buffer_resets() {
     let mut r = MarkdownRenderer::new();
-    r.push_text("line one\n");
-    assert!(r.current_line().is_empty());
-    assert!(r.complete_lines().is_empty()); // rendered and cleared
+    r.push_text("content");
+    let taken = r.take_buffer();
+    assert_eq!(taken, "content");
+    assert!(r.get_buffer().is_empty());
 }
 
 #[test]
-fn test_renderer_multiple_newlines() {
+fn test_renderer_take_buffer_then_push() {
     let mut r = MarkdownRenderer::new();
-    r.push_text("aaa\nbbb\nccc");
-    assert_eq!(r.current_line(), "ccc");
-    assert!(r.complete_lines().is_empty());
-}
-
-#[test]
-fn test_renderer_accumulate_then_newline() {
-    let mut r = MarkdownRenderer::new();
-    r.push_text("partial");
-    assert_eq!(r.current_line(), "partial");
-    r.push_text(" continued\nnext");
-    assert_eq!(r.current_line(), "next");
-}
-
-#[test]
-fn test_renderer_flush_moves_current_to_complete() {
-    let mut r = MarkdownRenderer::new();
-    r.push_text("unfinished line");
-    assert_eq!(r.current_line(), "unfinished line");
-    // Flush moves current_line into complete_lines for rendering, then clears both
-    r.flush();
-    assert!(r.current_line().is_empty());
-    assert!(r.complete_lines().is_empty()); // cleared after rendering
-}
-
-#[test]
-fn test_renderer_flush_empty_is_noop() {
-    let mut r = MarkdownRenderer::new();
-    r.flush(); // should not panic
-    assert!(r.current_line().is_empty());
-    assert!(r.complete_lines().is_empty());
+    r.push_text("first");
+    assert_eq!(r.take_buffer(), "first");
+    r.push_text("second");
+    assert_eq!(r.get_buffer(), "second");
 }
 
 // ── ReasoningTracker state tests ──
@@ -152,8 +118,8 @@ fn test_tracker_flush_unfinished() {
     t.append("interrupted thought");
     t.flush_unfinished();
     assert_eq!(t.total_reasoning(), "interrupted thought\n");
-    // reasoning_buf is NOT cleared by flush_unfinished
-    assert_eq!(t.reasoning_buf(), "interrupted thought");
+    // reasoning_buf is cleared by flush_unfinished
+    assert_eq!(t.reasoning_buf(), "");
 }
 
 #[test]

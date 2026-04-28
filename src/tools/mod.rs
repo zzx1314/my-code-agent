@@ -33,7 +33,6 @@ pub use safety::{
 pub use shell_exec::ShellExec;
 
 use crate::core::config::Config;
-use colored::Colorize;
 use rig::tool::ToolDyn;
 
 /// Returns all tools boxed as `Box<dyn ToolDyn>` for registration with the agent builder.
@@ -74,13 +73,13 @@ pub async fn create_mcp_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
 
     let search_tool = crate::mcp::web_search_tool::ParallelWebSearch::new(&key);
     if search_tool.is_available() {
-        eprintln!("{} web_search tool added", "✓".bright_green());
+        eprintln!("✓ web_search tool added");
         mcp_tools.push(Box::new(search_tool) as Box<dyn ToolDyn>);
     }
 
     let fetch_tool = crate::mcp::web_search_tool::ParallelWebFetch::new(&key);
     if fetch_tool.is_available() {
-        eprintln!("{} web_fetch tool added", "✓".bright_green());
+        eprintln!("✓ web_fetch tool added");
         mcp_tools.push(Box::new(fetch_tool) as Box<dyn ToolDyn>);
     }
 

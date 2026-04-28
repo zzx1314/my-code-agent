@@ -1,4 +1,3 @@
-use colored::*;
 use std::collections::HashMap;
 
 /// Tracks the progress of task plan execution
@@ -14,6 +13,8 @@ pub struct PlanTracker {
     current_step: usize,
     /// Whether the plan is active
     active: bool,
+    /// Accumulated status messages for the UI to display
+    messages: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +44,7 @@ impl PlanTracker {
             confirmed: false,
             current_step: 0,
             active: false,
+            messages: Vec::new(),
         }
     }
 
@@ -91,11 +93,7 @@ impl PlanTracker {
     /// Mark the plan as confirmed by user
     pub fn confirm(&mut self) {
         self.confirmed = true;
-        println!(
-            "  {} {}",
-            "✓".bright_green(),
-            "Plan confirmed, proceeding...".bright_white()
-        );
+        self.messages.push("✓ Plan confirmed, proceeding...".to_string());
     }
 
     /// Mark the plan as cancelled
@@ -103,7 +101,7 @@ impl PlanTracker {
         self.active = false;
         self.steps.clear();
         self.step_status.clear();
-        println!("  {} Plan cancelled.", "✗".bright_red());
+        self.messages.push("✗ Plan cancelled.".to_string());
     }
 
     /// Get total number of steps
@@ -149,48 +147,57 @@ impl PlanTracker {
         format!("[{}] {}/{}", bar, current, total)
     }
 
-    /// Print plan with confirmation prompt
-    pub fn print_with_confirmation(&self) {
+    /// Format the plan with confirmation prompt
+    pub fn format_with_confirmation(&self) -> String {
+        let mut out = String::new();
         if !self.has_active_plan() {
-            return;
+            return out;
         }
 
-        println!("\n  {} {}", "📋".bright_green(), "Task Plan".bold());
+        out.push_str("\n  📋 Task Plan\n");
         for (i, step) in self.steps.iter().enumerate() {
-            println!("    {} {}", format!("{}.", i + 1).bright_cyan(), step.bright_white());
+            out.push_str(&format!("    {}. {}\n", i + 1, step));
         }
-        print!("  {} ", "?".bright_yellow());
-        println!("{}", "Confirm? [Enter=proceed, n=cancel]".dimmed());
+        out.push_str("  ? Confirm? [Enter=proceed, n=cancel]");
+        out
     }
 
-    /// Print current progress indicator
-    pub fn print_progress(&self) {
+    /// Log a progress step (accumulates to messages)
+    pub fn log_progress(&mut self) {
         if !self.has_active_plan() || !self.confirmed {
             return;
         }
 
         if self.current_step < self.steps.len() {
             let step = &self.steps[self.current_step];
-            print!(
-                "\r  {} {} {}/{}",
-                "⚡".bright_yellow(),
-                step.bright_cyan(),
+            self.messages.push(format!(
+                "⚡ {} ({}/{})",
+                step,
                 self.current_step_index(),
                 self.total_steps()
-            );
-            std::io::Write::flush(&mut std::io::stdout()).ok();
+            ));
         }
     }
 
-    /// Print completion message
-    pub fn print_completion(&self) {
+    /// Log completion message
+    pub fn log_completion(&mut self) {
         if !self.has_active_plan() {
             return;
         }
 
         if self.is_completed() {
-            println!("\n  {} {}", "✓".bright_green(), "Plan completed!".bold());
+            self.messages.push("✓ Plan completed!".to_string());
         }
+    }
+
+    /// Take accumulated messages, leaving the vec empty
+    pub fn take_messages(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.messages)
+    }
+
+    /// Get a reference to accumulated messages
+    pub fn messages(&self) -> &[String] {
+        &self.messages
     }
 }
 

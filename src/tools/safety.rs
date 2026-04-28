@@ -1,6 +1,3 @@
-use colored::*;
-use std::io::Write;
-
 /// Shell command patterns that are considered dangerous and require user confirmation.
 const DANGEROUS_SHELL_PATTERNS: &[&str] = &[
     // Filesystem destruction
@@ -136,55 +133,12 @@ pub fn is_dangerous_snippet_deletion(path: &str) -> Option<&'static str> {
 }
 
 /// Prompts the user for confirmation of a dangerous action.
-/// Returns `true` if the user approves, `false` otherwise.
-pub async fn confirm_action(reason: &str, detail: &str) -> bool {
-    println!();
-    println!(
-        "  {} {}",
-        "⚠".bright_yellow().bold(),
-        reason.bright_yellow()
-    );
-    println!(
-        "  {} {}",
-        "→".bright_white(),
-        detail.bright_white().dimmed()
-    );
-    print!(
-        "  {} {}",
-        "?".bright_cyan().bold(),
-        "Proceed? [y/N] ".bright_cyan()
-    );
-    let _ = std::io::stdout().flush();
-
-    let response = read_confirmation().await;
-
-    if response {
-        println!(
-            "  {} {}",
-            "✓".bright_green(),
-            "Proceeding with action.".dimmed()
-        );
-    } else {
-        println!("  {} {}", "✗".bright_red(), "Action cancelled.".dimmed());
-    }
-
-    response
-}
-
-/// Reads a yes/no confirmation from stdin on a blocking thread.
-async fn read_confirmation() -> bool {
-    tokio::task::spawn_blocking(|| {
-        let mut buf = String::new();
-        match std::io::stdin().read_line(&mut buf) {
-            Ok(_) => {
-                let answer = buf.trim().to_lowercase();
-                answer == "y" || answer == "yes"
-            }
-            Err(_) => false,
-        }
-    })
-    .await
-    .unwrap_or(false)
+/// In TUI mode, always returns false (auto-deny) since interactive prompts
+/// are not available during streaming.
+pub async fn confirm_action(_reason: &str, _detail: &str) -> bool {
+    // In TUI mode, interactive confirmation is not available.
+    // Dangerous actions are auto-denied.
+    false
 }
 
 /// Checks whether a git command (without the 'git' prefix) matches any dangerous pattern.

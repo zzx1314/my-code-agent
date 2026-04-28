@@ -1,4 +1,3 @@
-use colored::*;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -267,19 +266,14 @@ impl Config {
                     Ok(c) => c,
                     Err(e) => {
                         eprintln!(
-                            "{} Error parsing {}: {}. Using defaults.",
-                            "✗".bright_red(),
+                            "[error] Error parsing {}: {}. Using defaults.",
                             path.display(),
                             e
                         );
                         return Self::default();
                     }
                 };
-                println!(
-                    "  {} {}",
-                    "⚙".bright_cyan(),
-                    format!("loaded: {} ", path.display()).dimmed()
-                );
+                eprintln!("[info] loaded: {}", path.display());
                 config
             }
             Err(_) => Self::default(),

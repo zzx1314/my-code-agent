@@ -1,6 +1,5 @@
 use crate::core::config::Config;
 use crate::core::file_cache::FileCache;
-use colored::*;
 use std::path::Path;
 
 /// A parsed `@file` reference found in user input.
@@ -294,8 +293,9 @@ pub fn expand_file_refs_with_cache(
     }
 }
 
-/// Prints attachment status messages to the terminal.
-pub fn print_attachments(attachments: &[(String, AttachStatus)]) {
+/// Format attachment status messages as lines of text.
+pub fn format_attachments(attachments: &[(String, AttachStatus)]) -> Vec<String> {
+    let mut output_lines = Vec::new();
     for (path, status) in attachments {
         match status {
             AttachStatus::Attached {
@@ -305,71 +305,56 @@ pub fn print_attachments(attachments: &[(String, AttachStatus)]) {
                 shown,
             } => {
                 if *offset > 0 && *shown == 0 {
-                    // Offset beyond file end
-                    println!(
-                        "  {} {}",
-                        "📎".bright_cyan(),
-                        format!(
-                            "attached: {}:{} (offset beyond end of file with {} lines)",
-                            path, offset, lines
-                        )
-                        .dimmed()
-                    );
+                    output_lines.push(format!(
+                        "📎 attached: {}:{} (offset beyond end of file with {} lines)",
+                        path, offset, lines
+                    ));
                 } else if *offset > 0 {
                     if *truncated {
-                        println!(
-                            "  {} {}",
-                            "📎".bright_cyan(),
-                            format!(
-                                "attached: {}:{} (lines {}–{} of {}, truncated)",
-                                path,
-                                offset,
-                                offset + 1,
-                                offset + shown,
-                                lines
-                            )
-                            .dimmed()
-                        );
+                        output_lines.push(format!(
+                            "📎 attached: {}:{} (lines {}–{} of {}, truncated)",
+                            path,
+                            offset,
+                            offset + 1,
+                            offset + shown,
+                            lines
+                        ));
                     } else {
-                        println!(
-                            "  {} {}",
-                            "📎".bright_cyan(),
-                            format!(
-                                "attached: {}:{} (lines {}–{} of {})",
-                                path,
-                                offset,
-                                offset + 1,
-                                offset + shown,
-                                lines
-                            )
-                            .dimmed()
-                        );
+                        output_lines.push(format!(
+                            "📎 attached: {}:{} (lines {}–{} of {})",
+                            path,
+                            offset,
+                            offset + 1,
+                            offset + shown,
+                            lines
+                        ));
                     }
                 } else if *truncated {
-                    println!(
-                        "  {} {}",
-                        "📎".bright_cyan(),
-                        format!(
-                            "attached: {} ({} of {} lines, truncated)",
-                            path, shown, lines
-                        )
-                        .dimmed()
-                    );
+                    output_lines.push(format!(
+                        "📎 attached: {} ({} of {} lines, truncated)",
+                        path, shown, lines
+                    ));
                 } else {
-                    println!(
-                        "  {} {}",
-                        "📎".bright_cyan(),
-                        format!("attached: {} ({} lines)", path, lines).dimmed()
-                    );
+                    output_lines.push(format!(
+                        "📎 attached: {} ({} lines)",
+                        path, lines
+                    ));
                 }
             }
             AttachStatus::Error(msg) => {
-                println!(
-                    "  {} {}",
-                    "⚠".bright_yellow(),
-                    format!("could not read {}: {}", path, msg).dimmed()
-                );
+                output_lines.push(format!(
+                    "⚠ could not read {}: {}",
+                    path, msg
+                ));
             }
         }
+    }
+    output_lines
+}
+
+/// Print attachment status messages to the terminal (for non-TUI usage).
+pub fn print_attachments(attachments: &[(String, AttachStatus)]) {
+    for line in format_attachments(attachments) {
+        println!("  {}", line);
     }
 }

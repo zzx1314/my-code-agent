@@ -96,47 +96,41 @@ impl CacheMetrics {
         }
     }
 
-    /// Print cache statistics
-    pub fn print_report(&self) {
-        use colored::*;
+    /// Format cache statistics as lines of text.
+    pub fn format_report(&self) -> Vec<String> {
+        let mut lines = Vec::new();
 
-        println!();
-        println!("  {}", "─────── Cache Stats ───────".bright_cyan());
+        lines.push(String::new());
+        lines.push("  ─────── Cache Stats ───────".to_string());
 
         let hit_rate_pct = self.hit_rate() * 100.0;
-        println!(
-            "  {} Hit rate: {:.1}%",
-            "◈".bright_cyan(),
-            hit_rate_pct.to_string().bright_white()
-        );
+        lines.push(format!("  ◈ Hit rate: {:.1}%", hit_rate_pct));
 
         if self.cache_hits > 0 {
-            println!(
-                "  {} Cache hits: {} tokens",
-                "✓".bright_green(),
-                self.cache_hits.to_string().bright_green()
-            );
+            lines.push(format!("  ✓ Cache hits: {} tokens", self.cache_hits));
         }
 
         if self.cache_misses > 0 {
-            println!(
-                "  {} Cache misses: {} tokens",
-                "○".bright_yellow(),
-                self.cache_misses.to_string().bright_yellow()
-            );
+            lines.push(format!("  ○ Cache misses: {} tokens", self.cache_misses));
         }
 
         if self.savings_usd > 0.0 {
-            println!(
-                "  {} Estimated savings: ${:.4}",
-                "💰".bright_green(),
-                self.savings_usd
-            );
+            lines.push(format!("  💰 Estimated savings: ${:.4}", self.savings_usd));
         }
 
-        println!("  {}", "──────────────────────────".bright_cyan());
+        lines.push("  ──────────────────────────".to_string());
+        lines
+    }
+
+    /// Print cache statistics (for non-TUI usage).
+    pub fn print_report(&self) {
+        for line in self.format_report() {
+            println!("{}", line);
+        }
     }
 }
+
+
 
 /// Shared cache state for the application
 #[derive(Debug, Clone)]
