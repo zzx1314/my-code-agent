@@ -298,6 +298,7 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
     if result.should_exit {
         app.should_exit = true;
     }
+    app.status_messages.clear();
 }
 
 #[tokio::main]
