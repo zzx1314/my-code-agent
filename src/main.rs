@@ -149,7 +149,13 @@ fn ui(f: &mut Frame, app: &mut App) {
 
         // Auto-scroll reasoning: during streaming always follow, else honor flag
         if app.reasoning_auto_scroll || app.is_streaming {
-            app.reasoning_scroll = app.reasoning_total_lines.saturating_sub(1);
+            // reasoning area: Constraint::Length(12) - 2 borders = 10 content lines
+            let visible_lines = 10u16;
+            if app.reasoning_total_lines > visible_lines {
+                app.reasoning_scroll = app.reasoning_total_lines - visible_lines;
+            } else {
+                app.reasoning_scroll = 0;
+            }
         }
         
         let reasoning_paragraph = Paragraph::new(reasoning_text)
@@ -217,7 +223,12 @@ fn ui(f: &mut Frame, app: &mut App) {
     // Auto-scroll: follow the auto_scroll flag.
     // Set true on new content, false when user manually scrolls.
     if app.auto_scroll {
-        app.scroll = app.total_lines.saturating_sub(1);
+        let chat_area_height = chunks[chat_chunk_index].height;
+        if app.total_lines > chat_area_height {
+            app.scroll = app.total_lines - chat_area_height;
+        } else {
+            app.scroll = 0;
+        }
     }
     let paragraph = Paragraph::new(markdown)
         .scroll((app.scroll, 0))
@@ -249,8 +260,11 @@ fn ui(f: &mut Frame, app: &mut App) {
     }
     
     // 添加思考区域控制提示
-    if !app.last_reasoning.is_empty() || app.is_streaming {
-        status.push_str(" | Ctrl+R: toggle reasoning");
+    if !app.last_reasoning.is_empty() && !app.is_streaming {
+        status.push_str(" | Ctrl+R: reasoning");
+    }
+    if app.is_streaming && !app.last_reasoning.is_empty() {
+        status.push_str(" | Ctrl+R: reasoning | Ctrl+↑↓: scroll reasoning");
     }
     
     let status_bar = Paragraph::new(status)
@@ -372,11 +386,9 @@ async fn main() -> Result<()> {
                 match rx.try_recv() {
                     Ok(StreamEvent::Text(delta)) => {
                         app.streaming_text.push_str(&delta);
-                        app.auto_scroll = true;
                     }
                     Ok(StreamEvent::ToolCall(name)) => {
                         app.streaming_text.push_str(&format!("\n⟳ [{}]\n", name));
-                        app.auto_scroll = true;
                     }
                     Ok(StreamEvent::ReasoningActive(active)) => {
                         if !active {
@@ -389,7 +401,6 @@ async fn main() -> Result<()> {
                     }
                     Ok(StreamEvent::ReasoningDelta(delta)) => {
                         app.streaming_reasoning.push_str(&delta);
-                        app.reasoning_auto_scroll = true;
                     }
                     Err(mpsc::error::TryRecvError::Empty) => break,
                     Err(mpsc::error::TryRecvError::Disconnected) => {
@@ -483,43 +494,27 @@ async fn main() -> Result<()> {
                             }
                         }
                         (KeyCode::PageUp, _) => {
-                            if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
-                                app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
-                                app.reasoning_auto_scroll = false;
-                            } else {
-                                app.scroll = app.scroll.saturating_sub(3);
-                                app.auto_scroll = false;
-                            }
+                            app.scroll = app.scroll.saturating_sub(3);
+                            app.auto_scroll = false;
                         }
                         (KeyCode::PageDown, _) => {
-                            if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
-                                let max_scroll = app.reasoning_total_lines.saturating_sub(1);
-                                app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
-                                app.reasoning_auto_scroll = false;
-                            } else {
-                                let max_scroll = app.total_lines.saturating_sub(1);
-                                app.scroll = (app.scroll + 3).min(max_scroll);
-                                app.auto_scroll = false;
-                            }
+                            let max_scroll = app.total_lines.saturating_sub(1);
+                            app.scroll = (app.scroll + 3).min(max_scroll);
+                            app.auto_scroll = false;
                         }
                         (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+                            // Ctrl+Up: scroll reasoning area (when visible)
                             if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
                                 app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
                                 app.reasoning_auto_scroll = false;
-                            } else {
-                                app.scroll = app.scroll.saturating_sub(3);
-                                app.auto_scroll = false;
                             }
                         }
                         (KeyCode::Down, modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+                            // Ctrl+Down: scroll reasoning area (when visible)
                             if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
                                 let max_scroll = app.reasoning_total_lines.saturating_sub(1);
                                 app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
                                 app.reasoning_auto_scroll = false;
-                            } else {
-                                let max_scroll = app.total_lines.saturating_sub(1);
-                                app.scroll = (app.scroll + 3).min(max_scroll);
-                                app.auto_scroll = false;
                             }
                         }
                         _ => {
@@ -527,28 +522,31 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
-                Event::Mouse(mouse) => match mouse.kind {
-                    MouseEventKind::ScrollUp => {
-                        if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
-                            app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
-                            app.reasoning_auto_scroll = false;
-                        } else {
-                            app.scroll = app.scroll.saturating_sub(3);
-                            app.auto_scroll = false;
+                Event::Mouse(mouse) => {
+                    let shift = mouse.modifiers.contains(KeyModifiers::SHIFT);
+                    match mouse.kind {
+                        MouseEventKind::ScrollUp => {
+                            if shift && app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
+                                app.reasoning_scroll = app.reasoning_scroll.saturating_sub(3);
+                                app.reasoning_auto_scroll = false;
+                            } else {
+                                app.scroll = app.scroll.saturating_sub(3);
+                                app.auto_scroll = false;
+                            }
                         }
-                    }
-                    MouseEventKind::ScrollDown => {
-                        if app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
-                            let max_scroll = app.reasoning_total_lines.saturating_sub(1);
-                            app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
-                            app.reasoning_auto_scroll = false;
-                        } else {
-                            let max_scroll = app.total_lines.saturating_sub(1);
-                            app.scroll = (app.scroll + 3).min(max_scroll);
-                            app.auto_scroll = false;
+                        MouseEventKind::ScrollDown => {
+                            if shift && app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming) {
+                                let max_scroll = app.reasoning_total_lines.saturating_sub(1);
+                                app.reasoning_scroll = (app.reasoning_scroll + 3).min(max_scroll);
+                                app.reasoning_auto_scroll = false;
+                            } else {
+                                let max_scroll = app.total_lines.saturating_sub(1);
+                                app.scroll = (app.scroll + 3).min(max_scroll);
+                                app.auto_scroll = false;
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 },
                 _ => {}
             }
