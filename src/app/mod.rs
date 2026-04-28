@@ -46,6 +46,19 @@ pub struct App {
     pub show_banner: bool,
     /// 跑马灯动画帧计数器
     pub marquee_frame: u64,
+    // === 补全菜单相关状态 ===
+    /// 是否显示补全菜单
+    pub show_completion: bool,
+    /// 补全项列表
+    pub completion_items: Vec<String>,
+    /// 当前选中的补全项索引
+    pub completion_selected: usize,
+    /// 补全类型：'/' 命令补全 或 '@' 文件补全
+    pub completion_type: Option<char>,
+    /// 补全查询字符串（用于过滤）
+    pub completion_query: String,
+    /// 补全触发位置（光标位置）
+    pub completion_trigger_pos: usize,
 }
 
 impl App {
@@ -93,6 +106,13 @@ impl App {
             reasoning_auto_scroll: true,
             show_banner,
             marquee_frame: 0,
+            // 补全菜单初始化
+            show_completion: false,
+            completion_items: Vec::new(),
+            completion_selected: 0,
+            completion_type: None,
+            completion_query: String::new(),
+            completion_trigger_pos: 0,
         }
     }
 }

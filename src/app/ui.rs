@@ -1,6 +1,6 @@
 use ratatui::{
     prelude::*,
-    widgets::{Paragraph, Wrap, Block, Borders},
+    widgets::{Paragraph, Wrap, Block, Borders, List, ListItem, ListState, Clear},
 };
 use tui_markdown::from_str;
 
@@ -51,6 +51,11 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     render_chat_area(f, app, chunks[chat_chunk_index]);
 
     f.render_widget(&app.input, chunks[input_chunk_index]);
+
+    // 渲染补全菜单（浮窗在输入框上方）
+    if app.show_completion {
+        render_completion_menu(f, app, chunks[input_chunk_index]);
+    }
 
     // 渲染状态栏（左侧状态信息 + 右侧跑马灯）
     render_status_bar(f, app, chunks[status_chunk_index]);
@@ -232,4 +237,71 @@ fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
     
     let status_bar = Paragraph::new(Line::from(spans));
     f.render_widget(status_bar, area);
+}
+
+/// Render the completion menu as a floating popup above the input area
+fn render_completion_menu(f: &mut Frame, app: &mut App, input_area: Rect) {
+    if app.completion_items.is_empty() {
+        return;
+    }
+
+    // 计算补全菜单的尺寸和位置
+    let max_visible_items = 10; // 最多显示10项
+    let menu_height = (app.completion_items.len().min(max_visible_items) as u16) + 2; // +2 for borders
+    let menu_width = 50u16.min(input_area.width); // 最大宽度50，不超过输入框宽度
+
+    // 定位在输入框上方，如果空间不够则放在下方
+    let menu_y = if input_area.y >= menu_height {
+        // 空间足够，放在上方
+        input_area.y - menu_height
+    } else {
+        // 空间不够，放在下方
+        input_area.y + input_area.height
+    };
+
+    let menu_rect = Rect {
+        x: input_area.x,
+        y: menu_y,
+        width: menu_width,
+        height: menu_height,
+    };
+
+    // 清除背景（创建浮窗效果）
+    f.render_widget(Clear, menu_rect);
+
+    // 创建补全项列表
+    let items: Vec<ListItem> = app.completion_items
+        .iter()
+        .map(|item| {
+            let style = if item == &app.completion_items[app.completion_selected] {
+                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            ListItem::new(item.as_str()).style(style)
+        })
+        .collect();
+
+    // 创建列表状态，设置选中项
+    let mut state = ListState::default();
+    state.select(Some(app.completion_selected));
+
+    // 创建列表组件
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(match app.completion_type {
+                    Some('/') => " Commands ",
+                    Some('@') => " Files ",
+                    _ => " Completions ",
+                })
+                .border_style(Style::default().fg(Color::Cyan))
+                .style(Style::default().bg(Color::Black))
+        )
+        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD))
+        .highlight_symbol("> ");
+
+    // 渲染列表
+    f.render_stateful_widget(list, menu_rect, &mut state);
 }

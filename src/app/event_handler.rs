@@ -16,6 +16,59 @@ use crate::core::streaming::{stream_response, StreamResult, StreamEvent};
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {
+    // 如果补全菜单正在显示，优先处理补全相关按键
+    if app.show_completion {
+        match key.code {
+            KeyCode::Down | KeyCode::Tab => {
+                // 向下选择补全项
+                if !app.completion_items.is_empty() {
+                    app.completion_selected = (app.completion_selected + 1) % app.completion_items.len();
+                }
+                return;
+            }
+            KeyCode::Up | KeyCode::BackTab => {
+                // 向上选择补全项
+                if !app.completion_items.is_empty() {
+                    app.completion_selected = if app.completion_selected == 0 {
+                        app.completion_items.len() - 1
+                    } else {
+                        app.completion_selected - 1
+                    };
+                }
+                return;
+            }
+            KeyCode::Enter => {
+                // 确认补全
+                apply_completion(app);
+                return;
+            }
+            KeyCode::Esc => {
+                // 取消补全
+                hide_completion(app);
+                return;
+            }
+            KeyCode::Char(c) => {
+                // 输入字符，更新补全查询
+                if c == '/' && app.completion_type != Some('/') {
+                    // 切换到命令补全
+                    hide_completion(app);
+                    trigger_completion(app, '/');
+                    return;
+                } else if c == '@' && app.completion_type != Some('@') {
+                    // 切换到文件补全
+                    hide_completion(app);
+                    trigger_completion(app, '@');
+                    return;
+                }
+                // 其他字符，让输入框处理，然后更新补全
+            }
+            KeyCode::Backspace => {
+                // 退格键，检查是否需要隐藏补全
+            }
+            _ => {}
+        }
+    }
+
     match (key.code, key.modifiers) {
         (KeyCode::Char('c'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
             // Ctrl+C when streaming: handled by the broadcast interrupt
@@ -28,7 +81,9 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             app.show_reasoning = !app.show_reasoning;
         }
         (KeyCode::Esc, _) => {
-            if !app.is_streaming {
+            if app.show_completion {
+                hide_completion(app);
+            } else if !app.is_streaming {
                 app.should_exit = true;
             }
         }
@@ -38,7 +93,11 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 app.input.input(key);
             } else {
                 // Plain Enter or Ctrl+Enter: send
-                handle_enter_key(app, context_manager);
+                if app.show_completion {
+                    apply_completion(app);
+                } else {
+                    handle_enter_key(app, context_manager);
+                }
             }
         }
         (KeyCode::PageUp, _) => {
@@ -51,14 +110,58 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             app.auto_scroll = false;
         }
         (KeyCode::Up, modifiers) if modifiers.is_empty() => {
-            app.scroll = app.scroll.saturating_sub(3);
-            app.auto_scroll = false;
+            if app.show_completion {
+                // 向上选择补全项
+                if !app.completion_items.is_empty() {
+                    app.completion_selected = if app.completion_selected == 0 {
+                        app.completion_items.len() - 1
+                    } else {
+                        app.completion_selected - 1
+                    };
+                }
+            } else {
+                app.scroll = app.scroll.saturating_sub(3);
+                app.auto_scroll = false;
+            }
         }
         (KeyCode::Down, modifiers) if modifiers.is_empty() => {
-            let max_scroll = app.total_lines.saturating_sub(1);
-            app.scroll = (app.scroll + 3).min(max_scroll);
-            if app.scroll >= max_scroll {
-                app.auto_scroll = true;
+            if app.show_completion {
+                // 向下选择补全项
+                if !app.completion_items.is_empty() {
+                    app.completion_selected = (app.completion_selected + 1) % app.completion_items.len();
+                }
+            } else {
+                let max_scroll = app.total_lines.saturating_sub(1);
+                app.scroll = (app.scroll + 3).min(max_scroll);
+                if app.scroll >= max_scroll {
+                    app.auto_scroll = true;
+                }
+            }
+        }
+        (KeyCode::Char(c), _) => {
+            // 检查是否触发补全
+            if c == '/' || c == '@' {
+                app.input.input(key);
+                trigger_completion(app, c);
+            } else {
+                app.input.input(key);
+                // 如果补全菜单正在显示，更新过滤
+                if app.show_completion {
+                    update_completion_query(app);
+                }
+            }
+        }
+        (KeyCode::Backspace, _) => {
+            app.input.input(key);
+            // 检查是否需要隐藏或更新补全
+            if app.show_completion {
+                let cursor_pos = get_cursor_position(app);
+                // 如果光标前的字符不是 '/' 或 '@'，或者光标在触发位置之前，隐藏补全
+                if cursor_pos == 0 || (cursor_pos <= app.completion_trigger_pos) {
+                    hide_completion(app);
+                } else {
+                    update_completion_query(app);
+                }
             }
         }
         _ => {
@@ -233,4 +336,171 @@ pub fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
+}
+
+// ========== 补全菜单相关函数 ==========
+
+/// 触发补全菜单
+fn trigger_completion(app: &mut App, trigger_char: char) {
+    app.show_completion = true;
+    app.completion_type = Some(trigger_char);
+    app.completion_selected = 0;
+    app.completion_trigger_pos = get_cursor_position(app);
+    app.completion_query = String::new();
+    
+    // 获取补全项
+    app.completion_items = get_completion_items(trigger_char);
+}
+
+/// 隐藏补全菜单
+fn hide_completion(app: &mut App) {
+    app.show_completion = false;
+    app.completion_items.clear();
+    app.completion_selected = 0;
+    app.completion_type = None;
+    app.completion_query.clear();
+    app.completion_trigger_pos = 0;
+}
+
+/// 应用选中的补全
+fn apply_completion(app: &mut App) {
+    if app.completion_items.is_empty() {
+        hide_completion(app);
+        return;
+    }
+    
+    let selected = app.completion_items[app.completion_selected].clone();
+    let trigger_char = match app.completion_type {
+        Some(c) => c,
+        None => {
+            hide_completion(app);
+            return;
+        }
+    };
+    
+    // 获取当前输入文本
+    let mut lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
+    let cursor = app.input.cursor();
+    
+    // 找到当前行
+    if cursor.0 < lines.len() {
+        let line = &mut lines[cursor.0];
+        let pos = cursor.1;
+        
+        // 找到触发字符的位置（从光标位置向前找）
+        let trigger_pos = line[..pos].rfind(trigger_char).unwrap_or(pos.saturating_sub(1));
+        
+        // 替换从触发位置到光标位置的内容
+        let new_line = format!("{}{}{}", &line[..trigger_pos], selected, &line[pos..]);
+        lines[cursor.0] = new_line;
+    }
+    
+    let new_text = lines.join("\n");
+    let mut new_input = TextArea::from(new_text.lines());
+    new_input.set_block(
+        ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
+    );
+    new_input.set_cursor_line_style(ratatui::style::Style::default());
+    app.input = new_input;
+    
+    // 设置光标位置到补全项末尾
+    let completion_len = selected.len();
+    let cursor = app.input.cursor();
+    let new_cursor_col = app.completion_trigger_pos + completion_len;
+    app.input.move_cursor(tui_textarea::CursorMove::Jump(cursor.0 as u16, new_cursor_col as u16));
+    
+    hide_completion(app);
+}
+
+/// 更新补全查询字符串（用于过滤）
+fn update_completion_query(app: &mut App) {
+    let cursor_pos = get_cursor_position(app);
+    if cursor_pos <= app.completion_trigger_pos {
+        hide_completion(app);
+        return;
+    }
+    
+    // 获取触发位置到光标位置的文本作为查询字符串
+    let lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
+    let cursor = app.input.cursor();
+    
+    if cursor.0 < lines.len() {
+        let line = &lines[cursor.0];
+        let start = app.completion_trigger_pos.min(line.len());
+        let end = cursor_pos.min(line.len());
+        if start <= end {
+            app.completion_query = line[start..end].to_string();
+        }
+    }
+    
+    // 过滤补全项
+    if let Some(trigger_char) = app.completion_type {
+        let all_items = get_completion_items(trigger_char);
+        if app.completion_query.is_empty() {
+            app.completion_items = all_items;
+        } else {
+            app.completion_items = all_items
+                .into_iter()
+                .filter(|item| item.to_lowercase().contains(&app.completion_query.to_lowercase()))
+                .collect();
+        }
+        app.completion_selected = 0;
+    }
+}
+
+/// 获取当前光标位置（字符偏移量）
+fn get_cursor_position(app: &App) -> usize {
+    let cursor = app.input.cursor();
+    cursor.1
+}
+
+/// 获取补全项列表
+fn get_completion_items(trigger_char: char) -> Vec<String> {
+    match trigger_char {
+        '/' => {
+            // 命令补全
+            vec![
+                "/help".to_string(),
+                "/quit".to_string(),
+                "/clear".to_string(),
+                "/save".to_string(),
+                "/load".to_string(),
+                "/status".to_string(),
+                "/tokens".to_string(),
+                "/reasoning".to_string(),
+            ]
+        }
+        '@' => {
+            // 文件补全 - 使用 glob 获取当前目录下的文件
+            use glob::glob;
+            let mut files = Vec::new();
+            
+            // 获取当前目录下的所有文件（递归深度2）
+            if let Ok(entries) = glob("**/*") {
+                for entry in entries.flatten() {
+                    if let Some(path_str) = entry.to_str() {
+                        // 跳过隐藏文件和目录
+                        if !path_str.starts_with('.') && !path_str.contains("/.") {
+                            files.push(format!("@{}", path_str));
+                        }
+                    }
+                }
+            }
+            
+            // 如果没有找到文件，添加一些示例
+            if files.is_empty() {
+                files.push("@src/main.rs".to_string());
+                files.push("@src/lib.rs".to_string());
+                files.push("@Cargo.toml".to_string());
+                files.push("@README.md".to_string());
+            }
+            
+            files.sort();
+            files.dedup();
+            files
+        }
+        _ => Vec::new(),
+    }
 }
