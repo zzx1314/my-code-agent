@@ -246,17 +246,9 @@ fn ui(f: &mut Frame, app: &mut App) {
 
      f.render_widget(&app.input, chunks[input_chunk_index]); 
 
-    let scroll_info = if app.total_lines > 0 {
-        let pct = (app.scroll as u64 * 100 / app.total_lines as u64).min(100);
-        format!(" | Scroll: {}/{} ({}%)", app.scroll, app.total_lines, pct)
-    } else {
-        String::new()
-    };
     let mut status = format!(
-        "Model: {} | Tokens: {}{}",
-        app.config.llm.model.as_deref().unwrap_or("unknown"),
-        app.token_usage.total_tokens(),
-        scroll_info,
+        "Model: {}",
+        app.config.llm.model.as_deref().unwrap_or("unknown")
     );
     if let Some(ref turn_line) = app.turn_usage_line {
         status.push_str(&format!(" | {}", turn_line));
@@ -265,14 +257,6 @@ fn ui(f: &mut Frame, app: &mut App) {
         status.push_str(" | Streaming...");
     } else {
         status.push_str(" | Ready");
-    }
-    
-    // 添加思考区域控制提示
-    if !app.last_reasoning.is_empty() && !app.is_streaming {
-        status.push_str(" | Ctrl+R: reasoning");
-    }
-    if app.is_streaming && !app.last_reasoning.is_empty() {
-        status.push_str(" | Ctrl+R: reasoning | Ctrl+↑↓: scroll reasoning");
     }
     
     let status_bar = Paragraph::new(status)
