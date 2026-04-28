@@ -388,7 +388,7 @@ async fn main() -> Result<()> {
                         app.streaming_text.push_str(&delta);
                     }
                     Ok(StreamEvent::ToolCall(name)) => {
-                        app.streaming_text.push_str(&format!("\n⟳ [{}]\n", name));
+                        app.streaming_text.push_str(&format!("\n⟳ [{}]\n", name.cyan()));
                     }
                     Ok(StreamEvent::ReasoningActive(active)) => {
                         if !active {
