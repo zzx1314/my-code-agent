@@ -34,6 +34,9 @@ fn default_thinking_display() -> String {
 fn default_think_command() -> bool {
     true
 }
+fn default_thinking_display_height() -> u16 {
+    5
+}
 fn default_provider_name() -> String {
     "deepseek".to_string()
 }
@@ -131,6 +134,10 @@ pub struct AgentConfig {
     /// Enable /think command to view full reasoning.
     #[serde(default = "default_think_command")]
     pub think_command: bool,
+    /// Thinking/reasoning display height in terminal lines (including borders).
+    /// Default: 5.
+    #[serde(default = "default_thinking_display_height")]
+    pub thinking_display_height: u16,
 }
 
 /// LLM provider settings.
@@ -250,6 +257,7 @@ impl Default for AgentConfig {
             max_turns: 10,
             thinking_display: "collapsed".to_string(),
             think_command: true,
+            thinking_display_height: default_thinking_display_height(),
         }
     }
 }

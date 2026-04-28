@@ -113,7 +113,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(12),  // 思考区域（固定12行，包括边框）
+                Constraint::Length(app.config.agent.thinking_display_height),  // 思考区域高度（可配置）
                 Constraint::Min(1),      // 聊天区域
                 Constraint::Length(5),   // 输入区域
                 Constraint::Length(1),   // 状态栏
@@ -152,8 +152,8 @@ fn ui(f: &mut Frame, app: &mut App) {
 
         // Auto-scroll reasoning: during streaming always follow, else honor flag
         if app.reasoning_auto_scroll || app.is_streaming {
-            // reasoning area: Constraint::Length(12) - 2 borders = 10 content lines
-            let visible_lines = 10u16;
+            // reasoning area: height - 2 borders = content lines
+            let visible_lines = app.config.agent.thinking_display_height.saturating_sub(2);
             if app.reasoning_total_lines > visible_lines {
                 app.reasoning_scroll = app.reasoning_total_lines - visible_lines;
             } else {
