@@ -171,7 +171,7 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         // 取两者最大值再加一定余量，避免低估
 
         let margin = if area.width < 60 {
-            raw_lines / 5      // 手机窄屏，余量大
+            raw_lines / 4      // 手机窄屏，余量大
         } else if area.width < 120 {
             raw_lines / 8      // 中等屏幕
         } else {
