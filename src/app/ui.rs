@@ -112,93 +112,92 @@ fn render_reasoning_area(f: &mut Frame, app: &mut App, area: Rect) {
 
 /// Render the chat area
 fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
-    let mut chat_text = String::new();
-
-    // Show startup banner if no messages yet
     if app.show_banner {
-        // Banner 单独渲染，不走 markdown，避免 ANSI 码乱码和 ASCII art 变形
         let banner = terminal::make_startup_text();
         app.total_lines = banner.lines.len() as u16;
         let paragraph = Paragraph::new(banner)
             .wrap(Wrap { trim: false })
             .block(Block::default().borders(Borders::NONE));
         f.render_widget(paragraph, area);
-    } else {
-        for (role, content) in &app.chat_history {
-            match role.as_str() {
-                "user" => {
-                    chat_text.push_str(&format!("**You**: {}\n\n", content));
-                }
-                "assistant" => {
-                    chat_text.push_str(content);
-                    chat_text.push_str("\n\n---\n\n");
-                }
-                _ => {
-                    chat_text.push_str(&format!("**{}**: {}\n\n", role, content));
-                }
-            }
-        }
-
-        if app.is_streaming {
-            if !app.streaming_text.is_empty() {
-                chat_text.push_str("**Assistant**: ");
-                chat_text.push_str(&app.streaming_text);
-                chat_text.push('\n');
-            } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
-                chat_text.push_str("*⏳ Generating response...*\n\n");
-            }
-        }
-
-        if !app.status_messages.is_empty() {
-            chat_text.push_str("---\n");
-            for msg in &app.status_messages {
-                chat_text.push_str(msg);
-                chat_text.push('\n');
-            }
-        }
-
-        let markdown = from_str(&chat_text);
-        app.chat_area_height = area.height;
-
-        // markdown 渲染后行数（含标题/表格膨胀）
-        let raw_lines = markdown.lines.len() as u16;
-        // wrap 折行估算（基于原始文本宽度）
-        let wrap_extra: u16 = chat_text.lines()
-            .map(|line| {
-                let len = line.chars().count() as u16;
-                if area.width > 0 && len > area.width {
-                    len / area.width
-                } else {
-                    0
-                }
-            })
-            .sum();
-        // 取两者最大值再加一定余量，避免低估
-
-        let margin = if area.width < 60 {
-            raw_lines / 4      // 手机窄屏，余量大
-        } else if area.width < 120 {
-            raw_lines / 8      // 中等屏幕
-        } else {
-            raw_lines / 16     // 宽屏，余量小
-        };
-
-        app.total_lines = raw_lines.max(wrap_extra).saturating_add(margin);
-
-        if app.auto_scroll {
-            if app.total_lines > area.height {
-                app.scroll = app.total_lines - area.height;
-            } else {
-                app.scroll = 0;
-            }
-        }
-
-        let paragraph = Paragraph::new(markdown)
-            .scroll((app.scroll, 0))
-            .wrap(Wrap { trim: true })
-            .block(Block::default().borders(Borders::NONE));
-        f.render_widget(paragraph, area);
+        return;
     }
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+
+    for (role, content) in &app.chat_history {
+        match role.as_str() {
+            "user" => {
+                lines.push(Line::from(vec![
+                    Span::styled("You: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw(content.clone()),
+                ]));
+                lines.push(Line::default());
+            }
+            "assistant" => {
+                let md = from_str(content);
+                lines.extend(md.lines);
+                lines.push(Line::default());
+            }
+            _ => {
+                lines.push(Line::from(format!("{}: {}", role, content)));
+                lines.push(Line::default());
+            }
+        }
+    }
+
+    if app.is_streaming {
+        if !app.streaming_text.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("Assistant: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            ]));
+            let md = from_str(&app.streaming_text);
+            lines.extend(md.lines);
+        } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
+            lines.push(Line::from(
+                Span::styled("⏳ Generating response...", Style::default().fg(Color::Yellow))
+            ));
+        }
+    }
+
+    if !app.status_messages.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "─".repeat(area.width as usize),
+            Style::default().fg(Color::DarkGray),
+        )));
+        for msg in &app.status_messages {
+            lines.push(Line::from(msg.as_str()));
+        }
+    }
+
+    // 用列宽计算折行后实际渲染行数，同时适配宽屏/窄屏/中文
+    let wrap_width = area.width.max(1) as usize;
+    let rendered_lines: u16 = lines.iter().map(|line| {
+        let col_width: usize = line.spans.iter()
+            .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
+            .sum();
+        if col_width == 0 {
+            1 // 空行也占1行
+        } else {
+            ((col_width + wrap_width - 1) / wrap_width) as u16
+        }
+    }).sum();
+
+    app.total_lines = rendered_lines;
+    app.chat_area_height = area.height;
+
+    if app.auto_scroll {
+        if app.total_lines > area.height {
+            app.scroll = app.total_lines - area.height;
+        } else {
+            app.scroll = 0;
+        }
+    }
+
+    let paragraph = Paragraph::new(lines)
+        .scroll((app.scroll, 0))
+        .wrap(Wrap { trim: true })
+        .block(Block::default().borders(Borders::NONE));
+    f.render_widget(paragraph, area);
 }
 
 /// Render the status bar with model info and marquee animation
