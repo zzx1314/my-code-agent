@@ -92,7 +92,7 @@ impl App {
         input_area.set_block(
             ratatui::widgets::Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
-                .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
+                .title(" Input (Enter to send, Shift+Enter for newline, Esc: interrupt/exit) ")
         );
         input_area.set_cursor_line_style(ratatui::style::Style::default());
 

@@ -156,7 +156,7 @@ tests/               # Integration tests (one file per module/tool)
 - **Tool registration** — Add to `src/tools/mod.rs`, then update README and knowledge.md
 - **`@filepath` expansion** — Handled in `src/core/context.rs`; supports `@path:offset` syntax (e.g. `@src/main.rs:50` reads from line 50); files >500 lines or 50KB truncated, with a notice suggesting `@path:N` or `file_read` with offset to continue
 - **Session persistence** — Session auto-saves to `.session.json` on quit/interrupt; auto-resumes on next start; `save` command for explicit save; `clear` also deletes the session file. Configurable via `config.toml` `session.save_file`.
-- **Ctrl+C once** = interrupt response; **Ctrl+C twice** = quit (auto-saves session)
+- **Esc / Ctrl+C once** = interrupt response; **Esc / Ctrl+C twice** = quit (auto-saves session)
 - **App module** — Terminal UI logic split into `app/` directory: `app.rs` (state), `event_handler.rs` (input), `ui.rs` (layout)
 - **Plan tracker** — Multi-step tasks require a plan (`## Task Plan` format); user can confirm (ENTER/y) or cancel (n)
 - **Code review tool** — `code_review` can review a single file or entire directory recursively

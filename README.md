@@ -7,7 +7,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 - **💬 Interactive Chat** — Multi-turn conversation with streaming responses
 - **🔧 Tool-Augmented** — The agent can read files, write files, search code, and run shell commands
 - **📊 Token Usage Tracking** — Monitor token consumption per-turn and per-session
-- **⚡ Interrupt Handling** — Ctrl+C to interrupt a response, double-press to quit
+- **⚡ Interrupt Handling** — Esc or Ctrl+C to interrupt a response, double-press to quit
 - **💾 Session Persistence** — Conversation auto-saves on exit and resumes on next launch
 - **📎 File References** — Use `@<filepath>` to attach file contents directly into your message, with `@<filepath>:N` offset syntax for large files
 - **🎨 Colored Output** — Rich terminal UI with syntax-highlighted tool calls and usage stats
@@ -234,8 +234,8 @@ save_file = ".my-session.json"   # default: .session.json
 
 ### Interrupting Responses
 
-- Press **Ctrl+C** once to interrupt the current response
-- Press **Ctrl+C** twice quickly to quit the agent
+- Press **Esc** or **Ctrl+C** once to interrupt the current response
+- Press **Esc** twice quickly, or **Ctrl+C** twice quickly, to quit the agent
 - Press **Ctrl+D** to quit via EOF
 
 ## Project Structure

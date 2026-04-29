@@ -195,7 +195,9 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         (KeyCode::Esc, _) => {
             if app.show_completion {
                 hide_completion(app);
-            } else if !app.is_streaming {
+            } else if app.is_streaming {
+                let _ = app.interrupt_tx.send(());
+            } else {
                 app.should_exit = true;
             }
         }
@@ -296,7 +298,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                     ta.set_block(
                         ratatui::widgets::Block::default()
                             .borders(ratatui::widgets::Borders::ALL)
-                            .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
+                            .title(" Input (Enter to send, Shift+Enter for newline, Esc: interrupt/exit) ")
                     );
                     ta.set_cursor_line_style(ratatui::style::Style::default());
                     ta
@@ -312,7 +314,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
             ta.set_block(
                 ratatui::widgets::Block::default()
                     .borders(ratatui::widgets::Borders::ALL)
-                    .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
+                    .title(" Input (Enter to send, Shift+Enter for newline, Esc: interrupt/exit) ")
             );
             ta.set_cursor_line_style(ratatui::style::Style::default());
             ta
@@ -539,7 +541,7 @@ fn apply_completion(app: &mut App) {
     new_input.set_block(
         ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)
-            .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
+            .title(" Input (Enter to send, Shift+Enter for newline, Esc: interrupt/exit) ")
     );
     new_input.set_cursor_line_style(ratatui::style::Style::default());
     app.input = new_input;
@@ -782,7 +784,7 @@ fn generate_help_text() -> String {
 
 - **Shift+Enter** - Insert newline in input
 - **Enter** - Send message
-- **Ctrl+C** - Interrupt response (once) or quit (twice)
+- **Esc** / **Ctrl+C** - Interrupt response | **Esc** twice / **Ctrl+C** twice - Quit
 - **Ctrl+R** - Toggle reasoning display
 - **PageUp/PageDown** - Scroll chat history
 - **Mouse wheel** - Scroll chat history
