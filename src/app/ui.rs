@@ -174,18 +174,19 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    // 用列宽计算折行后实际渲染行数，同时适配宽屏/窄屏/中文
     let wrap_width = area.width.max(1) as usize;
+
+    // 修改：逐行计算折行数，全宽字符（中文等）按2计，加3行冗余防估算偏少
     let rendered_lines: u16 = lines.iter().map(|line| {
         let col_width: usize = line.spans.iter()
             .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
             .sum();
         if col_width == 0 {
-            1 // 空行也占1行
+            1u16
         } else {
-            ((col_width + wrap_width - 1) / wrap_width) as u16
+            ((col_width + wrap_width - 1) / wrap_width).max(1) as u16
         }
-    }).sum();
+    }).sum::<u16>().saturating_add(3); // +3 行冗余
 
     app.total_lines = rendered_lines;
     app.chat_area_height = area.height;
@@ -200,7 +201,7 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
     let paragraph = Paragraph::new(lines)
         .scroll((app.scroll, 0))
-        .wrap(Wrap { trim: true })
+        .wrap(Wrap { trim: false }) // 修改：trim: true 改为 false，与估算逻辑一致
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(paragraph, area);
 }
