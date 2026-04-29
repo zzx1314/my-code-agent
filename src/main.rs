@@ -17,13 +17,16 @@ use std::time::Duration;
 async fn main() -> Result<()> {
     dotenv::dotenv().ok();
 
+    let log_file = std::fs::File::create(".my-code-agent.log")
+        .unwrap_or_else(|_| std::fs::File::create("/tmp/my-code-agent.log").unwrap());
+
     tracing_subscriber::fmt()
-        .with_writer(
-            std::fs::File::create(".my-code-agent.log")
-                .unwrap_or_else(|_| std::fs::File::create("/tmp/my-code-agent.log").unwrap())
-        )
+        .with_writer(log_file)
         .with_ansi(false)
-        .with_max_level(tracing::Level::DEBUG)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,tui_markdown=off"))
+        )
         .init();
 
     let config = Config::load();
