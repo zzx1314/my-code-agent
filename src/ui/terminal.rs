@@ -63,12 +63,12 @@ pub fn style_text(text: &str, fg: Option<Color>, bold: bool, dim: bool) -> Strin
 
 /// The ASCII art banner displayed on startup.
 pub const BANNER_ART: &str = r#"
- _                               _   
-  _ __ ___  _   _    ___ ___   __| | ___    __ _  __ _  ___ _ __ | |_ 
- | '_ ` _ \ | | | |  / __/ _ \ / _` |/ _ \  / _` |/ _` |/ _ \ '_ \| __|
- | | | | | | |_| | | (_| (_) | (_| |  __/ | (_| | (_| |  __/ | | | |_ 
- |_| |_| |_|\__, |  \___\___/ \__,_|\___|  \__,_|\__, |\___|_| |_|\__|
-            |___/                                |___/ 
+  __  __       ____          _      
+|  \/  |_   _/ ___|___   __| | ___ 
+| |\/| | | | | |   / _ \ / _` |/ _ \
+| |  | | |_| | |__| (_) | (_| |  __/
+|_|  |_|\__, |\____\___/ \__,_|\___|
+        |___/                     
 "#;
 
 /// 返回启动 banner 的 ratatui Text（可直接传给 Paragraph）
@@ -94,19 +94,19 @@ pub fn make_startup_text() -> Text<'static> {
     // 副标题
     lines.push(Line::from(Span::styled(
         "  Interactive AI Coding Assistant",
-        Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+        Style::default().fg(Color::LightYellow).add_modifier(Modifier::DIM),
     )));
 
     lines.push(Line::from(""));
 
     lines.push(Line::from(Span::styled(
         "Type your message below to start chatting.",
-        Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+        Style::default().fg(Color::LightYellow).add_modifier(Modifier::DIM),
     )));
 
     lines.push(Line::from(Span::styled(
         "Commands: /help  /save  /load  /new  /think  /model",
-        Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+        Style::default().fg(Color::LightYellow).add_modifier(Modifier::DIM),
     )));
 
     Text::from(lines)

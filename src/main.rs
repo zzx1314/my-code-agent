@@ -81,7 +81,6 @@ async fn main() -> Result<()> {
 
     // Main loop
     loop {
-        // 更新跑马灯帧计数器
         if app.is_streaming {
             app.marquee_frame = app.marquee_frame.wrapping_add(1);
         } else {
