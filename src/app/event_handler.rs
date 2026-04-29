@@ -18,6 +18,67 @@ use crate::core::preamble::Agent;
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {
+    // 如果 provider 选择器正在显示，优先处理 provider 选择相关按键
+    if app.show_provider_picker {
+        match key.code {
+            KeyCode::Down | KeyCode::Tab => {
+                if !app.provider_options.is_empty() {
+                    app.provider_selected = (app.provider_selected + 1) % app.provider_options.len();
+                }
+                return;
+            }
+            KeyCode::Up | KeyCode::BackTab => {
+                if !app.provider_options.is_empty() {
+                    app.provider_selected = if app.provider_selected == 0 {
+                        app.provider_options.len() - 1
+                    } else {
+                        app.provider_selected - 1
+                    };
+                }
+                return;
+            }
+            KeyCode::Enter => {
+                // 确认 provider 选择
+                if !app.provider_options.is_empty() {
+                    let selected_provider = app.provider_options[app.provider_selected].clone();
+                    app.config.llm.provider = selected_provider.clone();
+                    // 更新 api_key_env 为对应 provider 的默认值
+                    app.config.llm.api_key_env = match selected_provider.as_str() {
+                        "deepseek" => "DEEPSEEK_API_KEY".to_string(),
+                        "openrouter" => "OPENROUTER_API_KEY".to_string(),
+                        _ => String::new(),
+                    };
+                    // 更新模型列表为对应 provider 的模型
+                    app.model_options = crate::app::get_model_options_for_provider(&selected_provider);
+                    app.model_selected = 0;
+                    // 如果当前模型不在新列表中，重置为 None
+                    app.config.llm.model = app.model_options.first().cloned();
+
+                    app.chat_history.push(("user".to_string(), format!("/connect {}", selected_provider)));
+
+                    // 尝试重建 agent
+                    if let Ok(new_agent) = rebuild_agent(&app.config) {
+                        app.agent = Arc::new(new_agent);
+                        app.chat_history.push(("assistant".to_string(), format!("Provider switched to: {} (model: {})", selected_provider, app.config.llm.model.as_deref().unwrap_or("default"))));
+                    } else {
+                        app.chat_history.push(("assistant".to_string(), format!("Failed to switch provider. Please check API key and try again.")));
+                    }
+                }
+                app.show_provider_picker = false;
+                app.show_banner = false;
+                app.auto_scroll = true;
+                return;
+            }
+            KeyCode::Esc => {
+                // 取消 provider 选择
+                app.show_provider_picker = false;
+                return;
+            }
+            _ => {}
+        }
+        return;
+    }
+
     // 如果模型选择器正在显示，优先处理模型选择相关按键
     if app.show_model_picker {
         match key.code {
@@ -548,6 +609,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 "/status".to_string(),
                 "/tokens".to_string(),
                 "/reasoning".to_string(),
+                "/connect".to_string(),
                 "/model".to_string(),
             ]
         }
@@ -664,8 +726,18 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             app.auto_scroll = true;
             true
         }
+        "/connect" => {
+            // 打开 provider 选择器
+            app.show_provider_picker = true;
+            // 找到当前 provider 在选项中的位置
+            if let Some(pos) = app.provider_options.iter().position(|p| p == &app.config.llm.provider) {
+                app.provider_selected = pos;
+            }
+            true
+        }
         "/model" => {
-            // 打开模型选择器
+            // 打开模型选择器，确保模型列表对应当前 provider
+            app.model_options = crate::app::get_model_options_for_provider(&app.config.llm.provider);
             app.show_model_picker = true;
             // 找到当前模型在选项中的位置
             if let Some(current_model) = &app.config.llm.model {
@@ -698,6 +770,7 @@ fn generate_help_text() -> String {
 | `/status` | Show current configuration and status |
 | `/tokens` | Show token usage statistics |
 | `/reasoning` | Toggle reasoning display on/off |
+| `/connect` | Select LLM provider (deepseek / openrouter) |
 | `/model` | Select model from dropdown menu |
 | `/think` | Switch to deep thinking mode (if supported) |
 

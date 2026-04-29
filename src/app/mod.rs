@@ -61,13 +61,20 @@ pub struct App {
     pub completion_trigger_pos: usize,
     /// 聊天区域高度
     pub chat_area_height: u16,
-    // === 模型选择器相关状态 ===
-    /// 是否显示模型选择器
-    pub show_model_picker: bool,
-    /// 可选的模型列表
-    pub model_options: Vec<String>,
-    /// 当前选中的模型索引
-    pub model_selected: usize,
+             // === 模型选择器相关状态 ===
+     /// 是否显示模型选择器
+     pub show_model_picker: bool,
+     /// 可选的模型列表
+     pub model_options: Vec<String>,
+     /// 当前选中的模型索引
+     pub model_selected: usize,
+     // === Provider 选择器相关状态 ===
+     /// 是否显示 provider 选择器
+     pub show_provider_picker: bool,
+     /// 可选的 provider 列表
+     pub provider_options: Vec<String>,
+     /// 当前选中的 provider 索引
+     pub provider_selected: usize,
 }
 
 impl App {
@@ -123,28 +130,41 @@ impl App {
             completion_query: String::new(),
             completion_trigger_pos: 0,
             chat_area_height: 0,
-            // 模型选择器初始化
-            show_model_picker: false,
-            model_options: get_default_model_options(),
-            model_selected: 0,
-        }
+             // 模型选择器初始化
+             show_model_picker: false,
+             model_options: get_model_options_for_provider(&config.llm.provider),
+             model_selected: 0,
+             // Provider 选择器初始化
+             show_provider_picker: false,
+             provider_options: vec!["deepseek".to_string(), "openrouter".to_string()],
+             provider_selected: {
+                 let p = config.llm.provider.as_str();
+                 if p == "openrouter" { 1 } else { 0 }
+             },
+         }
     }
 }
 
-/// 获取默认的模型选项列表
-/// 包括 Poolside 和 OpenRouter 的免费模型
-fn get_default_model_options() -> Vec<String> {
-    vec![
-        // Poolside 免费模型
-        "poolside/laguna-m.1:free".to_string(),
-        "poolside/laguna-xs.2:free".to_string(),
-        // OpenRouter 免费模型
-        "nvidia/nemotron-3-super-120b-a12b:free".to_string(),
-        "tencent/hy3-preview:free".to_string(),
-        "meta/llama-3.1-405b-instruct:free".to_string(),
-        "openai/gpt-4o-mini:free".to_string(),
-        // DeepSeek 模型
-        "deepseek-chat".to_string(),
-        "deepseek-reasoner".to_string(),
-    ]
+/// 根据 provider 返回对应的模型选项列表
+pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
+    match provider {
+        "deepseek" => vec![
+            "deepseek-chat".to_string(),
+            "deepseek-reasoner".to_string(),
+        ],
+        "openrouter" => vec![
+            // OpenRouter 免费模型
+            "nvidia/nemotron-3-super-120b-a12b:free".to_string(),
+            "tencent/hy3-preview:free".to_string(),
+            "meta/llama-3.1-405b-instruct:free".to_string(),
+            "openai/gpt-4o-mini:free".to_string(),
+            // Poolside 免费模型
+            "poolside/laguna-m.1:free".to_string(),
+            "poolside/laguna-xs.2:free".to_string(),
+        ],
+        _ => vec![
+            "deepseek-chat".to_string(),
+            "deepseek-reasoner".to_string(),
+        ],
+    }
 }

@@ -62,6 +62,11 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         render_model_picker(f, app, chunks[input_chunk_index]);
     }
 
+    // 渲染 provider 选择器（浮窗在输入框上方）
+    if app.show_provider_picker {
+        render_provider_picker(f, app, chunks[input_chunk_index]);
+    }
+
     // 渲染状态栏（左侧状态信息 + 右侧跑马灯）
     render_status_bar(f, app, chunks[status_chunk_index]);
 }
@@ -365,5 +370,59 @@ fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
         .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD));
 
     // 渲染列表
+    f.render_stateful_widget(list, menu_rect, &mut state);
+}
+
+/// Render the provider picker as a floating popup above the input area
+fn render_provider_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
+    if app.provider_options.is_empty() {
+        return;
+    }
+
+    let menu_height = (app.provider_options.len() as u16) + 2;
+    let menu_width = 30u16.min(input_area.width);
+
+    let menu_y = if input_area.y >= menu_height {
+        input_area.y - menu_height
+    } else {
+        input_area.y + input_area.height
+    };
+
+    let menu_rect = Rect {
+        x: input_area.x,
+        y: menu_y,
+        width: menu_width,
+        height: menu_height,
+    };
+
+    f.render_widget(Clear, menu_rect);
+
+    let items: Vec<ListItem> = app.provider_options
+        .iter()
+        .enumerate()
+        .map(|(idx, provider)| {
+            let prefix = if idx == app.provider_selected { "▶ " } else { "  " };
+            let style = if idx == app.provider_selected {
+                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Cyan)
+            };
+            ListItem::new(format!("{}{}", prefix, provider)).style(style)
+        })
+        .collect();
+
+    let mut state = ListState::default();
+    state.select(Some(app.provider_selected));
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Select Provider (↑↓ Enter Esc) ")
+                .border_style(Style::default().fg(Color::Green))
+                .style(Style::default().bg(Color::Black)),
+        )
+        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD));
+
     f.render_stateful_widget(list, menu_rect, &mut state);
 }
