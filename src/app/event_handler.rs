@@ -197,6 +197,13 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 hide_completion(app);
             } else if app.is_streaming {
                 let _ = app.interrupt_tx.send(());
+                // 立即强制清理，不等后台任务通过 response_rx 返回
+                app.response_rx = None;
+                app.streaming_events_rx = None;
+                app.is_streaming = false;
+                app.streaming_text.clear();
+                app.streaming_reasoning.clear();
+                app.status_messages.clear();
             } else {
                 app.should_exit = true;
             }
@@ -419,11 +426,32 @@ pub fn process_streaming_events(app: &mut App) {
 /// Check for completed stream result
 pub fn check_stream_result(app: &mut App) {
     if let Some(ref mut rx) = app.response_rx {
-        if let Ok(result) = rx.try_recv() {
-            process_stream_result(app, result);
-            app.response_rx = None;
+        match rx.try_recv() {
+            Ok(result) => {
+                // 只有仍在 streaming 状态时才处理结果
+                // 若已被 Esc 强制清理（is_streaming=false），丢弃旧结果
+                if app.is_streaming {
+                    process_stream_result(app, result);
+                }
+                app.response_rx = None;
+            }
+            Err(mpsc::error::TryRecvError::Disconnected) => {
+                if app.is_streaming {
+                    cleanup_stream_state(app);
+                }
+                app.response_rx = None;
+            }
+            Err(mpsc::error::TryRecvError::Empty) => {}
         }
     }
+}
+
+fn cleanup_stream_state(app: &mut App) {
+    app.is_streaming = false;
+    app.streaming_text.clear();
+    app.streaming_reasoning.clear();
+    app.streaming_events_rx = None;
+    app.auto_scroll = true;
 }
 
 /// Process stream result
