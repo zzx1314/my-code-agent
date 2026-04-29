@@ -153,7 +153,8 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
 
         let markdown = from_str(&chat_text);
-        app.total_lines = markdown.lines.len() as u16;
+        let physical_lines = estimate_physical_lines(&chat_text, area.width);
+        app.total_lines = physical_lines;
 
         if app.auto_scroll {
             let chat_area_height = area.height;
@@ -170,6 +171,21 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             .block(Block::default().borders(Borders::NONE));
         f.render_widget(paragraph, area);
     }
+}
+
+/// 估算 wrap 后的物理行数
+fn estimate_physical_lines(text: &str, width: u16) -> u16 {
+    if width == 0 { return 0; }
+    text.lines()
+        .map(|line| {
+            let len = line.chars().count();  // 用字符数而非字节数
+            if len == 0 {
+                1u16
+            } else {
+                ((len as u16).saturating_sub(1) / width) + 1
+            }
+        })
+        .sum()
 }
 
 /// Render the status bar with model info and marquee animation
