@@ -140,7 +140,7 @@ fn get_default_model_options() -> Vec<String> {
         "poolside/laguna-xs.2:free".to_string(),
         // OpenRouter 免费模型
         "nvidia/nemotron-3-super-120b-a12b:free".to_string(),
-        "google/gemini-flash-1.5:free".to_string(),
+        "tencent/hy3-preview:free".to_string(),
         "meta/llama-3.1-405b-instruct:free".to_string(),
         "openai/gpt-4o-mini:free".to_string(),
         // DeepSeek 模型
