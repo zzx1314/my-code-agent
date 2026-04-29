@@ -178,6 +178,17 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
         if input_text.starts_with('/') {
             // Handle commands locally without sending to LLM
             if handle_command(app, &input_text) {
+                // Clear input after command is handled
+                app.input = {
+                    let mut ta = TextArea::default();
+                    ta.set_block(
+                        ratatui::widgets::Block::default()
+                            .borders(ratatui::widgets::Borders::ALL)
+                            .title(" Input (Enter to send, Shift+Enter for newline, Esc to exit) ")
+                    );
+                    ta.set_cursor_line_style(ratatui::style::Style::default());
+                    ta
+                };
                 return; // Command was handled, don't send to LLM
             }
         }
