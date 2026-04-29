@@ -7,7 +7,7 @@
 # ── LLM Provider Settings ──
 [llm]
 provider = "openrouter"
-model = "tencent/hy3-preview:free"
+model = "poolside/laguna-m.1:free"
 api_key_env = "OPENROUTER_API_KEY"
 
 # Custom base URL for OpenAI-compatible providers

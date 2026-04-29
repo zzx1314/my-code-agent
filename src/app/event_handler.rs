@@ -13,9 +13,60 @@ use crate::app::conversion::convert_app_to_rig;
 use crate::core::context::expand_file_refs;
 use crate::core::context_manager::ContextManager;
 use crate::core::streaming::{stream_response, StreamResult, StreamEvent};
+use std::sync::Arc;
+use crate::core::preamble::Agent;
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {
+    // 如果模型选择器正在显示，优先处理模型选择相关按键
+    if app.show_model_picker {
+        match key.code {
+            KeyCode::Down | KeyCode::Tab => {
+                if !app.model_options.is_empty() {
+                    app.model_selected = (app.model_selected + 1) % app.model_options.len();
+                }
+                return;
+            }
+            KeyCode::Up | KeyCode::BackTab => {
+                if !app.model_options.is_empty() {
+                    app.model_selected = if app.model_selected == 0 {
+                        app.model_options.len() - 1
+                    } else {
+                        app.model_selected - 1
+                    };
+                }
+                return;
+            }
+            KeyCode::Enter => {
+                // 确认模型选择
+                if !app.model_options.is_empty() {
+                    let selected_model = app.model_options[app.model_selected].clone();
+                    app.config.llm.model = Some(selected_model.clone());
+                    app.chat_history.push(("user".to_string(), format!("/model {}", selected_model)));
+                    
+                    // 尝试重建 agent
+                    if let Ok(new_agent) = rebuild_agent(&app.config) {
+                        app.agent = Arc::new(new_agent);
+                        app.chat_history.push(("assistant".to_string(), format!("Model switched to: {}", selected_model)));
+                    } else {
+                        app.chat_history.push(("assistant".to_string(), format!("Failed to switch model. Please check API key and try again.")));
+                    }
+                }
+                app.show_model_picker = false;
+                app.show_banner = false;
+                app.auto_scroll = true;
+                return;
+            }
+            KeyCode::Esc => {
+                // 取消模型选择
+                app.show_model_picker = false;
+                return;
+            }
+            _ => {}
+        }
+        return;
+    }
+
     // 如果补全菜单正在显示，优先处理补全相关按键
     if app.show_completion {
         match key.code {
@@ -497,6 +548,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 "/status".to_string(),
                 "/tokens".to_string(),
                 "/reasoning".to_string(),
+                "/model".to_string(),
             ]
         }
         '@' => {
@@ -612,6 +664,17 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             app.auto_scroll = true;
             true
         }
+        "/model" => {
+            // 打开模型选择器
+            app.show_model_picker = true;
+            // 找到当前模型在选项中的位置
+            if let Some(current_model) = &app.config.llm.model {
+                if let Some(pos) = app.model_options.iter().position(|m| m == current_model) {
+                    app.model_selected = pos;
+                }
+            }
+            true
+        }
         _ => {
             // 未知命令，发送给 LLM 处理
             false
@@ -635,6 +698,7 @@ fn generate_help_text() -> String {
 | `/status` | Show current configuration and status |
 | `/tokens` | Show token usage statistics |
 | `/reasoning` | Toggle reasoning display on/off |
+| `/model` | Select model from dropdown menu |
 | `/think` | Switch to deep thinking mode (if supported) |
 
 ## Input Features
@@ -662,4 +726,13 @@ fn generate_help_text() -> String {
 - Sessions auto-save to `.session.json` if enabled in config.toml
 "#;
     help.to_string()
+}
+
+/// 重建 agent（用于模型切换）
+fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> {
+    use crate::core::preamble::build_agent;
+    use crate::tools::create_mcp_tools;
+    
+    let mcp_tools = futures::executor::block_on(create_mcp_tools(config));
+    Ok(build_agent(config, mcp_tools))
 }

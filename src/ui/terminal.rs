@@ -105,7 +105,7 @@ pub fn make_startup_text() -> Text<'static> {
     )));
 
     lines.push(Line::from(Span::styled(
-        "Commands: /help  /save  /load  /new  /think",
+        "Commands: /help  /save  /load  /new  /think  /model",
         Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
     )));
 
