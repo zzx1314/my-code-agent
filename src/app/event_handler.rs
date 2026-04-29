@@ -639,6 +639,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 "/status".to_string(),
                 "/tokens".to_string(),
                 "/reasoning".to_string(),
+                "/think".to_string(),
                 "/connect".to_string(),
                 "/model".to_string(),
             ]
@@ -763,6 +764,21 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             if let Some(pos) = app.provider_options.iter().position(|p| p == &app.config.llm.provider) {
                 app.provider_selected = pos;
             }
+            true
+        }
+        "/think" => {
+            app.chat_history.push(("user".to_string(), "/think".to_string()));
+
+            if !app.last_reasoning.is_empty() {
+                app.chat_history.push(("assistant".to_string(), format!("💭 Reasoning:\n─────────────────────────────────────────\n{}\n─────────────────────────────────────────", app.last_reasoning)));
+            } else if !app.streaming_reasoning.is_empty() {
+                app.chat_history.push(("assistant".to_string(), format!("💭 Thinking (in progress):\n─────────────────────────────────────────\n{}\n─────────────────────────────────────────", app.streaming_reasoning)));
+            } else {
+                app.chat_history.push(("assistant".to_string(), "No reasoning available. Reasoning is only available when using a model that supports thinking (e.g., deepseek-reasoner), and will be shown after the model responds.".to_string()));
+            }
+
+            app.show_banner = false;
+            app.auto_scroll = true;
             true
         }
         "/model" => {
