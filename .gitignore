@@ -2,3 +2,4 @@
 .env
 /.sessions
 .session.json
+.my-code-agent.log

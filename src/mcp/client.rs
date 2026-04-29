@@ -43,8 +43,8 @@ impl McpClientInner {
 
         let request = JsonRpcRequest::new(id, method, params);
         let request_str = serde_json::to_string(&request)?;
-        
-        eprintln!("[mcp] → {}", request_str);
+
+        tracing::debug!(request = %request_str, "MCP request");
 
         // Create a oneshot channel for the response
         let (tx, rx) = oneshot::channel();
@@ -86,7 +86,7 @@ impl McpClientInner {
         });
         let notification_str = serde_json::to_string(&notification)?;
 
-        eprintln!("[mcp] → (notification) {}", notification_str);
+        tracing::debug!(notification = %notification_str, "MCP notification");
 
         if let Some(stdin) = &mut self.stdin {
             stdin.write_all(notification_str.as_bytes()).await?;
@@ -201,7 +201,7 @@ impl McpClient {
                     continue;
                 }
 
-                eprintln!("[mcp] ← {}", line);
+                tracing::debug!(response = %line, "MCP response");
 
                 // Parse as JSON-RPC response
                 if let Ok(response) = serde_json::from_str::<JsonRpcResponse>(&line) {
@@ -234,7 +234,7 @@ impl McpClient {
                 let reader = TokioBufReader::new(stderr);
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    eprintln!("[mcp:stderr] {}", line);
+                    tracing::warn!(stderr = %line, "MCP server stderr");
                 }
             });
         }

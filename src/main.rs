@@ -17,6 +17,15 @@ use std::time::Duration;
 async fn main() -> Result<()> {
     dotenv::dotenv().ok();
 
+    tracing_subscriber::fmt()
+        .with_writer(
+            std::fs::File::create(".my-code-agent.log")
+                .unwrap_or_else(|_| std::fs::File::create("/tmp/my-code-agent.log").unwrap())
+        )
+        .with_ansi(false)
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
+
     let config = Config::load();
 
     let mut app_chat_history: Vec<(String, String)> = Vec::new();
@@ -31,7 +40,7 @@ async fn main() -> Result<()> {
                 token_usage = data.token_usage;
                 last_reasoning = data.last_reasoning;
                 let turns = app_chat_history.iter().filter(|(r, _)| r == "user").count();
-                eprintln!("[info] Resumed session ({} turns, {} tokens)", turns, token_usage.total_tokens());
+                tracing::info!(turns, tokens = token_usage.total_tokens(), "Resumed session");
             }
         }
     }
@@ -122,7 +131,7 @@ async fn main() -> Result<()> {
             app.last_reasoning.clone(),
         );
         if let Err(e) = data.save_default(app.config.session.save_file.as_deref()) {
-            eprintln!("Failed to save session: {}", e);
+            tracing::error!(error = %e, "Failed to save session");
         }
     }
 

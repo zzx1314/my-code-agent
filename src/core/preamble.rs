@@ -96,17 +96,17 @@ fn load_knowledge() -> Option<String> {
 fn build_preamble() -> String {
     let knowledge = match load_knowledge() {
         Some(content) => {
-            eprintln!(
-                "[knowledge] loaded: {} ({} bytes)",
-                KNOWLEDGE_FILE,
-                content.len()
+            tracing::info!(
+                file = KNOWLEDGE_FILE,
+                bytes = content.len(),
+                "Knowledge loaded"
             );
             content
         }
         None => {
-            eprintln!(
-                "[warn] {} not found - project knowledge unavailable",
-                KNOWLEDGE_FILE
+            tracing::warn!(
+                file = KNOWLEDGE_FILE,
+                "Knowledge file not found - project knowledge unavailable"
             );
             format!(
                 "({} not found - no project knowledge loaded)",
@@ -119,13 +119,13 @@ fn build_preamble() -> String {
 
 fn check_api_key(provider_name: &str, api_key_env: &str) {
     if std::env::var(api_key_env).is_err() {
-        eprintln!(
-            "[error] {} not set. Add it to .env or your environment.",
-            api_key_env
+        tracing::error!(
+            env_var = api_key_env,
+            "API key not set. Add it to .env or your environment."
         );
         std::process::exit(1);
     }
-    eprintln!("[ok] {} ({})", api_key_env, provider_name);
+    tracing::info!(env_var = api_key_env, provider = provider_name, "API key loaded");
 }
 
 /// Supported LLM providers
@@ -219,7 +219,7 @@ pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>)
 
     match provider {
         Provider::DeepSeek => {
-            eprintln!("[model] {} (DeepSeek)", model);
+            tracing::info!(model = %model, provider = "DeepSeek", "Model selected");
             create_openai_client(
                 api_key_env,
                 "https://api.deepseek.com/v1",
@@ -231,7 +231,7 @@ pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>)
             )
         }
         Provider::OpenRouter => {
-            eprintln!("[model] {} (OpenRouter)", model);
+            tracing::info!(model = %model, provider = "OpenRouter", "Model selected");
             let api_key = std::env::var(api_key_env).unwrap_or_default();
             
             // Create builder
@@ -262,16 +262,12 @@ pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>)
             let base_url = match config.llm.base_url.as_ref() {
                 Some(url) => url.clone(),
                 None => {
-                    eprintln!("[error] Custom provider requires base_url in config.toml");
-                    eprintln!("Example:");
-                    eprintln!("  [llm]");
-                    eprintln!("  provider = \"custom\"");
-                    eprintln!("  model = \"llama3\"");
-                    eprintln!("  base_url = \"http://localhost:11434/v1\"");
+                    tracing::error!("Custom provider requires base_url in config.toml");
+                    tracing::error!("Example:\n  [llm]\n  provider = \"custom\"\n  model = \"llama3\"\n  base_url = \"http://localhost:11434/v1\"");
                     std::process::exit(1);
                 }
             };
-            eprintln!("[model] {} (Custom: {})", model, base_url);
+            tracing::info!(model = %model, base_url = %base_url, provider = "Custom", "Model selected");
             create_openai_client(
                 api_key_env,
                 &base_url,
@@ -283,10 +279,7 @@ pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>)
             )
         }
         _ => {
-            eprintln!(
-                "[warn] Provider '{}' not fully implemented, using DeepSeek",
-                provider.display_name()
-            );
+            tracing::warn!(provider = %provider.display_name(), "Provider not fully implemented, using DeepSeek");
             create_openai_client(
                 api_key_env,
                 "https://api.deepseek.com/v1",

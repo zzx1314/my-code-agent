@@ -291,15 +291,15 @@ impl Config {
                 let config: Config = match toml::from_str(&content) {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!(
-                            "[error] Error parsing {}: {}. Using defaults.",
-                            path.display(),
-                            e
+                        tracing::error!(
+                            path = %path.display(),
+                            error = %e,
+                            "Error parsing config. Using defaults."
                         );
                         return Self::default();
                     }
                 };
-                eprintln!("[info] loaded: {}", path.display());
+                tracing::info!(path = %path.display(), "Config loaded");
                 config
             }
             Err(_) => Self::default(),

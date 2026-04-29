@@ -269,7 +269,7 @@ impl Tool for CodeReview {
                 }
                 Err(e) => {
                     // Skip files that can't be read, but continue with others
-                    eprintln!("Warning: Could not read file {}: {}", file.display(), e);
+                    tracing::warn!(file = %file.display(), error = %e, "Could not read file");
                 }
             }
         }
