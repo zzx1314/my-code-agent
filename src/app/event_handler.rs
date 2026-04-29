@@ -105,7 +105,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             app.auto_scroll = false;
         }
         (KeyCode::PageDown, _) => {
-            let max_scroll = app.total_lines.saturating_sub(1);
+            let max_scroll = app.total_lines.saturating_sub(app.chat_area_height);
             app.scroll = (app.scroll + 3).min(max_scroll);
             app.auto_scroll = false;
         }
@@ -131,7 +131,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                     app.completion_selected = (app.completion_selected + 1) % app.completion_items.len();
                 }
             } else {
-                let max_scroll = app.total_lines.saturating_sub(1);
+                let max_scroll = app.total_lines.saturating_sub(app.chat_area_height);
                 app.scroll = (app.scroll + 3).min(max_scroll);
                 if app.scroll >= max_scroll {
                     app.auto_scroll = true;
@@ -246,7 +246,7 @@ pub fn handle_mouse_event(mouse: event::MouseEvent, app: &mut App) {
             app.auto_scroll = false;
         }
         MouseEventKind::ScrollDown => {
-            let max_scroll = app.total_lines.saturating_sub(1);
+            let max_scroll = app.total_lines.saturating_sub(app.chat_area_height);
             app.scroll = (app.scroll + 3).min(max_scroll);
             // 滚到底部时重新启用 auto_scroll
             if app.scroll >= max_scroll {
@@ -532,6 +532,8 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             app.chat_history.push(("user".to_string(), "/help".to_string()));
             app.chat_history.push(("assistant".to_string(), help_text));
             app.show_banner = false;
+            app.auto_scroll = true;
+            app.scroll = u16::MAX;
             true
         }
         "/quit" => {
@@ -542,6 +544,8 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             app.chat_history.clear();
             app.token_usage = crate::core::token_usage::TokenUsage::with_config(&app.config);
             app.show_banner = true;
+            app.auto_scroll = true;
+            app.scroll = 0;
             // 删除会话文件
             if app.config.session.enabled {
                 if let Some(save_file) = &app.config.session.save_file {
@@ -555,12 +559,14 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             app.chat_history.push(("user".to_string(), "/save".to_string()));
             app.chat_history.push(("assistant".to_string(), "Session will be saved on exit. Use /quit to exit and save.".to_string()));
             app.show_banner = false;
+            app.auto_scroll = true;
             true
         }
         "/load" => {
             app.chat_history.push(("user".to_string(), "/load".to_string()));
             app.chat_history.push(("assistant".to_string(), "Session auto-resumes on startup if session.enabled is true in config.toml".to_string()));
             app.show_banner = false;
+            app.auto_scroll = true;
             true
         }
         "/status" => {
@@ -572,6 +578,7 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             app.chat_history.push(("user".to_string(), "/status".to_string()));
             app.chat_history.push(("assistant".to_string(), status));
             app.show_banner = false;
+            app.auto_scroll = true;
             true
         }
         "/tokens" => {
@@ -582,6 +589,7 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             app.chat_history.push(("user".to_string(), "/tokens".to_string()));
             app.chat_history.push(("assistant".to_string(), token_info));
             app.show_banner = false;
+            app.auto_scroll = true;
             true
         }
         "/reasoning" => {
@@ -590,6 +598,7 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             app.chat_history.push(("user".to_string(), "/reasoning".to_string()));
             app.chat_history.push(("assistant".to_string(), status.to_string()));
             app.show_banner = false;
+            app.auto_scroll = true;
             true
         }
         _ => {

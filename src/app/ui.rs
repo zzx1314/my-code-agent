@@ -153,13 +153,36 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
 
         let markdown = from_str(&chat_text);
-        let physical_lines = estimate_physical_lines(&chat_text, area.width);
-        app.total_lines = physical_lines;
+        app.chat_area_height = area.height;
+
+        // markdown 渲染后行数（含标题/表格膨胀）
+        let raw_lines = markdown.lines.len() as u16;
+        // wrap 折行估算（基于原始文本宽度）
+        let wrap_extra: u16 = chat_text.lines()
+            .map(|line| {
+                let len = line.chars().count() as u16;
+                if area.width > 0 && len > area.width {
+                    len / area.width
+                } else {
+                    0
+                }
+            })
+            .sum();
+        // 取两者最大值再加一定余量，避免低估
+
+        let margin = if area.width < 60 {
+            raw_lines / 5      // 手机窄屏，余量大
+        } else if area.width < 120 {
+            raw_lines / 8      // 中等屏幕
+        } else {
+            raw_lines / 16     // 宽屏，余量小
+        };
+
+        app.total_lines = raw_lines.max(wrap_extra).saturating_add(margin);
 
         if app.auto_scroll {
-            let chat_area_height = area.height;
-            if app.total_lines > chat_area_height {
-                app.scroll = app.total_lines - chat_area_height;
+            if app.total_lines > area.height {
+                app.scroll = app.total_lines - area.height;
             } else {
                 app.scroll = 0;
             }
@@ -171,21 +194,6 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             .block(Block::default().borders(Borders::NONE));
         f.render_widget(paragraph, area);
     }
-}
-
-/// 估算 wrap 后的物理行数
-fn estimate_physical_lines(text: &str, width: u16) -> u16 {
-    if width == 0 { return 0; }
-    text.lines()
-        .map(|line| {
-            let len = line.chars().count();  // 用字符数而非字节数
-            if len == 0 {
-                1u16
-            } else {
-                ((len as u16).saturating_sub(1) / width) + 1
-            }
-        })
-        .sum()
 }
 
 /// Render the status bar with model info and marquee animation

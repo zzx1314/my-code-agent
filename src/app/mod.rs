@@ -59,6 +59,8 @@ pub struct App {
     pub completion_query: String,
     /// 补全触发位置（光标位置）
     pub completion_trigger_pos: usize,
+    /// 聊天区域高度
+    pub chat_area_height: u16,
 }
 
 impl App {
@@ -113,6 +115,7 @@ impl App {
             completion_type: None,
             completion_query: String::new(),
             completion_trigger_pos: 0,
+            chat_area_height: 0,
         }
     }
 }
