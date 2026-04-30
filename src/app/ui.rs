@@ -176,7 +176,6 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
     let wrap_width = area.width.max(1) as usize;
 
-    // 修改：逐行计算折行数，全宽字符（中文等）按2计，加3行冗余防估算偏少
     let rendered_lines: u16 = lines.iter().map(|line| {
         let col_width: usize = line.spans.iter()
             .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
@@ -186,14 +185,16 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         } else {
             ((col_width + wrap_width - 1) / wrap_width).max(1) as u16
         }
-    }).sum::<u16>().saturating_add(3); // +3 行冗余
+    }).sum::<u16>();
 
     app.total_lines = rendered_lines;
     app.chat_area_height = area.height;
 
     if app.auto_scroll {
-        if app.total_lines > area.height {
-            app.scroll = app.total_lines - area.height;
+        // 加 10 行冗余，不用乘2，避免 scroll 远超实际内容导致空白
+        let scroll_target = rendered_lines.saturating_add(10);
+        if scroll_target > area.height {
+            app.scroll = scroll_target - area.height;
         } else {
             app.scroll = 0;
         }
@@ -201,7 +202,7 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
     let paragraph = Paragraph::new(lines)
         .scroll((app.scroll, 0))
-        .wrap(Wrap { trim: false }) // 修改：trim: true 改为 false，与估算逻辑一致
+        .wrap(Wrap { trim: false })
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(paragraph, area);
 }
