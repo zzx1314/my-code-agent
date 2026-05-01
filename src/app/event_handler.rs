@@ -465,7 +465,9 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
         app.chat_history.push(("assistant".to_string(), result.full_response));
     }
 
-    app.last_reasoning = result.last_reasoning;
+    if !result.last_reasoning.is_empty() {
+        app.last_reasoning = result.last_reasoning;
+    }
     app.status_messages = result.status_messages;
     app.turn_usage_line = result.turn_usage_line;
     app.auto_scroll = true;
