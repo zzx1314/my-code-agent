@@ -67,6 +67,9 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 app.show_provider_picker = false;
                 app.show_banner = false;
                 app.auto_scroll = true;
+                // 清除思考内容，避免切换到非思考模型时仍显示思考区域
+                app.last_reasoning.clear();
+                app.streaming_reasoning.clear();
                 return;
             }
             KeyCode::Esc => {
@@ -116,6 +119,9 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 app.show_model_picker = false;
                 app.show_banner = false;
                 app.auto_scroll = true;
+                // 清除思考内容，避免切换到非思考模型时仍显示思考区域
+                app.last_reasoning.clear();
+                app.streaming_reasoning.clear();
                 return;
             }
             KeyCode::Esc => {

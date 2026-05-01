@@ -138,7 +138,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     let input_height = calculate_input_height(app, area.width);
 
-    let has_reasoning = app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming);
+    let has_reasoning = app.show_reasoning && (!app.last_reasoning.is_empty() || !app.streaming_reasoning.is_empty());
 
     let chunks = if has_reasoning {
         Layout::default()
