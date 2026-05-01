@@ -9,7 +9,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::app::App;
 use crate::ui::terminal;
 
-const MIN_INPUT_HEIGHT: u16 = 3;
+const MIN_INPUT_HEIGHT: u16 = 4;
 const MAX_INPUT_HEIGHT: u16 = 14;
 
 fn wrap_line(line: &str, text_width: usize, cursor_char_idx: usize) -> (Vec<String>, usize, usize) {
