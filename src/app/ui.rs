@@ -174,30 +174,16 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    let wrap_width = area.width.max(1) as usize;
+    // 用 ratatui 自身精确计算折行后实际行数，无需手动估算
+    let actual_lines = Paragraph::new(lines.clone())
+        .wrap(Wrap { trim: false })
+        .line_count(area.width) as u16;
 
-    let rendered_lines: u16 = lines.iter().map(|line| {
-        let col_width: usize = line.spans.iter()
-            .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
-            .sum();
-        if col_width == 0 {
-            1u16
-        } else {
-            ((col_width + wrap_width - 1) / wrap_width).max(1) as u16
-        }
-    }).sum::<u16>();
-
-    app.total_lines = rendered_lines;
+    app.total_lines = actual_lines;
     app.chat_area_height = area.height;
 
     if app.auto_scroll {
-        // 加 10 行冗余，不用乘2，避免 scroll 远超实际内容导致空白
-        let scroll_target = rendered_lines.saturating_add(10);
-        if scroll_target > area.height {
-            app.scroll = scroll_target - area.height;
-        } else {
-            app.scroll = 0;
-        }
+        app.scroll = actual_lines.saturating_sub(area.height);
     }
 
     let paragraph = Paragraph::new(lines)

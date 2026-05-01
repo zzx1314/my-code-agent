@@ -209,8 +209,8 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             }
         }
         (KeyCode::Enter, modifiers) => {
-            if modifiers.contains(KeyModifiers::SHIFT) {
-                // Shift+Enter: insert newline in textarea
+            if modifiers.contains(KeyModifiers::ALT) {
+                // Alt+Enter: insert newline in textarea
                 app.input.input(key);
             } else {
                 // Plain Enter or Ctrl+Enter: send
@@ -305,7 +305,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                     ta.set_block(
                         ratatui::widgets::Block::default()
                             .borders(ratatui::widgets::Borders::ALL)
-                            .title(" Input (Enter to send, Shift+Enter for newline, Esc: interrupt/exit) ")
+                            .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
                     );
                     ta.set_cursor_line_style(ratatui::style::Style::default());
                     ta
@@ -321,7 +321,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
             ta.set_block(
                 ratatui::widgets::Block::default()
                     .borders(ratatui::widgets::Borders::ALL)
-                    .title(" Input (Enter to send, Shift+Enter for newline, Esc: interrupt/exit) ")
+                    .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
             );
             ta.set_cursor_line_style(ratatui::style::Style::default());
             ta
@@ -569,7 +569,7 @@ fn apply_completion(app: &mut App) {
     new_input.set_block(
         ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)
-            .title(" Input (Enter to send, Shift+Enter for newline, Esc: interrupt/exit) ")
+            .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
     );
     new_input.set_cursor_line_style(ratatui::style::Style::default());
     app.input = new_input;
@@ -826,7 +826,7 @@ fn generate_help_text() -> String {
   - Use `@path:N` to read from line N (e.g., `@src/main.rs:50`)
   - Large files (>500 lines or 50KB) are truncated with a notice
 
-- **Shift+Enter** - Insert newline in input
+- **Alt+Enter** - Insert newline in input
 - **Enter** - Send message
 - **Esc** / **Ctrl+C** - Interrupt response | **Esc** twice / **Ctrl+C** twice - Quit
 - **Ctrl+R** - Toggle reasoning display
