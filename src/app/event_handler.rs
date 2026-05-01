@@ -640,7 +640,6 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 "/load".to_string(),
                 "/status".to_string(),
                 "/tokens".to_string(),
-                "/reasoning".to_string(),
                 "/think".to_string(),
                 "/connect".to_string(),
                 "/model".to_string(),
@@ -746,15 +745,6 @@ fn handle_command(app: &mut App, input: &str) -> bool {
                 app.token_usage.output_tokens());
             app.chat_history.push(("user".to_string(), "/tokens".to_string()));
             app.chat_history.push(("assistant".to_string(), token_info));
-            app.show_banner = false;
-            app.auto_scroll = true;
-            true
-        }
-        "/reasoning" => {
-            app.show_reasoning = !app.show_reasoning;
-            let status = if app.show_reasoning { "Reasoning display enabled" } else { "Reasoning display disabled" };
-            app.chat_history.push(("user".to_string(), "/reasoning".to_string()));
-            app.chat_history.push(("assistant".to_string(), status.to_string()));
             app.show_banner = false;
             app.auto_scroll = true;
             true

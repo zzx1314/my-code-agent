@@ -2,48 +2,169 @@ use ratatui::{
     prelude::*,
     widgets::{Paragraph, Wrap, Block, Borders, List, ListItem, ListState, Clear},
 };
+use tui_textarea::TextArea;
 use tui_markdown::from_str;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
 use crate::ui::terminal;
 
-/// Render the UI
+const MIN_INPUT_HEIGHT: u16 = 3;
+const MAX_INPUT_HEIGHT: u16 = 14;
+
+fn wrap_line(line: &str, text_width: usize, cursor_char_idx: usize) -> (Vec<String>, usize, usize) {
+    let mut result: Vec<String> = Vec::new();
+    let mut curr = String::new();
+    let mut width: usize = 0;
+    let mut char_idx: usize = 0;
+    let mut out_row: usize = 0;
+    let mut out_col: usize = 0;
+
+    for (_, ch) in line.char_indices() {
+        let cw = ch.width().unwrap_or(1);
+        if width + cw > text_width && !curr.is_empty() {
+            result.push(curr);
+            curr = String::new();
+            width = 0;
+            char_idx = 0;
+            out_row += 1;
+        }
+        curr.push(ch);
+        width += cw;
+        if char_idx == cursor_char_idx {
+            out_row = result.len();
+            out_col = curr.chars().count() - 1;
+        }
+        char_idx += 1;
+    }
+    if !curr.is_empty() {
+        result.push(curr);
+    }
+    if cursor_char_idx == line.chars().count() {
+        out_row = result.len() - 1;
+        out_col = result.last().map(|s| s.chars().count()).unwrap_or(0);
+    }
+    (result, out_row, out_col)
+}
+
+pub fn apply_input_wrap(app: &mut App, text_width: usize) {
+    if text_width == 0 {
+        return;
+    }
+    let (cursor_row, cursor_char_idx) = app.input.cursor();
+    let original_lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
+
+    let mut needs_wrap = false;
+    for line in &original_lines {
+        if line.width() > text_width {
+            needs_wrap = true;
+            break;
+        }
+    }
+    if !needs_wrap {
+        return;
+    }
+
+    let mut new_lines: Vec<String> = Vec::new();
+    let mut row_offset: usize = 0;
+    let mut new_cursor_row: usize = 0;
+    let mut new_cursor_col: usize = 0;
+
+    for (line_idx, line) in original_lines.iter().enumerate() {
+        if line.is_empty() {
+            new_lines.push(String::new());
+            if line_idx == cursor_row {
+                new_cursor_row = row_offset;
+                new_cursor_col = 0;
+            }
+            row_offset += 1;
+            continue;
+        }
+
+        let (wrapped, wr, wc) = wrap_line(
+            line,
+            text_width,
+            if line_idx == cursor_row { cursor_char_idx } else { usize::MAX },
+        );
+        if line_idx == cursor_row && wr != usize::MAX {
+            new_cursor_row = row_offset + wr;
+            new_cursor_col = wc;
+        }
+        for wl in &wrapped {
+            new_lines.push(wl.clone());
+        }
+        row_offset += wrapped.len();
+
+        if line_idx == cursor_row && cursor_char_idx == line.chars().count() {
+            new_cursor_row = row_offset - 1;
+            new_cursor_col = wrapped.last().map(|s| s.chars().count()).unwrap_or(0);
+        }
+    }
+
+    let mut new_ta = TextArea::from(new_lines.iter().map(|s| s.as_str()));
+    new_ta.set_block(
+        ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
+    );
+    new_ta.set_cursor_line_style(ratatui::style::Style::default());
+    new_ta.move_cursor(tui_textarea::CursorMove::Jump(new_cursor_row as u16, new_cursor_col as u16));
+    app.input = new_ta;
+}
+
+fn calculate_input_height(app: &App, area_width: u16) -> u16 {
+    let lines: Vec<&str> = app.input.lines().iter().map(|s| s.as_str()).collect();
+    let is_empty = lines.is_empty() || (lines.len() == 1 && lines[0].is_empty());
+    if is_empty {
+        return MIN_INPUT_HEIGHT;
+    }
+    let text_width = area_width.saturating_sub(2);
+    if text_width == 0 {
+        return MIN_INPUT_HEIGHT;
+    }
+    let text = lines.join("\n");
+    let visual_lines = Paragraph::new(text.as_str())
+        .wrap(Wrap { trim: false })
+        .line_count(text_width) as u16;
+    let height = visual_lines + 2;
+    height.min(MAX_INPUT_HEIGHT).max(MIN_INPUT_HEIGHT)
+}
+
 pub fn ui(f: &mut Frame, app: &mut App) {
     let area = f.area();
+    let text_width = (area.width as usize).saturating_sub(2);
 
-    // 判断是否有思考内容需要显示
+    apply_input_wrap(app, text_width);
+
+    let input_height = calculate_input_height(app, area.width);
+
     let has_reasoning = app.show_reasoning && (!app.last_reasoning.is_empty() || app.is_streaming);
 
-    // 布局：状态栏中包含跑马灯
     let chunks = if has_reasoning {
-        // 四区域布局：思考区域 + 聊天区域 + 输入区域 + 状态栏（含跑马灯）
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(app.config.agent.thinking_display_height),  // 思考区域高度（可配置）
-                Constraint::Min(1),      // 聊天区域
-                Constraint::Length(5),   // 输入区域
-                Constraint::Length(1),   // 状态栏（包含跑马灯）
+                Constraint::Length(app.config.agent.thinking_display_height),
+                Constraint::Min(1),
+                Constraint::Length(input_height),
+                Constraint::Length(1),
             ])
             .split(area)
     } else {
-        // 三区域布局（无思考区域）：聊天区域 + 输入区域 + 状态栏（含跑马灯）
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(1),      // 聊天区域
-                Constraint::Length(5),   // 输入区域
-                Constraint::Length(1),   // 状态栏（包含跑马灯）
+                Constraint::Min(1),
+                Constraint::Length(input_height),
+                Constraint::Length(1),
             ])
             .split(area)
     };
 
-    // 渲染思考区域
     if has_reasoning {
         render_reasoning_area(f, app, chunks[0]);
     }
 
-    // 渲染聊天区域
     let chat_chunk_index = if has_reasoning { 1 } else { 0 };
     let input_chunk_index = if has_reasoning { 2 } else { 1 };
     let status_chunk_index = if has_reasoning { 3 } else { 2 };
@@ -52,32 +173,25 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     f.render_widget(&app.input, chunks[input_chunk_index]);
 
-    // 渲染补全菜单（浮窗在输入框上方）
     if app.show_completion {
         render_completion_menu(f, app, chunks[input_chunk_index]);
     }
 
-    // 渲染模型选择器（浮窗在输入框上方）
     if app.show_model_picker {
         render_model_picker(f, app, chunks[input_chunk_index]);
     }
 
-    // 渲染 provider 选择器（浮窗在输入框上方）
     if app.show_provider_picker {
         render_provider_picker(f, app, chunks[input_chunk_index]);
     }
 
-    // 渲染状态栏（左侧状态信息 + 右侧跑马灯）
     render_status_bar(f, app, chunks[status_chunk_index]);
 }
 
-/// Render the reasoning area
 fn render_reasoning_area(f: &mut Frame, app: &mut App, area: Rect) {
     let reasoning_text = if app.is_streaming && !app.streaming_reasoning.is_empty() {
-        // 流式输出中，显示实时思考内容
         format!("⏳ Thinking...\n\n{}", app.streaming_reasoning)
     } else if !app.last_reasoning.is_empty() {
-        // 思考结束，显示完整思考内容
         format!("✓ Thinking complete\n\n{}", app.last_reasoning)
     } else {
         "⏳ Thinking...".to_string()
@@ -87,12 +201,10 @@ fn render_reasoning_area(f: &mut Frame, app: &mut App, area: Rect) {
         .lines()
         .map(|l| ratatui::text::Line::from(l.to_string()))
         .collect();
-    
+
     app.reasoning_total_lines = lines.len() as u16;
 
-    // Auto-scroll reasoning: during streaming always follow, else honor flag
     if app.reasoning_auto_scroll || app.is_streaming {
-        // reasoning area: height - 2 borders = content lines
         let visible_lines = app.config.agent.thinking_display_height.saturating_sub(2);
         if app.reasoning_total_lines > visible_lines {
             app.reasoning_scroll = app.reasoning_total_lines - visible_lines;
@@ -100,7 +212,7 @@ fn render_reasoning_area(f: &mut Frame, app: &mut App, area: Rect) {
             app.reasoning_scroll = 0;
         }
     }
-    
+
     let reasoning_paragraph = Paragraph::new(reasoning_text)
         .scroll((app.reasoning_scroll, 0))
         .wrap(Wrap { trim: true })
@@ -111,15 +223,14 @@ fn render_reasoning_area(f: &mut Frame, app: &mut App, area: Rect) {
                 .border_style(Style::default().fg(Color::Yellow))
         )
         .style(Style::default().fg(Color::DarkGray));
-    
+
     f.render_widget(reasoning_paragraph, area);
 }
 
-/// Render the chat area
 fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     if app.show_banner {
         let banner = terminal::make_startup_text();
-        app.total_lines = banner.lines.len() as u16;
+        app.total_lines = banner.height() as u16;
         let paragraph = Paragraph::new(banner)
             .wrap(Wrap { trim: false })
             .block(Block::default().borders(Borders::NONE));
@@ -174,7 +285,6 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    // 用 ratatui 自身精确计算折行后实际行数，无需手动估算
     let actual_lines = Paragraph::new(lines.clone())
         .wrap(Wrap { trim: false })
         .line_count(area.width) as u16;
@@ -193,23 +303,21 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-/// Render the status bar with model info and marquee animation
 fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
     let mut spans = Vec::new();
-    
-    // 左侧：状态信息
+
     spans.push(Span::styled(
         format!("Model: {}", app.config.llm.model.as_deref().unwrap_or("unknown")),
         Style::default().fg(Color::DarkGray)
     ));
-    
+
     if let Some(ref turn_line) = app.turn_usage_line {
         spans.push(Span::styled(
             format!(" | {}", turn_line),
             Style::default().fg(Color::DarkGray)
         ));
     }
-    
+
     if app.is_streaming {
         let dot_cycle = (app.marquee_frame / 4) % 4;
         let dots = ".".repeat(dot_cycle as usize);
@@ -223,30 +331,23 @@ fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(Color::Green)
         ));
     }
-    
-    // 计算左侧状态信息的宽度
-    
+
     let status_bar = Paragraph::new(Line::from(spans));
     f.render_widget(status_bar, area);
 }
 
-/// Render the completion menu as a floating popup above the input area
 fn render_completion_menu(f: &mut Frame, app: &mut App, input_area: Rect) {
     if app.completion_items.is_empty() {
         return;
     }
 
-    // 计算补全菜单的尺寸和位置
-    let max_visible_items = 10; // 最多显示10项
-    let menu_height = (app.completion_items.len().min(max_visible_items) as u16) + 2; // +2 for borders
-    let menu_width = 50u16.min(input_area.width); // 最大宽度50，不超过输入框宽度
+    let max_visible_items = 10;
+    let menu_height = (app.completion_items.len().min(max_visible_items) as u16) + 2;
+    let menu_width = 50u16.min(input_area.width);
 
-    // 定位在输入框上方，如果空间不够则放在下方
     let menu_y = if input_area.y >= menu_height {
-        // 空间足够，放在上方
         input_area.y - menu_height
     } else {
-        // 空间不够，放在下方
         input_area.y + input_area.height
     };
 
@@ -257,10 +358,8 @@ fn render_completion_menu(f: &mut Frame, app: &mut App, input_area: Rect) {
         height: menu_height,
     };
 
-    // 清除背景（创建浮窗效果）
     f.render_widget(Clear, menu_rect);
 
-    // 创建补全项列表
     let items: Vec<ListItem> = app.completion_items
         .iter()
         .map(|item| {
@@ -273,11 +372,9 @@ fn render_completion_menu(f: &mut Frame, app: &mut App, input_area: Rect) {
         })
         .collect();
 
-    // 创建列表状态，设置选中项
     let mut state = ListState::default();
     state.select(Some(app.completion_selected));
 
-    // 创建列表组件
     let list = List::new(items)
         .block(
             Block::default()
@@ -293,27 +390,21 @@ fn render_completion_menu(f: &mut Frame, app: &mut App, input_area: Rect) {
         .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD))
         .highlight_symbol("> ");
 
-    // 渲染列表
     f.render_stateful_widget(list, menu_rect, &mut state);
 }
 
-/// Render the model picker as a floating popup above the input area
 fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
     if app.model_options.is_empty() {
         return;
     }
 
-    // 计算模型选择器的尺寸和位置
-    let max_visible_items = 10; // 最多显示10项
-    let menu_height = (app.model_options.len().min(max_visible_items) as u16) + 2; // +2 for borders
-    let menu_width = 60u16.min(input_area.width); // 最大宽度60，显示完整模型名
+    let max_visible_items = 10;
+    let menu_height = (app.model_options.len().min(max_visible_items) as u16) + 2;
+    let menu_width = 60u16.min(input_area.width);
 
-    // 定位在输入框上方，如果空间不够则放在下方
     let menu_y = if input_area.y >= menu_height {
-        // 空间足够，放在上方
         input_area.y - menu_height
     } else {
-        // 空间不够，放在下方
         input_area.y + input_area.height
     };
 
@@ -324,10 +415,8 @@ fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
         height: menu_height,
     };
 
-    // 清除背景（创建浮窗效果）
     f.render_widget(Clear, menu_rect);
 
-    // 创建模型列表项
     let items: Vec<ListItem> = app.model_options
         .iter()
         .enumerate()
@@ -342,11 +431,9 @@ fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
         })
         .collect();
 
-    // 创建列表状态，设置选中项
     let mut state = ListState::default();
     state.select(Some(app.model_selected));
 
-    // 创建列表组件
     let list = List::new(items)
         .block(
             Block::default()
@@ -357,11 +444,9 @@ fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
         )
         .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD));
 
-    // 渲染列表
     f.render_stateful_widget(list, menu_rect, &mut state);
 }
 
-/// Render the provider picker as a floating popup above the input area
 fn render_provider_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
     if app.provider_options.is_empty() {
         return;
