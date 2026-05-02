@@ -91,6 +91,7 @@ async fn main() -> Result<()> {
 
         // Check for completed stream result
         app::event_handler::check_stream_result(&mut app);
+        app::event_handler::check_init_result(&mut app);
 
         // Poll streaming text events for live display
         app::event_handler::process_streaming_events(&mut app);

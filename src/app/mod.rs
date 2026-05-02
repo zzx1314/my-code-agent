@@ -6,6 +6,12 @@ use crate::core::token_usage::TokenUsage;
 use crate::core::streaming::{StreamResult, StreamEvent};
 use crate::core::preamble::Agent;
 
+/// Result from async /init command
+pub struct InitResult {
+    pub message: String,
+    pub new_agent: Option<Agent>,
+}
+
 pub mod ui;
 pub mod event_handler;
 pub mod conversion;
@@ -75,6 +81,7 @@ pub struct App {
      pub provider_options: Vec<String>,
      /// 当前选中的 provider 索引
      pub provider_selected: usize,
+     pub init_rx: Option<mpsc::Receiver<InitResult>>,
 }
 
 impl App {
@@ -141,6 +148,7 @@ impl App {
                  let p = config.llm.provider.as_str();
                  if p == "openrouter" { 1 } else { 0 }
              },
+             init_rx: None,
          }
     }
 }

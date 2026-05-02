@@ -16,6 +16,7 @@ use crate::ui::render::ReasoningTracker;
 // StreamResult & StreamEvent
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct StreamResult {
     pub full_response: String,
     pub interrupted: bool,

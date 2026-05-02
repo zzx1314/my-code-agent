@@ -7,8 +7,10 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::Write as _;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
+use toml;
 
 use crate::app::App;
+use crate::app::InitResult;
 use crate::app::conversion::convert_app_to_rig;
 use crate::core::context::expand_file_refs;
 use crate::core::context_manager::ContextManager;
@@ -203,9 +205,9 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 hide_completion(app);
             } else if app.is_streaming {
                 let _ = app.interrupt_tx.send(());
-                // 立即强制清理，不等后台任务通过 response_rx 返回
                 app.response_rx = None;
                 app.streaming_events_rx = None;
+                app.init_rx = None;
                 app.is_streaming = false;
                 app.streaming_text.clear();
                 app.streaming_reasoning.clear();
@@ -472,6 +474,28 @@ fn cleanup_stream_state(app: &mut App) {
     app.auto_scroll = true;
 }
 
+pub fn check_init_result(app: &mut App) {
+    if let Some(ref mut rx) = app.init_rx {
+        match rx.try_recv() {
+            Ok(result) => {
+                app.chat_history.push(("assistant".to_string(), result.message));
+                if let Some(new_agent) = result.new_agent {
+                    app.agent = Arc::new(new_agent);
+                }
+                app.init_rx = None;
+                app.is_streaming = false;
+                app.auto_scroll = true;
+                app.scroll = u16::MAX;
+            }
+            Err(mpsc::error::TryRecvError::Empty) => {}
+            Err(mpsc::error::TryRecvError::Disconnected) => {
+                app.init_rx = None;
+                app.is_streaming = false;
+            }
+        }
+    }
+}
+
 /// Process stream result
 fn process_stream_result(app: &mut App, result: StreamResult) {
     app.is_streaming = false;
@@ -661,6 +685,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 "/think".to_string(),
                 "/connect".to_string(),
                 "/model".to_string(),
+                "/init".to_string(),
             ]
         }
         '@' => {
@@ -803,6 +828,110 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             }
             true
         }
+        "/init" => {
+            let knowledge_file = crate::core::preamble::KNOWLEDGE_FILE.to_string();
+            let is_update = std::path::Path::new(&knowledge_file).exists();
+
+            app.chat_history.push(("user".to_string(), "/init".to_string()));
+            app.chat_history.push(("assistant".to_string(), "⏳ Generating knowledge file...".to_string()));
+            app.show_banner = false;
+            app.auto_scroll = true;
+            app.scroll = u16::MAX;
+
+            // 读取现有知识内容
+            let existing_content = std::fs::read_to_string(&knowledge_file).unwrap_or_default();
+            
+            let prompt = format!(
+                r#"You are a technical documentation expert. Update the following knowledge document based on the current project structure and code.
+
+Current knowledge document:
+```markdown
+{}
+```
+
+Read the project files (README.md, src/, Cargo.toml, etc.) and update this knowledge document to be accurate and comprehensive. Keep the same Markdown structure but update all content to reflect the current state of the project.
+
+Respond ONLY with the updated Markdown content, no explanation needed."#,
+                existing_content
+            );
+
+            // 设置流式响应通道
+            let (response_tx, response_rx) = mpsc::channel::<StreamResult>(1);
+            let (event_tx, event_rx) = mpsc::unbounded_channel::<StreamEvent>();
+            app.response_rx = Some(response_rx);
+            app.streaming_events_rx = Some(event_rx);
+            app.is_streaming = true;
+            app.streaming_text.clear();
+            app.streaming_reasoning.clear();
+
+            let agent_clone = app.agent.clone();
+            let config_clone = app.config.clone();
+            let (init_tx, init_rx) = mpsc::channel::<InitResult>(1);
+            app.init_rx = Some(init_rx);
+
+            let interrupt_rx = app.interrupt_tx.subscribe();
+
+            tokio::spawn(async move {
+                let mut chat_history = Vec::new();
+                let mut token_usage = crate::core::token_usage::TokenUsage::new();
+                let mut interrupt_rx = interrupt_rx;
+                let mut ctx_mgr = crate::core::context_manager::ContextManager::new(&config_clone);
+
+                let result = stream_response(
+                    &agent_clone,
+                    &prompt,
+                    &mut chat_history,
+                    &mut token_usage,
+                    &mut interrupt_rx,
+                    &mut ctx_mgr,
+                    &config_clone.agent,
+                    Some(event_tx),
+                ).await;
+
+                // 发送流式结果供 UI 处理
+                response_tx.send(result.clone()).await.ok();
+
+                // 从流式结果中提取知识内容
+                let new_content = if result.full_response.is_empty() {
+                    tracing::warn!("LLM returned empty response, falling back to local generation");
+                    generate_knowledge_content_local()
+                } else {
+                    tracing::info!("Generated knowledge content using LLM");
+                    result.full_response.clone()
+                };
+
+                // 写入文件并重建 agent
+                let init_result = match std::fs::write(&knowledge_file, &new_content) {
+                    Ok(_) => {
+                        match rebuild_agent(&config_clone) {
+                            Ok(new_agent) => {
+                                let msg = if is_update {
+                                    format!("✅ Updated '{}' with current project info.\nAgent reloaded with updated knowledge.", knowledge_file)
+                                } else {
+                                    format!("✅ Created '{}' with project analysis.\nAgent reloaded with new knowledge.", knowledge_file)
+                                };
+                                InitResult { message: msg, new_agent: Some(new_agent) }
+                            }
+                            Err(e) => {
+                                let msg = if is_update {
+                                    format!("✅ Updated '{}' with current project info.\n⚠️ Failed to reload agent: {}", knowledge_file, e)
+                                } else {
+                                    format!("✅ Created '{}' with project analysis.\n⚠️ Failed to reload agent: {}", knowledge_file, e)
+                                };
+                                InitResult { message: msg, new_agent: None }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        InitResult { message: format!("❌ Failed to write '{}': {}", knowledge_file, e), new_agent: None }
+                    }
+                };
+
+                init_tx.send(init_result).await.ok();
+            });
+
+            true
+        }
         _ => {
             // 未知命令，发送给 LLM 处理
             false
@@ -829,6 +958,7 @@ fn generate_help_text() -> String {
 | `/connect` | Select LLM provider (deepseek / openrouter) |
 | `/model` | Select model from dropdown menu |
 | `/think` | Switch to deep thinking mode (if supported) |
+| `/init` | Initialize or update project knowledge file |
 
 ## Input Features
 
@@ -864,4 +994,74 @@ fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> 
     
     let mcp_tools = futures::executor::block_on(create_mcp_tools(config));
     Ok(build_agent(config, mcp_tools))
+}
+
+/// Local fallback for knowledge generation (no LLM)
+fn generate_knowledge_content_local() -> String {
+    let mut content = String::new();
+    content.push_str("# Project Knowledge\n\n");
+    
+    content.push_str("## What This Is\n");
+    if let Ok(readme) = std::fs::read_to_string("README.md") {
+        let first_section: String = readme.lines()
+            .skip_while(|line| line.starts_with('#') || line.trim().is_empty())
+            .take(5)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !first_section.is_empty() {
+            content.push_str(&first_section);
+            content.push_str("\n\n");
+        } else {
+            content.push_str("[Project description from README.md]\n\n");
+        }
+    } else {
+        content.push_str("[Describe your project here]\n\n");
+    }
+    
+    content.push_str("## Project Structure\n```\n");
+    if let Ok(entries) = glob::glob("**/*.rs") {
+        let mut files: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| !e.to_string_lossy().contains("target/"))
+            .map(|e| e.to_string_lossy().to_string())
+            .collect();
+        files.sort();
+        files.dedup();
+        for file in files.iter().take(30) {
+            content.push_str(&format!("{}\n", file));
+        }
+        if files.len() > 30 {
+            content.push_str(&format!("... ({} more files)\n", files.len() - 30));
+        }
+    }
+    content.push_str("```\n\n");
+    
+    content.push_str("## Key Dependencies\n");
+    if let Ok(cargo_content) = std::fs::read_to_string("Cargo.toml") {
+        if let Ok(cargo_toml) = cargo_content.parse::<toml::Value>() {
+            if let Some(deps) = cargo_toml.get("dependencies").and_then(|d| d.as_table()) {
+                let mut dep_list: Vec<String> = deps.iter()
+                    .map(|(name, value)| {
+                        let version = match value {
+                            toml::Value::String(v) => v.clone(),
+                            toml::Value::Table(t) => t.get("version")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("*")
+                                .to_string(),
+                            _ => "*".to_string(),
+                        };
+                        format!("- **{}** {}", name, version)
+                    })
+                    .collect();
+                dep_list.sort();
+                content.push_str(&dep_list.join("\n"));
+                content.push_str("\n\n");
+            }
+        }
+    }
+    
+    content.push_str("## Conventions & Gotchas\n");
+    content.push_str("- [Add important conventions here]\n");
+    
+    content
 }

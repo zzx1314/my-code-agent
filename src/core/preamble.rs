@@ -330,3 +330,21 @@ fn create_openai_client(
             .build()
     )
 }
+
+impl Agent {
+    /// Send a prompt to the agent and get a response (synchronous)
+    pub async fn prompt(&self, prompt: &str) -> Result<String, anyhow::Error> {
+        match self {
+            Agent::OpenAI(inner) => {
+                use rig::completion::Prompt;
+                let response = inner.prompt(prompt).await?;
+                Ok(response)
+            }
+            Agent::OpenRouter(inner) => {
+                use rig::completion::Prompt;
+                let response = inner.prompt(prompt).await?;
+                Ok(response)
+            }
+        }
+    }
+}
