@@ -376,6 +376,18 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
     }
 }
 
+pub fn handle_paste_event(text: &str, app: &mut App) {
+    for ch in text.chars() {
+        if ch == '\n' || ch == '\r' {
+            let key = event::KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT);
+            app.input.input(key);
+        } else {
+            let key = event::KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE);
+            app.input.input(key);
+        }
+    }
+}
+
 /// Handle mouse events
 pub fn handle_mouse_event(mouse: event::MouseEvent, app: &mut App) {
     match mouse.kind {
@@ -489,9 +501,8 @@ pub fn enter_terminal() -> anyhow::Result<Terminal<CrosstermBackend<std::io::Std
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
-    // Enable alternate scroll mode (DECSET 1007): mouse wheel sends arrow keys
-    // without requiring mouse capture, so text selection still works.
     let _ = write!(std::io::stdout(), "\x1b[?1007h");
+    let _ = write!(std::io::stdout(), "\x1b[?2004h");
     let _ = std::io::stdout().flush();
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
@@ -501,6 +512,7 @@ pub fn enter_terminal() -> anyhow::Result<Terminal<CrosstermBackend<std::io::Std
 /// Leave alternate screen and disable raw mode
 pub fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> anyhow::Result<()> {
     let _ = write!(std::io::stdout(), "\x1b[?1007l");
+    let _ = write!(std::io::stdout(), "\x1b[?2004l");
     let _ = std::io::stdout().flush();
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;

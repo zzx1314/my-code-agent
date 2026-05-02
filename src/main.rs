@@ -103,6 +103,9 @@ async fn main() -> Result<()> {
                 crossterm::event::Event::Mouse(mouse) => {
                     app::event_handler::handle_mouse_event(mouse, &mut app);
                 }
+                crossterm::event::Event::Paste(text) => {
+                    app::event_handler::handle_paste_event(&text, &mut app);
+                }
                 _ => {}
             }
         }
