@@ -954,10 +954,9 @@ fn generate_help_text() -> String {
 | `/load` | Load/resume a saved session |
 | `/status` | Show current configuration and status |
 | `/tokens` | Show token usage statistics |
-| `/reasoning` | Toggle reasoning display on/off |
 | `/connect` | Select LLM provider (deepseek / openrouter) |
 | `/model` | Select model from dropdown menu |
-| `/think` | Switch to deep thinking mode (if supported) |
+| `/think` | Show last reasoning/thinking content |
 | `/init` | Initialize or update project knowledge file |
 
 ## Input Features
