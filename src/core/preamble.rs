@@ -158,7 +158,7 @@ impl Provider {
             Provider::OpenAI => "gpt-4o",
             Provider::Anthropic => "claude-3-5-sonnet-20241022",
             Provider::Cohere => "command-r-plus",
-            Provider::OpenRouter => "nvidia/nemotron-3-super-120b-a12b:free",
+            Provider::OpenRouter => "openrouter/owl-alpha",
             Provider::Custom => "gpt-4o",
         }
     }

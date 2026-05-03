@@ -164,11 +164,12 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
             // OpenRouter 免费模型
             "nvidia/nemotron-3-super-120b-a12b:free".to_string(),
             "tencent/hy3-preview:free".to_string(),
-            "meta/llama-3.1-405b-instruct:free".to_string(),
-            "openai/gpt-4o-mini:free".to_string(),
+
             // Poolside 免费模型
             "poolside/laguna-m.1:free".to_string(),
             "poolside/laguna-xs.2:free".to_string(),
+            // OpenRouter 特有模型
+            "openrouter/owl-alpha".to_string(),
         ],
         _ => vec![
             "deepseek-chat".to_string(),
