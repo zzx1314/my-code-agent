@@ -2,9 +2,10 @@ use anyhow::Result;
 
 use my_code_agent::core::config::Config;
 use my_code_agent::core::context_manager::ContextManager;
-use my_code_agent::core::preamble::build_agent;
+use my_code_agent::core::preamble::build_agent_with_confirmation;
 use my_code_agent::core::session::SessionData;
 use my_code_agent::core::token_usage::TokenUsage;
+use my_code_agent::tools::confirmation::ConfirmationHandle;
 use my_code_agent::tools::create_mcp_tools;
 use my_code_agent::app::App;
 use my_code_agent::app;
@@ -49,7 +50,10 @@ async fn main() -> Result<()> {
     }
 
     let mcp_tools = create_mcp_tools(&config).await;
-    let agent = Arc::new(build_agent(&config, mcp_tools));
+
+    // Create confirmation channel for tool -> UI interaction
+    let (confirmation_handle, confirmation_rx) = ConfirmationHandle::new();
+    let agent = Arc::new(build_agent_with_confirmation(&config, mcp_tools, confirmation_handle));
 
     let context_manager = ContextManager::new(&config);
 
@@ -76,6 +80,7 @@ async fn main() -> Result<()> {
         agent,
         interrupt_tx,
     );
+    app.confirmation_rx = Some(confirmation_rx);
 
     let mut context_manager = context_manager;
 
@@ -92,6 +97,19 @@ async fn main() -> Result<()> {
         // Check for completed stream result
         app::event_handler::check_stream_result(&mut app);
         app::event_handler::check_init_result(&mut app);
+
+        // Check for confirmation requests from tools
+        if app.pending_confirmation.is_none() {
+            if let Some(rx) = &mut app.confirmation_rx {
+                if let Ok(req) = rx.try_recv() {
+                    app.pending_confirmation = Some(crate::app::PendingConfirmation {
+                        reason: req.reason,
+                        detail: req.detail,
+                        response_tx: req.response_tx,
+                    });
+                }
+            }
+        }
 
         // Poll streaming text events for live display
         app::event_handler::process_streaming_events(&mut app);

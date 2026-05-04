@@ -132,13 +132,13 @@ pub fn is_dangerous_snippet_deletion(path: &str) -> Option<&'static str> {
     None
 }
 
+use super::confirmation::ConfirmationHandle;
+
 /// Prompts the user for confirmation of a dangerous action.
-/// In TUI mode, always returns false (auto-deny) since interactive prompts
-/// are not available during streaming.
-pub async fn confirm_action(_reason: &str, _detail: &str) -> bool {
-    // In TUI mode, interactive confirmation is not available.
-    // Dangerous actions are auto-denied.
-    false
+/// Uses a channel-based confirmation handle that sends a request to the UI
+/// and waits for the user's response.
+pub async fn confirm_action(handle: &ConfirmationHandle, reason: &str, detail: &str) -> bool {
+    handle.confirm(reason, detail).await
 }
 
 /// Checks whether a git command (without the 'git' prefix) matches any dangerous pattern.

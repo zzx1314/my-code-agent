@@ -3,6 +3,7 @@ use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::confirmation::ConfirmationHandle;
 use super::safety::{confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion};
 
 #[derive(Debug, thiserror::Error)]
@@ -55,8 +56,24 @@ pub struct FileDeleteOutput {
     pub diff: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct FileDelete;
+#[derive(Debug, Clone)]
+pub struct FileDelete {
+    confirmation_handle: ConfirmationHandle,
+}
+
+impl FileDelete {
+    pub fn new(confirmation_handle: ConfirmationHandle) -> Self {
+        Self { confirmation_handle }
+    }
+}
+
+impl Default for FileDelete {
+    fn default() -> Self {
+        Self {
+            confirmation_handle: ConfirmationHandle::disabled(),
+        }
+    }
+}
 
 impl Tool for FileDelete {
     const NAME: &'static str = "file_delete";
@@ -126,7 +143,7 @@ impl Tool for FileDelete {
                 && let Some(reason) = is_dangerous_snippet_deletion(&args.path)
             {
                 let approved =
-                    confirm_action(reason, &format!("snippet deletion from: {}", args.path)).await;
+                    confirm_action(&self.confirmation_handle, reason, &format!("snippet deletion from: {}", args.path)).await;
                 if !approved {
                     return Err(FileDeleteError::Cancelled { path: args.path });
                 }
@@ -176,7 +193,7 @@ impl Tool for FileDelete {
             } else {
                 format!("deleting: {}", args.path)
             };
-            let approved = confirm_action(reason, &detail).await;
+            let approved = confirm_action(&self.confirmation_handle, reason, &detail).await;
             if !approved {
                 return Err(FileDeleteError::Cancelled { path: args.path });
             }

@@ -189,6 +189,10 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         render_session_picker(f, app, chunks[input_chunk_index]);
     }
 
+    if app.pending_confirmation.is_some() {
+        render_confirmation_dialog(f, app);
+    }
+
     render_status_bar(f, app, chunks[status_chunk_index]);
 }
 
@@ -397,6 +401,78 @@ fn render_completion_menu(f: &mut Frame, app: &mut App, input_area: Rect) {
     f.render_stateful_widget(list, menu_rect, &mut state);
 }
 
+/// Render a confirmation dialog overlay for dangerous operations.
+fn render_confirmation_dialog(f: &mut Frame, app: &mut App) {
+    let Some(pending) = &app.pending_confirmation else {
+        return;
+    };
+
+    let area = f.area();
+
+    // Dialog dimensions
+    let dialog_width = 60.min(area.width.saturating_sub(4));
+    let detail_lines = pending.detail.lines().count() as u16;
+    let dialog_height = (detail_lines + 6).min(area.height.saturating_sub(4));
+
+    let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
+    let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
+
+    let dialog_rect = Rect {
+        x: dialog_x,
+        y: dialog_y,
+        width: dialog_width,
+        height: dialog_height,
+    };
+
+    // Dim the background
+    let overlay = Rect { x: 0, y: 0, width: area.width, height: area.height };
+    f.render_widget(Clear, overlay);
+
+    // Dialog block
+    let block = Block::default()
+        .title(" ⚠️  Confirmation Required ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .style(Style::default().bg(Color::Black).fg(Color::White));
+
+    let inner = block.inner(dialog_rect);
+    f.render_widget(block, dialog_rect);
+
+    // Render the reason (bold, yellow)
+    let reason_text = format!("\n{}\n", &pending.reason);
+    let reason_paragraph = Paragraph::new(reason_text)
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+    f.render_widget(reason_paragraph, Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width,
+        height: 2,
+    });
+
+    // Render the detail
+    let detail_paragraph = Paragraph::new(pending.detail.as_str())
+        .wrap(Wrap { trim: false })
+        .style(Style::default().fg(Color::White));
+    f.render_widget(detail_paragraph, Rect {
+        x: inner.x,
+        y: inner.y + 2,
+        width: inner.width,
+        height: inner.height.saturating_sub(5),
+    });
+
+    // Render prompt at the bottom
+    let prompt_text = "  [Y] Yes   [N] No   [Esc] Cancel";
+    let prompt = Paragraph::new(prompt_text)
+        .style(Style::default().fg(Color::Cyan));
+
+    f.render_widget(prompt, Rect {
+        x: inner.x,
+        y: inner.y + inner.height.saturating_sub(2),
+        width: inner.width,
+        height: 1,
+    });
+}
+
 fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
     if app.model_options.is_empty() {
         return;
@@ -558,3 +634,4 @@ fn render_session_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
 
     f.render_stateful_widget(list, menu_rect, &mut state);
 }
+

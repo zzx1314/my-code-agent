@@ -5,6 +5,17 @@ use crate::core::config::Config;
 use crate::core::token_usage::TokenUsage;
 use crate::core::streaming::{StreamResult, StreamEvent};
 use crate::core::preamble::Agent;
+use crate::tools::confirmation::ConfirmationRequest;
+
+/// Represents a pending confirmation request from a tool.
+pub struct PendingConfirmation {
+    /// The reason for the confirmation (e.g. "dangerous command")
+    pub reason: String,
+    /// Detailed description of the action
+    pub detail: String,
+    /// The sender to respond with the user's decision
+    pub response_tx: tokio::sync::oneshot::Sender<bool>,
+}
 
 /// Result from async /init command
 pub struct InitResult {
@@ -67,7 +78,10 @@ pub struct App {
     pub completion_trigger_pos: usize,
     /// 聊天区域高度
     pub chat_area_height: u16,
-             // === 模型选择器相关状态 ===
+    // === 确认弹窗相关状态 ===
+    /// 当前待确认的请求
+    pub pending_confirmation: Option<PendingConfirmation>,
+    // === 模型选择器相关状态 ===
      /// 是否显示模型选择器
      pub show_model_picker: bool,
      /// 可选的模型列表
@@ -89,6 +103,8 @@ pub struct App {
      /// 当前选中的 session 索引
      pub session_selected: usize,
      pub init_rx: Option<mpsc::Receiver<InitResult>>,
+    /// Receiver for confirmation requests from tools
+    pub confirmation_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ConfirmationRequest>>,
 }
 
 impl App {
@@ -144,7 +160,9 @@ impl App {
             completion_query: String::new(),
             completion_trigger_pos: 0,
             chat_area_height: 0,
-             // 模型选择器初始化
+            // 确认弹窗
+            pending_confirmation: None,
+            // 模型选择器初始化
              show_model_picker: false,
              model_options: get_model_options_for_provider(&config.llm.provider),
              model_selected: 0,
@@ -160,6 +178,7 @@ impl App {
              session_options: Vec::new(),
              session_selected: 0,
              init_rx: None,
+             confirmation_rx: None,
          }
     }
 }

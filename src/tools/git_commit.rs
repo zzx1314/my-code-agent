@@ -3,6 +3,7 @@ use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::confirmation::ConfirmationHandle;
 use super::safety::confirm_action;
 
 #[derive(Debug, thiserror::Error)]
@@ -41,9 +42,15 @@ pub struct GitCommitOutput {
 }
 
 #[derive(Debug, Clone)]
-pub struct GitCommit;
+pub struct GitCommit {
+    confirmation_handle: ConfirmationHandle,
+}
 
 impl GitCommit {
+    pub fn new(confirmation_handle: ConfirmationHandle) -> Self {
+        Self { confirmation_handle }
+    }
+
     /// Check if there are staged changes
     async fn has_staged_changes(cwd: Option<&str>) -> Result<bool, GitCommitError> {
         let mut cmd = tokio::process::Command::new("git");
@@ -125,6 +132,7 @@ impl Tool for GitCommit {
         // Safety check
         if !args.auto_approve {
             let approved = confirm_action(
+                &self.confirmation_handle,
                 "You are about to commit changes to the repository:",
                 &format!("commit message: {}", args.message),
             )

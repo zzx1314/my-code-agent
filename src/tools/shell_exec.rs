@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 
+use super::confirmation::ConfirmationHandle;
 use super::safety::{confirm_action, is_dangerous_shell_command};
 
 #[derive(Debug, thiserror::Error)]
@@ -41,14 +42,8 @@ pub struct ShellExecOutput {
 pub struct ShellExec {
     /// Default command timeout in seconds (from config).
     default_timeout_secs: u64,
-}
-
-impl Default for ShellExec {
-    fn default() -> Self {
-        Self {
-            default_timeout_secs: 30,
-        }
-    }
+    /// Handle for user confirmation requests.
+    confirmation_handle: ConfirmationHandle,
 }
 
 impl ShellExec {
@@ -56,6 +51,18 @@ impl ShellExec {
     pub fn from_config(config: &Config) -> Self {
         Self {
             default_timeout_secs: config.shell.default_timeout_secs,
+            confirmation_handle: ConfirmationHandle::disabled(),
+        }
+    }
+
+    /// Creates a `ShellExec` with config-specified defaults and a confirmation handle.
+    pub fn new(
+        default_timeout_secs: u64,
+        confirmation_handle: ConfirmationHandle,
+    ) -> Self {
+        Self {
+            default_timeout_secs,
+            confirmation_handle,
         }
     }
 }
@@ -104,6 +111,7 @@ impl Tool for ShellExec {
             && let Some(pattern) = is_dangerous_shell_command(&args.command)
         {
             let approved = confirm_action(
+                &self.confirmation_handle,
                 "This command matches a dangerous pattern:",
                 &format!("matched '{}' in: {}", pattern, args.command),
             )

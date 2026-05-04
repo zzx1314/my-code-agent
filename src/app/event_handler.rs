@@ -20,6 +20,27 @@ use crate::core::preamble::Agent;
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {
+    // 如果确认弹窗正在显示，优先处理确认相关按键
+    if app.pending_confirmation.is_some() {
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                // 确认操作
+                if let Some(pending) = app.pending_confirmation.take() {
+                    let _ = pending.response_tx.send(true);
+                }
+                return;
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                // 拒绝操作
+                if let Some(pending) = app.pending_confirmation.take() {
+                    let _ = pending.response_tx.send(false);
+                }
+                return;
+            }
+            _ => return, // 只接受 y/n/Enter/Esc
+        }
+    }
+
     // 如果 provider 选择器正在显示，优先处理 provider 选择相关按键
     if app.show_provider_picker {
         match key.code {

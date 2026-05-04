@@ -1,6 +1,7 @@
 use rig::client::CompletionClient;
 
 use crate::core::config::Config;
+use crate::tools::confirmation::ConfirmationHandle;
 use crate::tools;
 use rig::providers::openrouter;
 
@@ -194,6 +195,16 @@ pub enum Agent {
 /// Builds an agent using the configured LLM provider.
 /// Uses OpenAI Completions API client for compatibility with custom endpoints.
 pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>) -> Agent {
+    build_agent_with_confirmation(config, mcp_tools, ConfirmationHandle::disabled())
+}
+
+/// Builds an agent with a confirmation handle for user interaction.
+/// The handle allows tools to request user confirmation for dangerous operations.
+pub fn build_agent_with_confirmation(
+    config: &Config,
+    mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>,
+    confirmation_handle: ConfirmationHandle,
+) -> Agent {
     let provider = Provider::from_str(&config.llm.provider).unwrap_or(Provider::DeepSeek);
     let model = config
         .llm
@@ -210,7 +221,7 @@ pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>)
     check_api_key(provider.display_name(), api_key_env);
 
     let preamble = build_preamble();
-    let mut all_tools = tools::all_tools(config);
+    let mut all_tools = tools::all_tools_with_handle(config, confirmation_handle);
     
     // Add MCP tools
     for tool in mcp_tools {

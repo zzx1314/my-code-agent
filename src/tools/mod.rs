@@ -1,5 +1,6 @@
 pub mod code_review;
 pub mod code_search;
+pub mod confirmation;
 pub mod file_delete;
 pub mod file_read;
 pub mod file_update;
@@ -33,17 +34,29 @@ pub use safety::{
 pub use shell_exec::ShellExec;
 
 use crate::core::config::Config;
+use crate::tools::confirmation::ConfirmationHandle;
 use rig::tool::ToolDyn;
 
 /// Returns all tools boxed as `Box<dyn ToolDyn>` for registration with the agent builder.
 /// Config values are passed through to tool structs that need them.
 pub fn all_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
+    // Use a disabled handle by default (no UI feedback channel).
+    let handle = ConfirmationHandle::disabled();
+    all_tools_with_handle(config, handle)
+}
+
+/// Returns all tools with a confirmation handle for user interaction.
+/// The handle is used by tools to request user confirmation for dangerous operations.
+pub fn all_tools_with_handle(
+    config: &Config,
+    confirmation_handle: ConfirmationHandle,
+) -> Vec<Box<dyn ToolDyn>> {
     vec![
         Box::new(FileRead::from_config(config)),
         Box::new(FileWrite),
         Box::new(FileUpdate),
-        Box::new(FileDelete),
-        Box::new(ShellExec::from_config(config)),
+        Box::new(FileDelete::new(confirmation_handle.clone())),
+        Box::new(ShellExec::new(config.shell.default_timeout_secs, confirmation_handle.clone())),
         Box::new(CodeSearch),
         Box::new(CodeReview),
         Box::new(ListDir),
@@ -51,7 +64,7 @@ pub fn all_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
         Box::new(GitStatus),
         Box::new(GitDiff),
         Box::new(GitLog),
-        Box::new(GitCommit),
+        Box::new(GitCommit::new(confirmation_handle)),
     ]
 }
 
