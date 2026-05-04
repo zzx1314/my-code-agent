@@ -84,6 +84,80 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         return;
     }
 
+    // 如果 session 选择器正在显示，优先处理 session 选择相关按键
+    if app.show_session_picker {
+        match key.code {
+            KeyCode::Down | KeyCode::Tab => {
+                if !app.session_options.is_empty() {
+                    app.session_selected = (app.session_selected + 1) % app.session_options.len();
+                }
+                return;
+            }
+            KeyCode::Up | KeyCode::BackTab => {
+                if !app.session_options.is_empty() {
+                    app.session_selected = if app.session_selected == 0 {
+                        app.session_options.len() - 1
+                    } else {
+                        app.session_selected - 1
+                    };
+                }
+                return;
+            }
+            KeyCode::Enter => {
+                // 确认 session 选择
+                if !app.session_options.is_empty() {
+                    let selected_session = &app.session_options[app.session_selected];
+                    let session_name = selected_session.name.clone();
+                    
+                    // 加载选中的 session
+                    match crate::core::session::SessionData::load_by_name(&session_name) {
+                        Some(Ok(session_data)) => {
+                            // 恢复 session 数据
+                            app.chat_history = session_data.chat_history.iter().map(|msg| {
+                                match msg {
+                                    rig::completion::Message::User { content, .. } => {
+                                        ("user".to_string(), format!("{:?}", content))
+                                    }
+                                    rig::completion::Message::Assistant { content, .. } => {
+                                        ("assistant".to_string(), format!("{:?}", content))
+                                    }
+                                    rig::completion::Message::System { content, .. } => {
+                                        ("system".to_string(), format!("{:?}", content))
+                                    }
+                                }
+                            }).collect();
+                            app.token_usage = session_data.token_usage;
+                            app.last_reasoning = session_data.last_reasoning;
+                            
+                            app.chat_history.push(("user".to_string(), format!("/load {}", session_name)));
+                            app.chat_history.push(("assistant".to_string(), format!("Session '{}' loaded ({} turns, {} tokens)", 
+                                session_name, selected_session.turns, selected_session.tokens)));
+                        }
+                        Some(Err(e)) => {
+                            app.chat_history.push(("user".to_string(), format!("/load {}", session_name)));
+                            app.chat_history.push(("assistant".to_string(), format!("Failed to load session '{}': {}", session_name, e)));
+                        }
+                        None => {
+                            app.chat_history.push(("user".to_string(), format!("/load {}", session_name)));
+                            app.chat_history.push(("assistant".to_string(), format!("Session '{}' not found", session_name)));
+                        }
+                    }
+                }
+                app.show_session_picker = false;
+                app.show_banner = false;
+                app.auto_scroll = true;
+                return;
+            }
+            KeyCode::Esc => {
+                // 取消 session 选择
+                app.show_session_picker = false;
+                return;
+            }
+            _ => {}
+        }
+        return;
+    }
+
     // 如果模型选择器正在显示，优先处理模型选择相关按键
     if app.show_model_picker {
         match key.code {
@@ -763,10 +837,19 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             true
         }
         "/load" => {
-            app.chat_history.push(("user".to_string(), "/load".to_string()));
-            app.chat_history.push(("assistant".to_string(), "Session auto-resumes on startup if session.enabled is true in config.toml".to_string()));
-            app.show_banner = false;
-            app.auto_scroll = true;
+            // 获取可用的 session 列表
+            let sessions = crate::core::session::SessionData::list_sessions();
+            if sessions.is_empty() {
+                app.chat_history.push(("user".to_string(), "/load".to_string()));
+                app.chat_history.push(("assistant".to_string(), "No saved sessions found. Use /save to save a session first.".to_string()));
+                app.show_banner = false;
+                app.auto_scroll = true;
+            } else {
+                // 显示 session 选择器
+                app.session_options = sessions;
+                app.session_selected = 0;
+                app.show_session_picker = true;
+            }
             true
         }
         "/status" => {

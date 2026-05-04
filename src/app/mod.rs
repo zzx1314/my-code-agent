@@ -81,6 +81,13 @@ pub struct App {
      pub provider_options: Vec<String>,
      /// 当前选中的 provider 索引
      pub provider_selected: usize,
+     // === Session 选择器相关状态 ===
+     /// 是否显示 session 选择器
+     pub show_session_picker: bool,
+     /// 可选的 session 列表
+     pub session_options: Vec<crate::core::session::SessionInfo>,
+     /// 当前选中的 session 索引
+     pub session_selected: usize,
      pub init_rx: Option<mpsc::Receiver<InitResult>>,
 }
 
@@ -148,6 +155,10 @@ impl App {
                  let p = config.llm.provider.as_str();
                  if p == "openrouter" { 1 } else { 0 }
              },
+             // Session 选择器初始化
+             show_session_picker: false,
+             session_options: Vec::new(),
+             session_selected: 0,
              init_rx: None,
          }
     }

@@ -185,6 +185,10 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         render_provider_picker(f, app, chunks[input_chunk_index]);
     }
 
+    if app.show_session_picker {
+        render_session_picker(f, app, chunks[input_chunk_index]);
+    }
+
     render_status_bar(f, app, chunks[status_chunk_index]);
 }
 
@@ -493,6 +497,61 @@ fn render_provider_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
                 .borders(Borders::ALL)
                 .title(" Select Provider (↑↓ Enter Esc) ")
                 .border_style(Style::default().fg(Color::Green))
+                .style(Style::default().bg(Color::Black)),
+        )
+        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD));
+
+    f.render_stateful_widget(list, menu_rect, &mut state);
+}
+
+fn render_session_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
+    if app.session_options.is_empty() {
+        return;
+    }
+
+    let menu_height = (app.session_options.len() as u16) + 2;
+    let menu_width = 50u16.min(input_area.width);
+
+    let menu_y = if input_area.y >= menu_height {
+        input_area.y - menu_height
+    } else {
+        input_area.y + input_area.height
+    };
+
+    let menu_rect = Rect {
+        x: input_area.x,
+        y: menu_y,
+        width: menu_width,
+        height: menu_height,
+    };
+
+    f.render_widget(Clear, menu_rect);
+
+    let items: Vec<ListItem> = app.session_options
+        .iter()
+        .enumerate()
+        .map(|(idx, session)| {
+            let prefix = if idx == app.session_selected { "▶ " } else { "  " };
+            let style = if idx == app.session_selected {
+                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Cyan)
+            };
+            let display_text = format!("{}{} ({} turns, {} tokens)", 
+                prefix, session.name, session.turns, session.tokens);
+            ListItem::new(display_text).style(style)
+        })
+        .collect();
+
+    let mut state = ListState::default();
+    state.select(Some(app.session_selected));
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Select Session (↑↓ Enter Esc) ")
+                .border_style(Style::default().fg(Color::Yellow))
                 .style(Style::default().bg(Color::Black)),
         )
         .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD));
