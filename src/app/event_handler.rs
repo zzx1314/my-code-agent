@@ -829,9 +829,36 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             true
         }
         "/save" => {
-            // 保存会话（会通过主循环自动处理）
-            app.chat_history.push(("user".to_string(), "/save".to_string()));
-            app.chat_history.push(("assistant".to_string(), "Session will be saved on exit. Use /quit to exit and save.".to_string()));
+            use crate::core::session::{SessionData, generate_session_name, format_saved_confirmation};
+            
+            let session_name = generate_session_name();
+            let rig_history: Vec<_> = app.chat_history.iter()
+                .map(|(r, c)| match r.as_str() {
+                    "user" => rig::completion::Message::user(c.clone()),
+                    "assistant" => rig::completion::Message::assistant(c.clone()),
+                    _ => rig::completion::Message::user(c.clone()),
+                })
+                .collect();
+            
+            let data = SessionData::new(
+                rig_history,
+                app.token_usage.clone(),
+                app.last_reasoning.clone(),
+            );
+            
+            match data.save_with_name(&session_name) {
+                Ok(()) => {
+                    let path = SessionData::session_file_path(&session_name);
+                    let msg = format_saved_confirmation(&path, &data);
+                    app.chat_history.push(("user".to_string(), "/save".to_string()));
+                    app.chat_history.push(("assistant".to_string(), msg));
+                }
+                Err(e) => {
+                    app.chat_history.push(("user".to_string(), "/save".to_string()));
+                    app.chat_history.push(("assistant".to_string(), format!("❌ Failed to save session: {}", e)));
+                }
+            }
+            
             app.show_banner = false;
             app.auto_scroll = true;
             true
