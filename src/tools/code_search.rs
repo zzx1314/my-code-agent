@@ -1,7 +1,9 @@
+use crate::core::parser::ParsedFile;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CodeSearchError {
@@ -38,6 +40,13 @@ pub struct SearchMatch {
     pub file: String,
     pub line_number: usize,
     pub line: String,
+    pub context: Option<MatchContext>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct MatchContext {
+    pub kind: String,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -89,9 +98,9 @@ impl Tool for CodeSearch {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, CodeSearchError> {
         let mut cmd = tokio::process::Command::new("rg");
 
-        cmd.arg("-n") // line numbers
-            .arg("--no-heading") // don't group by file
-            .arg("--color=never"); // plain text output
+        cmd.arg("-n")
+            .arg("--no-heading")
+            .arg("--color=never");
 
         if args.case_insensitive {
             cmd.arg("-i");
@@ -111,7 +120,6 @@ impl Tool for CodeSearch {
 
         let output = cmd.output().await?;
 
-        // rg exits with code 1 when no matches found — treat as empty result, not error
         let stdout = if output.status.success() || output.status.code() == Some(1) {
             String::from_utf8_lossy(&output.stdout).to_string()
         } else {
@@ -129,7 +137,6 @@ impl Tool for CodeSearch {
                 break;
             }
 
-            // Parse rg output format (same as grep): path:line_num:content
             let parts: Vec<&str> = line.splitn(3, ':').collect();
             if parts.len() == 3
                 && let Ok(line_num) = parts[1].parse::<usize>()
@@ -138,7 +145,31 @@ impl Tool for CodeSearch {
                     file: parts[0].to_string(),
                     line_number: line_num,
                     line: parts[2].to_string(),
+                    context: None,
                 });
+            }
+        }
+
+        let mut files_to_parse: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, m) in matches.iter().enumerate() {
+            if m.file.ends_with(".rs") {
+                files_to_parse.entry(m.file.clone()).or_default().push(i);
+            }
+        }
+
+        for (file, indices) in files_to_parse {
+            if let Ok(content) = std::fs::read_to_string(&file) {
+                if let Some(parsed) = ParsedFile::parse(content) {
+                    for idx in indices {
+                        let line = matches[idx].line_number;
+                        if let Some(structure) = parsed.find_enclosing_structure(line) {
+                            matches[idx].context = Some(MatchContext {
+                                kind: structure.kind,
+                                name: structure.name,
+                            });
+                        }
+                    }
+                }
             }
         }
 
