@@ -24,6 +24,8 @@ crossterm = "0.28"
 tracing = "0.1"
 unicode-width = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tree-sitter = "0.26"
+tree-sitter-rust = "0.24"
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,4 +1,5 @@
 use crate::core::config::Config;
+use crate::core::parser::ParsedFile;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
@@ -103,6 +104,12 @@ impl Tool for FileRead {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let content = std::fs::read_to_string(&args.path).map_err(FileReadError::Io)?;
 
+        let parsed = if args.path.ends_with(".rs") {
+            ParsedFile::parse(content.clone())
+        } else {
+            None
+        };
+
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
 
@@ -113,26 +120,47 @@ impl Tool for FileRead {
         let end = (start + limit).min(total_lines);
         let truncated = end < total_lines;
 
-        let selected_lines: Vec<String> = lines[start..end]
+        let (adjusted_end, structure_note) = if truncated {
+            if let Some(ref parsed) = parsed {
+                let result = parsed.smart_read(start, limit, total_lines);
+                let note = result.extended_structure.map(|s| {
+                    format!(
+                        "... (extended to include complete {}: {})",
+                        s.kind,
+                        s.name.as_deref().unwrap_or("anonymous")
+                    )
+                });
+                (result.adjusted_end, note)
+            } else {
+                (end, None)
+            }
+        } else {
+            (end, None)
+        };
+
+        let selected_lines: Vec<String> = lines[start..adjusted_end]
             .iter()
             .enumerate()
             .map(|(i, line)| format!("{:>6} | {}", start + i + 1, line))
             .collect();
 
-        let mut content = selected_lines.join("\n");
-        if truncated {
-            let shown = end - start;
-            content.push_str(&format!(
+        let mut output = selected_lines.join("\n");
+        if let Some(note) = structure_note {
+            output.push_str(&format!("\n{}", note));
+        }
+        if adjusted_end < total_lines {
+            let shown = adjusted_end - start;
+            output.push_str(&format!(
                 "\n\n... (showing {} of {} total lines. Use offset={} to read more)",
-                shown, total_lines, end
+                shown, total_lines, adjusted_end
             ));
         }
 
         Ok(FileReadOutput {
             path: args.path,
-            content,
+            content: output,
             lines: total_lines,
-            truncated,
+            truncated: adjusted_end < total_lines,
         })
     }
 }
