@@ -605,6 +605,7 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
     if !result.last_reasoning.is_empty() {
         app.last_reasoning = result.last_reasoning;
     }
+    app.token_usage = result.session_usage;
     app.status_messages = result.status_messages;
     app.turn_usage_line = result.turn_usage_line;
     app.auto_scroll = true;

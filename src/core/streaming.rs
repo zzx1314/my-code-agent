@@ -25,6 +25,7 @@ pub struct StreamResult {
     pub plan_tracker: PlanTracker,
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
+    pub session_usage: TokenUsage,
 }
 
 /// Events emitted during streaming for real-time UI display.
@@ -158,6 +159,7 @@ where
                         plan_tracker,
                         status_messages,
                         turn_usage_line: None,
+                        session_usage: session_usage.clone(),
                     };
                 }
                 interrupted = true;
@@ -282,6 +284,7 @@ where
                     plan_tracker,
                     status_messages,
                     turn_usage_line,
+                    session_usage: session_usage.clone(),
                 };
             }
 
@@ -314,5 +317,6 @@ where
         plan_tracker,
         status_messages,
         turn_usage_line: None,
+        session_usage: session_usage.clone(),
     }
 }
