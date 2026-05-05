@@ -18,6 +18,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 
 | Tool | Description |
 |------|-------------|
+| `file_outline` | Show the structure outline of a source file (functions, structs, enums, impls, traits, modules with line ranges) |
 | `file_read` | Read file contents with line numbers, offset, and limit support |
 | `file_write` | Write or create files with optional parent directory creation |
 | `file_update` | Make targeted edits to existing files (find & replace) |
@@ -284,6 +285,7 @@ src/
 │   └── terminal.rs # Banner, help, commands
 └── tools/          # Tool implementations
     ├── mod.rs      # Tool registry (all_tools)
+    ├── file_outline.rs # Show file structure outline
     ├── code_review.rs
     ├── code_search.rs
     ├── file_read.rs
@@ -297,6 +299,7 @@ src/
     ├── git_diff.rs
     ├── git_log.rs
     ├── git_commit.rs
+    ├── confirmation.rs # User confirmation prompts
     └── safety.rs   # Dangerous command/file checks
 tests/               # Integration tests (21 test files)
 ```
