@@ -914,10 +914,8 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             true
         }
         "/tokens" => {
-            let token_info = format!("Total tokens used: {}\nInput tokens: {}\nOutput tokens: {}", 
-                app.token_usage.total_tokens(),
-                app.token_usage.input_tokens(),
-                app.token_usage.output_tokens());
+            let report = app.token_usage.format_session_report();
+            let token_info = report.join("\n").trim().to_string();
             app.chat_history.push(("user".to_string(), "/tokens".to_string()));
             app.chat_history.push(("assistant".to_string(), token_info));
             app.show_banner = false;
