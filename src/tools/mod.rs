@@ -2,6 +2,7 @@ pub mod code_review;
 pub mod code_search;
 pub mod confirmation;
 pub mod file_delete;
+pub mod file_outline;
 pub mod file_read;
 pub mod file_update;
 pub mod file_write;
@@ -17,6 +18,7 @@ pub mod shell_exec;
 pub use code_review::CodeReview;
 pub use code_search::CodeSearch;
 pub use file_delete::FileDelete;
+pub use file_outline::FileOutline;
 pub use file_read::FileRead;
 pub use file_update::FileUpdate;
 pub use file_update::build_diff;
@@ -53,6 +55,7 @@ pub fn all_tools_with_handle(
 ) -> Vec<Box<dyn ToolDyn>> {
     vec![
         Box::new(FileRead::from_config(config)),
+        Box::new(FileOutline),
         Box::new(FileWrite),
         Box::new(FileUpdate),
         Box::new(FileDelete::new(confirmation_handle.clone())),

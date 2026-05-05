@@ -100,7 +100,7 @@ pub struct FileConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ContextConfig {
     /// Model context window size in tokens.
-    /// Default: 65536 (64K).
+    /// Default: 131072 (128K).
     #[serde(default = "default_window_size")]
     pub window_size: u64,
     /// Percentage at which to warn about context usage.
@@ -236,7 +236,7 @@ impl Default for FileConfig {
 impl Default for ContextConfig {
     fn default() -> Self {
         Self {
-            window_size: 65_536,
+            window_size: 131_072, // 128K tokens
             warn_threshold_percent: 75,
             critical_threshold_percent: 90,
         }
@@ -254,7 +254,7 @@ impl Default for ShellConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            max_turns: 10,
+            max_turns: 100,
             thinking_display: "collapsed".to_string(),
             think_command: true,
             thinking_display_height: default_thinking_display_height(),

@@ -121,6 +121,54 @@ impl ParsedFile {
             end_line: end,
         })
     }
+
+    /// Get all top-level structures in the file (functions, structs, enums, impls, traits, mods)
+    pub fn get_all_structures(&self) -> Vec<StructureInfo> {
+        let root = self.tree.root_node();
+        self.collect_structures(root, true)
+    }
+
+    /// Recursively collect structures from a node
+    fn collect_structures(&self, node: Node, top_level_only: bool) -> Vec<StructureInfo> {
+        let mut structures = Vec::new();
+        let mut cursor = node.walk();
+
+        for child in node.children(&mut cursor) {
+            let kind = match child.kind() {
+                "function_item" => "fn",
+                "struct_item" => "struct",
+                "enum_item" => "enum",
+                "impl_item" => "impl",
+                "trait_item" => "trait",
+                "mod_item" => "mod",
+                _ => {
+                    // For non-structure nodes at top level, recurse to find nested structures
+                    if top_level_only {
+                        structures.extend(self.collect_structures(child, false));
+                    }
+                    continue;
+                }
+            };
+
+            let name = child.child_by_field_name("name")
+                .and_then(|n| n.utf8_text(self.source.as_bytes()).ok())
+                .map(|s| s.to_string());
+
+            structures.push(StructureInfo {
+                kind: kind.to_string(),
+                name,
+                start_line: child.start_position().row,
+                end_line: child.end_position().row,
+            });
+
+            // For impl blocks, also collect methods inside
+            if kind == "impl" {
+                structures.extend(self.collect_structures(child, false));
+            }
+        }
+
+        structures
+    }
 }
 
 #[cfg(test)]
