@@ -1,4 +1,5 @@
 use crate::core::config::Config;
+use crate::core::file_cache::get_global_file_cache;
 use crate::core::parser::ParsedFile;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
@@ -102,7 +103,17 @@ impl Tool for FileRead {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let content = std::fs::read_to_string(&args.path).map_err(FileReadError::Io)?;
+        let cache = get_global_file_cache();
+        let content = {
+            let mut cache_guard = cache.lock().unwrap();
+            if let Some(entry) = cache_guard.get(&args.path) {
+                entry.content.clone()
+            } else {
+                let content = std::fs::read_to_string(&args.path).map_err(FileReadError::Io)?;
+                cache_guard.insert(&args.path, content.clone());
+                content
+            }
+        };
 
         let parsed = if args.path.ends_with(".rs") {
             ParsedFile::parse(content.clone())

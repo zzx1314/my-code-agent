@@ -1,3 +1,4 @@
+use crate::core::file_cache::get_global_file_cache;
 use crate::core::parser::ParsedFile;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
@@ -158,7 +159,23 @@ impl Tool for CodeSearch {
         }
 
         for (file, indices) in files_to_parse {
-            if let Ok(content) = std::fs::read_to_string(&file) {
+            let cache = get_global_file_cache();
+            let content = {
+                let mut cache_guard = cache.lock().unwrap();
+                if let Some(entry) = cache_guard.get(&file) {
+                    Some(entry.content.clone())
+                } else {
+                    match std::fs::read_to_string(&file) {
+                        Ok(content) => {
+                            cache_guard.insert(&file, content.clone());
+                            Some(content)
+                        }
+                        Err(_) => None,
+                    }
+                }
+            };
+
+            if let Some(content) = content {
                 if let Some(parsed) = ParsedFile::parse(content) {
                     for idx in indices {
                         let line = matches[idx].line_number;

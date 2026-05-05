@@ -80,6 +80,24 @@ impl TokenUsage {
         (self.usage.input_tokens * 100).div_ceil(self.context_window)
     }
 
+    /// 返回缓存命中率（0.0 - 1.0）
+    /// 基于 API 返回的 cached_input_tokens 计算
+    pub fn cache_hit_rate(&self) -> f64 {
+        if self.usage.input_tokens == 0 {
+            return 0.0;
+        }
+        self.usage.cached_input_tokens as f64 / self.usage.input_tokens as f64
+    }
+
+    /// 返回缓存节省的费用（美元）
+    /// DeepSeek: 缓存命中 $0.028/M vs 未命中 $0.28/M = 90% 节省
+    pub fn cache_savings_usd(&self) -> f64 {
+        // DeepSeek 价格: input $0.28/M, cached $0.028/M
+        const PRICE_PER_MILLION: f64 = 0.28;
+        const CACHE_DISCOUNT: f64 = 0.9; // 90% 折扣
+        self.usage.cached_input_tokens as f64 * PRICE_PER_MILLION / 1_000_000.0 * CACHE_DISCOUNT
+    }
+
     /// Returns the context window warning level, if any.
     pub fn context_warning(&self) -> Option<ContextWarning> {
         let pct = self.context_usage_percent();
@@ -146,6 +164,16 @@ impl TokenUsage {
                 self.usage.cache_creation_input_tokens
             ));
         }
+
+        if self.usage.cached_input_tokens > 0 {
+            let hit_rate = self.cache_hit_rate() * 100.0;
+            let savings = self.cache_savings_usd();
+            lines.push(format!("  ✓ Cache hit rate:            {:.1}%", hit_rate));
+            if savings > 0.0 {
+                lines.push(format!("  💰 Cache savings:            ${:.4}", savings));
+            }
+        }
+
         lines.push("  ────────────────────────────".to_string());
 
         // Append warning if approaching or exceeding context limit

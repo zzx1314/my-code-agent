@@ -5,6 +5,7 @@ use crate::tools::confirmation::ConfirmationHandle;
 use crate::tools;
 use rig::providers::openrouter;
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 
@@ -89,35 +90,33 @@ pub const KNOWLEDGE_FILE: &str = "knowledge.md";
 
 pub type OpenRouterAgent = rig::agent::Agent<openrouter::CompletionModel>;
 
+/// 缓存 knowledge.md 内容，确保整个会话内 preamble 保持一致
+/// 这样可以最大化利用 LLM API 的前缀缓存（如 DeepSeek KV Cache）
+static KNOWLEDGE_CACHE: OnceLock<String> = OnceLock::new();
 
-fn load_knowledge() -> Option<String> {
-    std::fs::read_to_string(KNOWLEDGE_FILE)
-        .ok()
-        .map(|s| s.trim().to_string())
+fn load_knowledge() -> &'static str {
+    KNOWLEDGE_CACHE.get_or_init(|| {
+        std::fs::read_to_string(KNOWLEDGE_FILE)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    file = KNOWLEDGE_FILE,
+                    "Knowledge file not found - project knowledge unavailable"
+                );
+                format!("({} not found - no project knowledge loaded)", KNOWLEDGE_FILE)
+            })
+    })
 }
 
 fn build_preamble() -> String {
-    let knowledge = match load_knowledge() {
-        Some(content) => {
-            tracing::info!(
-                file = KNOWLEDGE_FILE,
-                bytes = content.len(),
-                "Knowledge loaded"
-            );
-            content
-        }
-        None => {
-            tracing::warn!(
-                file = KNOWLEDGE_FILE,
-                "Knowledge file not found - project knowledge unavailable"
-            );
-            format!(
-                "({} not found - no project knowledge loaded)",
-                KNOWLEDGE_FILE
-            )
-        }
-    };
-    PREAMBLE_TEMPLATE.replace("{knowledge}", &knowledge)
+    let knowledge = load_knowledge();
+    tracing::info!(
+        file = KNOWLEDGE_FILE,
+        bytes = knowledge.len(),
+        "Knowledge loaded"
+    );
+    PREAMBLE_TEMPLATE.replace("{knowledge}", knowledge)
 }
 
 fn check_api_key(provider_name: &str, api_key_env: &str) {

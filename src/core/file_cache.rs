@@ -1,14 +1,14 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct FileCacheEntry {
-    content: String,
-    mtime: SystemTime,
-    size: u64,
-    lines: usize,
+    pub content: String,
+    pub mtime: SystemTime,
+    pub size: u64,
+    pub lines: usize,
 }
 
 #[allow(dead_code)]
@@ -17,6 +17,17 @@ pub struct FileCache {
     access_order: VecDeque<PathBuf>,
     max_entries: usize,
     max_age: Duration,
+}
+
+/// 全局文件缓存单例，供工具使用
+/// 使用 Mutex 实现线程安全的内部可变性
+static GLOBAL_FILE_CACHE: OnceLock<Arc<Mutex<FileCache>>> = OnceLock::new();
+
+/// 获取全局文件缓存实例
+pub fn get_global_file_cache() -> Arc<Mutex<FileCache>> {
+    GLOBAL_FILE_CACHE
+        .get_or_init(|| Arc::new(Mutex::new(FileCache::new(100, 300))))
+        .clone()
 }
 
 impl FileCache {
