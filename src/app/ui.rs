@@ -333,6 +333,13 @@ fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             format!(" | {}", turn_line),
             Style::default().fg(Color::DarkGray)
         ));
+        // Show per-turn cache hit rate if available
+        if let Some(cache_line) = crate::core::context_cache::global_cache().format_turn_cache_line() {
+            spans.push(Span::styled(
+                format!(" | {}", cache_line),
+                Style::default().fg(Color::DarkGray)
+            ));
+        }
     }
 
     if app.is_streaming {

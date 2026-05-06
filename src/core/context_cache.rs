@@ -1,12 +1,21 @@
 //! Context caching layer for optimized token usage and cache hits.
 //!
-//! This module provides multi-layer caching:
-//! - Layer 1: Preamble cache (static content - DeepSeek auto-caches)
-//! - Layer 2: File content cache (mtime-based invalidation)
-//! - Layer 3: Context pruning with sliding window
+//! Provides:
+//! - Preamble cache key/entry types for static content caching
+//! - Per-turn cache statistics from API responses
+//! - Session-level cache metrics tracking via global singleton
+//!
+//! The global [`ContextCache`] singleton (accessed via [`global_cache()`])
+//! is updated after each streaming turn and reports are surfaced in the
+//! `/tokens` command and per-turn usage lines.
 
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::{Mutex, OnceLock};
+
+use rig::completion::Usage;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Preamble cache types (used by preamble.rs and tests)
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// Layer 1: Preamble cache for static content
 ///
@@ -57,15 +66,63 @@ pub mod preamble_cache {
     }
 }
 
-/// Cache metrics for monitoring
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-turn cache statistics
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Cache statistics extracted from a single API response.
+#[derive(Debug, Clone, Default)]
+pub struct TurnCacheStats {
+    /// Tokens served from server-side KV cache this turn
+    pub cached_tokens: u64,
+    /// Total input tokens this turn
+    pub input_tokens: u64,
+    /// Cache creation tokens (first-time prefix processing)
+    pub creation_tokens: u64,
+}
+
+impl TurnCacheStats {
+    /// Extract from API usage response.
+    pub fn from_usage(usage: &Usage) -> Self {
+        Self {
+            cached_tokens: usage.cached_input_tokens,
+            input_tokens: usage.input_tokens,
+            creation_tokens: usage.cache_creation_input_tokens,
+        }
+    }
+
+    /// Cache hit rate for this turn (0.0 - 1.0).
+    pub fn hit_rate(&self) -> f64 {
+        if self.input_tokens == 0 {
+            0.0
+        } else {
+            self.cached_tokens as f64 / self.input_tokens as f64
+        }
+    }
+
+    /// Non-cached (fresh) input tokens this turn.
+    pub fn uncached_tokens(&self) -> u64 {
+        self.input_tokens.saturating_sub(self.cached_tokens)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session-level cache metrics
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Aggregated cache metrics across all turns in a session.
 #[derive(Debug, Clone, Default)]
 pub struct CacheMetrics {
-    /// Number of cache hits this session
-    pub cache_hits: u64,
-    /// Number of cache misses this session
-    pub cache_misses: u64,
-    /// Estimated USD savings
+    /// Total cached input tokens this session
+    pub total_cached: u64,
+    /// Total input tokens this session
+    pub total_input: u64,
+    /// Total cache creation tokens this session
+    pub total_creation: u64,
+    /// Estimated USD savings from caching
     pub savings_usd: f64,
+    /// Number of turns recorded
+    pub turn_count: u64,
 }
 
 impl CacheMetrics {
@@ -74,111 +131,155 @@ impl CacheMetrics {
         Self::default()
     }
 
-    /// Record a cache hit (token count from API response)
-    pub fn record_hit(&mut self, tokens: u64) {
-        self.cache_hits += tokens;
-        // DeepSeek: cached tokens cost $0.028/M vs $0.28/M = 90% savings
-        self.savings_usd += (tokens as f64) * 0.28 / 1_000_000.0 * 0.9;
+    /// Record a turn's cache statistics from the API response.
+    pub fn record_turn(&mut self, usage: &Usage) {
+        self.total_cached += usage.cached_input_tokens;
+        self.total_input += usage.input_tokens;
+        self.total_creation += usage.cache_creation_input_tokens;
+        // DeepSeek pricing: cached $0.028/M, uncached $0.28/M → 90% savings on cached
+        self.savings_usd += usage.cached_input_tokens as f64 * 0.028 / 1_000_000.0;
+        self.turn_count += 1;
     }
 
-    /// Record a cache miss (token count from API response)
-    pub fn record_miss(&mut self, tokens: u64) {
-        self.cache_misses += tokens;
-    }
-
-    /// Calculate cache hit rate (0.0 - 1.0)
+    /// Session-wide cache hit rate (0.0 - 1.0).
     pub fn hit_rate(&self) -> f64 {
-        let total = self.cache_hits + self.cache_misses;
-        if total == 0 {
+        if self.total_input == 0 {
             0.0
         } else {
-            self.cache_hits as f64 / total as f64
+            self.total_cached as f64 / self.total_input as f64
         }
     }
 
-    /// Format cache statistics as lines of text.
+    /// Format session cache statistics as lines of text.
     pub fn format_report(&self) -> Vec<String> {
-        let mut lines = Vec::new();
+        if self.turn_count == 0 {
+            return vec![];
+        }
 
+        let mut lines = Vec::new();
         lines.push(String::new());
         lines.push("  ─────── Cache Stats ───────".to_string());
 
         let hit_rate_pct = self.hit_rate() * 100.0;
         lines.push(format!("  ◈ Hit rate: {:.1}%", hit_rate_pct));
 
-        if self.cache_hits > 0 {
-            lines.push(format!("  ✓ Cache hits: {} tokens", self.cache_hits));
+        if self.total_cached > 0 {
+            lines.push(format!("  ✓ Cached: {} tokens", self.total_cached));
         }
 
-        if self.cache_misses > 0 {
-            lines.push(format!("  ○ Cache misses: {} tokens", self.cache_misses));
+        if self.total_creation > 0 {
+            lines.push(format!("  ⚙ Creation: {} tokens", self.total_creation));
         }
 
         if self.savings_usd > 0.0 {
-            lines.push(format!("  💰 Estimated savings: ${:.4}", self.savings_usd));
+            lines.push(format!("  💰 Savings: ${:.4}", self.savings_usd));
         }
 
+        lines.push(format!("  📊 Turns: {}", self.turn_count));
         lines.push("  ──────────────────────────".to_string());
         lines
     }
-
-    /// Print cache statistics (for non-TUI usage).
-    pub fn print_report(&self) {
-        for line in self.format_report() {
-            println!("{}", line);
-        }
-    }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ContextCache — global singleton
+// ─────────────────────────────────────────────────────────────────────────────
 
-
-/// Shared cache state for the application
-#[derive(Debug, Clone)]
+/// Central cache state for the application.
+///
+/// Tracks per-turn and session-wide cache metrics from API responses.
+/// Access the singleton via [`global_cache()`].
+///
+/// # Usage
+///
+/// After each streaming turn completes, call [`record_turn`](ContextCache::record_turn)
+/// with the turn's [`Usage`] from the API response. The cache instance will
+/// aggregate metrics and provide formatted reports for the `/tokens` command
+/// and per-turn usage display.
 pub struct ContextCache {
-    /// Preamble cache (Arc for cheap cloning)
-    preamble: Arc<RwLock<Option<preamble_cache::PreambleCacheEntry>>>,
+    /// Session-wide aggregated metrics
+    metrics: Mutex<CacheMetrics>,
+    /// Most recent turn's cache stats (for per-turn display)
+    last_turn: Mutex<Option<TurnCacheStats>>,
+}
+
+// Manual Debug impl — Mutex<Option<TurnCacheStats>> doesn't auto-derive well
+impl std::fmt::Debug for ContextCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContextCache")
+            .field("metrics", &self.metrics)
+            .finish()
+    }
 }
 
 impl ContextCache {
-    /// Create new context cache
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
-            preamble: Arc::new(RwLock::new(None)),
+            metrics: Mutex::new(CacheMetrics::new()),
+            last_turn: Mutex::new(None),
         }
     }
 
-    /// Get or create preamble cache entry
-    pub async fn get_preamble(&self, preamble: &str, knowledge: &str) -> String {
-        let mut cache = self.preamble.write().await;
-
-        if let Some(ref entry) = *cache {
-            if entry.is_valid(preamble, knowledge) {
-                return entry.content.clone();
-            }
+    /// Record cache statistics from an API response.
+    ///
+    /// Call this after each turn's streaming completes, before the next turn.
+    pub fn record_turn(&self, usage: &Usage) {
+        let stats = TurnCacheStats::from_usage(usage);
+        if let Ok(mut m) = self.metrics.lock() {
+            m.record_turn(usage);
         }
-
-        // Cache miss or invalid - create new entry
-        let entry = preamble_cache::PreambleCacheEntry::new(preamble, knowledge);
-        let content = entry.content.clone();
-        *cache = Some(entry);
-
-        content
+        if let Ok(mut last) = self.last_turn.lock() {
+            *last = Some(stats);
+        }
     }
 
-    /// Check if preamble is cached (for testing)
-    pub async fn is_preamble_cached(&self) -> bool {
-        self.preamble.read().await.is_some()
+    /// Get a snapshot of session-level cache metrics.
+    pub fn metrics(&self) -> CacheMetrics {
+        self.metrics.lock().unwrap().clone()
     }
 
-    /// Clear all caches
-    pub async fn clear(&self) {
-        let mut cache = self.preamble.write().await;
-        *cache = None;
+    /// Get the most recent turn's cache statistics.
+    pub fn last_turn_stats(&self) -> Option<TurnCacheStats> {
+        self.last_turn.lock().unwrap().clone()
+    }
+
+    /// Format a per-turn cache hit line for display alongside turn usage.
+    ///
+    /// Returns `None` if no turn has been recorded yet or input tokens are zero.
+    pub fn format_turn_cache_line(&self) -> Option<String> {
+        let stats = self.last_turn_stats()?;
+        if stats.input_tokens == 0 {
+            return None;
+        }
+        let hit_pct = stats.hit_rate() * 100.0;
+        Some(format!(
+            "⛃ cache: {:.0}% · {} cached / {} input",
+            hit_pct, stats.cached_tokens, stats.input_tokens
+        ))
+    }
+
+    /// Format session-wide cache report (for `/tokens` command).
+    pub fn format_session_report(&self) -> Vec<String> {
+        self.metrics().format_report()
+    }
+
+    /// Reset all cache metrics (e.g., on session clear).
+    pub fn reset(&self) {
+        if let Ok(mut m) = self.metrics.lock() {
+            *m = CacheMetrics::new();
+        }
+        if let Ok(mut last) = self.last_turn.lock() {
+            *last = None;
+        }
     }
 }
 
-impl Default for ContextCache {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Global context cache singleton.
+///
+/// Initialized lazily on first access. Thread-safe.
+static GLOBAL_CACHE: OnceLock<ContextCache> = OnceLock::new();
+
+/// Get the global context cache instance.
+pub fn global_cache() -> &'static ContextCache {
+    GLOBAL_CACHE.get_or_init(|| ContextCache::new())
 }

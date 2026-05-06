@@ -152,28 +152,6 @@ impl TokenUsage {
             remaining,
         ));
 
-        if self.usage.cached_input_tokens > 0 {
-            lines.push(format!(
-                "  ⛃ Cached input tokens:       {}",
-                self.usage.cached_input_tokens
-            ));
-        }
-        if self.usage.cache_creation_input_tokens > 0 {
-            lines.push(format!(
-                "  ⚙ Cache creation tokens:     {}",
-                self.usage.cache_creation_input_tokens
-            ));
-        }
-
-        if self.usage.cached_input_tokens > 0 {
-            let hit_rate = self.cache_hit_rate() * 100.0;
-            let savings = self.cache_savings_usd();
-            lines.push(format!("  ✓ Cache hit rate:            {:.1}%", hit_rate));
-            if savings > 0.0 {
-                lines.push(format!("  💰 Cache savings:            ${:.4}", savings));
-            }
-        }
-
         lines.push("  ────────────────────────────".to_string());
 
         // Append warning if approaching or exceeding context limit

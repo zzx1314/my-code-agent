@@ -1093,7 +1093,10 @@ fn handle_command(app: &mut App, input: &str) -> bool {
             true
         }
         "/tokens" => {
-            let report = app.token_usage.format_session_report();
+            let mut report = app.token_usage.format_session_report();
+            // Append session-wide cache metrics
+            let cache_report = crate::core::context_cache::global_cache().format_session_report();
+            report.extend(cache_report);
             let token_info = report.join("\n").trim().to_string();
             app.chat_history.push(("user".to_string(), "/tokens".to_string()));
             app.chat_history.push(("assistant".to_string(), token_info));

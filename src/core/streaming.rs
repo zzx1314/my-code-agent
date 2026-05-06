@@ -265,6 +265,9 @@ where
                 let turn_usage_line = Some(format_turn_usage(&turn_usage));
                 session_usage.add(turn_usage);
 
+                // Record cache metrics for this turn
+                crate::core::context_cache::global_cache().record_turn(&turn_usage);
+
                 status_messages.extend(format_context_warning(session_usage));
 
                 let input_tokens = session_usage.input_tokens();
