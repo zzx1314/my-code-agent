@@ -251,7 +251,12 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             }
             KeyCode::Enter => {
                 // 确认补全
+                let is_command_completion = app.completion_type == Some('/');
                 apply_completion(app);
+                // 如果是命令补全，直接执行命令，不需要再按一次 Enter
+                if is_command_completion {
+                    handle_enter_key(app, context_manager);
+                }
                 return;
             }
             KeyCode::Esc => {
@@ -315,7 +320,12 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             } else {
                 // Plain Enter or Ctrl+Enter: send
                 if app.show_completion {
+                    let is_command_completion = app.completion_type == Some('/');
                     apply_completion(app);
+                    // 如果是命令补全，直接执行命令
+                    if is_command_completion {
+                        handle_enter_key(app, context_manager);
+                    }
                 } else {
                     handle_enter_key(app, context_manager);
                 }
