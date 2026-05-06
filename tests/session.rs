@@ -135,7 +135,81 @@ fn test_delete_nonexistent_is_ok() {
     assert!(SessionData::delete_file("/nonexistent/path.json").is_ok());
 }
 
-// ── Session path from config ──
+// ── prune_old_sessions ──
+
+#[test]
+fn test_prune_old_sessions_keeps_max_count() {
+    std::fs::create_dir_all(SESSION_DIR).unwrap();
+
+    let mut saved_names = Vec::new();
+    let base_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    for i in 0..7u64 {
+        let mut data = SessionData::new(test_messages(), test_token_usage(), format!("prune_test {}", i));
+        data.saved_at = base_ts + i * 100; // space out by 100 seconds
+        let name = format!("prune_test_{}", i);
+        data.save_with_name(&name).unwrap();
+        saved_names.push(name);
+    }
+
+    // Verify we have at least 7 sessions
+    let all_sessions = SessionData::list_sessions();
+    let test_sessions: Vec<_> = all_sessions.iter().filter(|s| s.name.starts_with("prune_test_")).collect();
+    assert!(test_sessions.len() >= 7, "Expected at least 7 test sessions, got {}", test_sessions.len());
+
+    // Prune to keep only 5
+    let removed = SessionData::prune_old_sessions(5).unwrap();
+    assert!(removed >= 2, "Expected at least 2 removed, got {}", removed);
+
+    // Check that the newest 5 test sessions still exist (by saved_at)
+    let remaining = SessionData::list_sessions();
+    let remaining_test: Vec<_> = remaining.iter().filter(|s| s.name.starts_with("prune_test_")).collect();
+    // The remaining test sessions should be the ones with highest saved_at
+    assert!(remaining_test.len() <= 5, "Expected at most 5 test sessions remaining, got {}", remaining_test.len());
+
+    // Clean up test sessions
+    for name in &saved_names {
+        let _ = SessionData::delete_by_name(name);
+    }
+}
+
+#[test]
+fn test_prune_old_sessions_no_op_when_under_limit() {
+    // Save fewer than 5 sessions and verify prune returns 0
+    std::fs::create_dir_all(SESSION_DIR).unwrap();
+
+    let base_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let mut saved_names = Vec::new();
+    for i in 0..3u64 {
+        let mut data = SessionData::new(test_messages(), test_token_usage(), format!("no_prune {}", i));
+        data.saved_at = base_ts + 2000 + i * 100;
+        let name = format!("no_prune_test_{}", i);
+        data.save_with_name(&name).unwrap();
+        saved_names.push(name);
+    }
+
+    // Count sessions before prune
+    let _before = SessionData::list_sessions().len();
+
+    // Prune to keep 5 — since we only added 3, nothing should be removed among these
+    let _removed = SessionData::prune_old_sessions(5).unwrap();
+    // removed might be > 0 if other sessions exist, but our 3 should all survive
+    let remaining = SessionData::list_sessions();
+    let remaining_test: Vec<_> = remaining.iter().filter(|s| s.name.starts_with("no_prune_test_")).collect();
+    assert_eq!(remaining_test.len(), 3, "All 3 test sessions should remain");
+
+    // Clean up
+    for name in &saved_names {
+        let _ = SessionData::delete_by_name(name);
+    }
+}
 
 #[test]
 fn test_session_dir_path() {

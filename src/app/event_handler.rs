@@ -1223,6 +1223,13 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
                     app.chat_history
                         .push(("user".to_string(), "/save".to_string()));
                     app.chat_history.push(("assistant".to_string(), msg));
+
+                    // Prune old sessions, keeping only the 5 newest
+                    if let Ok(removed) = SessionData::prune_old_sessions(5) {
+                        if removed > 0 {
+                            tracing::info!(removed, "Pruned old session files");
+                        }
+                    }
                 }
                 Err(e) => {
                     app.chat_history

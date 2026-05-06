@@ -162,6 +162,26 @@ impl SessionData {
         sessions
     }
 
+    /// Remove old sessions, keeping only the `max_count` newest ones.
+    /// Returns the number of sessions removed.
+    pub fn prune_old_sessions(max_count: usize) -> Result<usize, String> {
+        let sessions = Self::list_sessions(); // already sorted newest-first
+        if sessions.len() <= max_count {
+            return Ok(0);
+        }
+
+        let mut removed = 0;
+        for session in sessions.iter().skip(max_count) {
+            let path = Self::session_file_path(&session.name);
+            if let Err(e) = std::fs::remove_file(&path) {
+                tracing::warn!(path = %path, error = %e, "Failed to remove old session file");
+            } else {
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
     /// Search for keyword in this session's chat history
     pub fn search_in_session(&self, keyword: &str) -> Vec<MessageMatch> {
         let mut matches = Vec::new();

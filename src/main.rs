@@ -204,6 +204,17 @@ async fn main() -> Result<()> {
                 tracing::error!(error = %e, "Failed to auto-save session on exit");
             }
         }
+
+        // Prune old sessions, keeping only the 5 newest
+        match SessionData::prune_old_sessions(5) {
+            Ok(0) => {}
+            Ok(removed) => {
+                tracing::info!(removed, "Pruned old session files");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to prune old sessions");
+            }
+        }
     }
 
     // Save to default session file if session.enabled (for auto-resume)
