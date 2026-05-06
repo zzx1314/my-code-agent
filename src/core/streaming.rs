@@ -223,7 +223,10 @@ where
                 let tool_call_marker = format!("\n⟳ *Tool Call:* `{}`\n", tool_call.function.name);
                 // 追加到 full_response，让工具调用日志保存在对话历史中
                 full_response.push_str(&tool_call_marker);
-                status_messages.push(format!("⟳ [`{}`]", tool_call.function.name));
+                // 注意：不再推入 status_messages，避免流式结束后在底部残留大量工具调用标记
+                // 工具调用已通过以下两个渠道展示：
+                //   1. 流式期间：StreamEvent::ToolCall → streaming_text（实时显示）
+                //   2. 对话历史：full_response（永久保存）
                 send_event(StreamEvent::ToolCall(tool_call.function.name.clone()));
             }
 
