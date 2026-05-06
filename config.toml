@@ -14,7 +14,7 @@ base_url = "https://token-plan-cn.xiaomimimo.com/v1"
 # Model API request timeout in seconds.
 # Default: 60
 # Set to 0 to disable timeout (not recommended).
-# timeout_secs = 60
+timeout_secs = 300
 
 # ── File Reading / Attachment Settings ──
 [files]
