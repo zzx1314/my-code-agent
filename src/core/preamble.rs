@@ -22,14 +22,12 @@ For multi-step tasks, start with a plan before executing:
 3. [Step description]
 ```
 
-**After completing each step, append a "y" marker below that step:**
+**After completing each step, append a checkmark (✓) at the end of that step's line:**
 
 ```
 ## Task Plan
-1. [Step description]
-   y
-2. [Step description]
-   y
+1. [Step description] ✓
+2. [Step description] ✓
 3. [Step description]
 ```
 
@@ -37,7 +35,7 @@ This format helps:
 - Organize your thoughts before acting
 - Let the user verify your approach
 - Track progress through complex tasks
-- Explicitly mark completed steps with "y"
+- Explicitly mark completed steps with "✓" at the end of each step line
 
 **When to create a plan:**
 - Implementing a new feature

@@ -64,7 +64,12 @@ impl PlanTracker {
             if let Some(stripped) = trimmed.strip_prefix(|c: char| c.is_ascii_digit()) {
                 if stripped.starts_with('.') || stripped.starts_with(')') {
                     if let Some(rest) = stripped.strip_prefix(|c: char| c == '.' || c == ')') {
-                        let step_text = rest.trim().to_string();
+                        let raw = rest.trim();
+                        // Strip trailing completion marker (✓ or checkmark)
+                        let step_text = raw
+                            .trim_end_matches('✓')
+                            .trim_end_matches(|c: char| c.is_whitespace())
+                            .to_string();
                         if !step_text.is_empty() {
                             self.steps.push(step_text.clone());
                             self.step_status.insert(step_text, PlanStepStatus::Pending);
@@ -75,19 +80,17 @@ impl PlanTracker {
         }
     }
 
-    /// Parse plan with completion markers ("y" or "✓") from accumulated text.
-    /// 
-    /// Expected format:
+    /// Update step statuses from accumulated plan text.
+    ///
+    /// Detects ✓ markers appended at the end of step lines:
     /// ```text
-    /// 1. Step description
-    ///    y          <- marks step 1 as completed
-    /// 2. Step description
-    ///    y          <- marks step 2 as completed
-    /// 3. Step description
+    /// 1. Step description ✓    <- marks step 1 as completed
+    /// 2. Step description      <- still pending
+    /// 3. Step description ✓    <- marks step 3 as completed
     /// ```
-    /// 
-    /// This method re-parses the entire plan text and updates step statuses
-    /// based on the presence of "y" or "✓" markers below each step.
+    ///
+    /// The model is responsible for deciding when a step is done and
+    /// appending the ✓ marker. No automatic tool-call-based tracking.
     pub fn update_from_text(&mut self, text: &str) {
         if !self.has_active_plan() {
             return;
@@ -98,33 +101,35 @@ impl PlanTracker {
             *status = PlanStepStatus::Pending;
         }
 
-        let mut current_step_idx: Option<usize> = None;
-        
         for line in text.lines() {
             let trimmed = line.trim();
-            
+
             // Check if this line is a numbered step (1. or 1))
             if let Some(stripped) = trimmed.strip_prefix(|c: char| c.is_ascii_digit()) {
                 if stripped.starts_with('.') || stripped.starts_with(')') {
                     if let Some(rest) = stripped.strip_prefix(|c: char| c == '.' || c == ')') {
-                        let step_text = rest.trim().to_string();
+                        let step_text_raw = rest.trim();
+
+                        // Detect ✓ marker at end of the step line
+                        let has_marker = step_text_raw.ends_with('\u{2713}');
+                        // Strip trailing ✓ and whitespace for matching
+                        let step_text = step_text_raw
+                            .trim_end_matches('\u{2713}')
+                            .trim_end_matches(|c: char| c.is_whitespace())
+                            .to_string();
+
                         if !step_text.is_empty() {
-                            // Find the index of this step in our steps list
-                            current_step_idx = self.steps.iter().position(|s| s == &step_text);
-                        }
-                    }
-                }
-            }
-            
-            // Check if this line is a completion marker
-            if trimmed == "y" || trimmed == "✓" {
-                if let Some(idx) = current_step_idx {
-                    if idx < self.steps.len() {
-                        let step = &self.steps[idx];
-                        self.step_status.insert(step.clone(), PlanStepStatus::Completed);
-                        // Update current_step to point to next uncompleted step
-                        if idx >= self.current_step {
-                            self.current_step = idx + 1;
+                            if let Some(idx) = self.steps.iter().position(|s| s == &step_text) {
+                                if has_marker && idx < self.steps.len() {
+                                    let step = &self.steps[idx];
+                                    self.step_status
+                                        .insert(step.clone(), PlanStepStatus::Completed);
+                                    // Update current_step to point to next uncompleted step
+                                    if idx >= self.current_step {
+                                        self.current_step = idx + 1;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -172,7 +177,11 @@ impl PlanTracker {
         self.current_step + 1
     }
 
-    /// Mark current step as completed and move to next
+    /// Mark current step as completed and move to next.
+    ///
+    /// This is a manual API for testing or external callers.
+    /// In normal flow, the model self-reports completion via ✓ markers
+    /// and `update_from_text` handles the state transition.
     pub fn complete_current_step(&mut self) {
         if self.current_step < self.steps.len() {
             let step = &self.steps[self.current_step];
@@ -214,7 +223,12 @@ impl PlanTracker {
 
         out.push_str("\n  📋 Task Plan\n");
         for (i, step) in self.steps.iter().enumerate() {
-            out.push_str(&format!("    {}. {}\n", i + 1, step));
+            let status = self.step_status.get(step);
+            let marker = match status {
+                Some(PlanStepStatus::Completed) => " ✓",
+                _ => "",
+            };
+            out.push_str(&format!("    {}. {}{}\n", i + 1, step, marker));
         }
         out.push_str("  ? Confirm? [Enter=proceed, n=cancel]");
         out

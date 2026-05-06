@@ -778,38 +778,39 @@ fn test_progress_display_consistency_with_completion() {
 }
 
 // ============================================================================
-// update_from_text — marker-based completion tracking
+// update_from_text — ✓-marker completion tracking (model self-reports)
 // ============================================================================
 
 #[test]
 fn test_update_from_text_no_plan() {
     // Should be a no-op if there's no active plan
     let mut tracker = PlanTracker::new();
-    tracker.update_from_text("1. Step\n   y");
+    tracker.update_from_text("1. Step ✓");
     assert!(!tracker.has_active_plan());
 }
 
 #[test]
-fn test_update_from_text_basic_y_marker() {
+fn test_update_from_text_basic_checkmark_marker() {
     let mut tracker = PlanTracker::new();
     tracker.parse_plan("1. First step\n2. Second step\n3. Third step");
     tracker.confirm();
 
-    // First step has "y" marker
-    tracker.update_from_text("1. First step\n   y\n2. Second step\n3. Third step");
+    // First step has ✓ marker at end of line
+    tracker.update_from_text("1. First step ✓\n2. Second step\n3. Third step");
     // current_step_index should advance to 2 (first step completed)
     assert_eq!(tracker.current_step_index(), 2);
     assert!(!tracker.is_completed());
 }
 
 #[test]
-fn test_update_from_text_checkmark_marker() {
+fn test_update_from_text_no_marker_stays_pending() {
     let mut tracker = PlanTracker::new();
     tracker.parse_plan("1. First step\n2. Second step");
     tracker.confirm();
 
-    tracker.update_from_text("1. First step\n   ✓\n2. Second step");
-    assert_eq!(tracker.current_step_index(), 2);
+    // No ✓ marker — step should remain pending
+    tracker.update_from_text("1. First step\n2. Second step");
+    assert_eq!(tracker.current_step_index(), 1);
     assert!(!tracker.is_completed());
 }
 
@@ -819,7 +820,7 @@ fn test_update_from_text_multiple_completed() {
     tracker.parse_plan("1. First\n2. Second\n3. Third");
     tracker.confirm();
 
-    tracker.update_from_text("1. First\n   y\n2. Second\n   y\n3. Third");
+    tracker.update_from_text("1. First ✓\n2. Second ✓\n3. Third");
     assert_eq!(tracker.current_step_index(), 3);
     assert!(!tracker.is_completed());
 }
@@ -830,7 +831,7 @@ fn test_update_from_text_all_completed() {
     tracker.parse_plan("1. A\n2. B\n3. C");
     tracker.confirm();
 
-    tracker.update_from_text("1. A\n   y\n2. B\n   y\n3. C\n   y");
+    tracker.update_from_text("1. A ✓\n2. B ✓\n3. C ✓");
     assert!(tracker.is_completed());
 }
 
@@ -840,7 +841,35 @@ fn test_update_from_text_with_header() {
     tracker.parse_plan("## Task Plan\n1. Read file\n2. Analyze code\n3. Fix issue");
     tracker.confirm();
 
-    tracker.update_from_text("## Task Plan\n1. Read file\n   y\n2. Analyze code\n3. Fix issue");
+    tracker.update_from_text("## Task Plan\n1. Read file ✓\n2. Analyze code\n3. Fix issue");
     assert_eq!(tracker.current_step_index(), 2);
+    assert!(!tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_non_contiguous_completion() {
+    // Model can mark step 1 and 3 as done while leaving step 2 pending
+    let mut tracker = PlanTracker::new();
+    tracker.parse_plan("1. First\n2. Second\n3. Third");
+    tracker.confirm();
+
+    tracker.update_from_text("1. First ✓\n2. Second\n3. Third ✓");
+    // current_step should advance past step 1 and 3
+    // step 2 is still pending, current_step = max(1, 3) = 3 (step index 2 + 1)
+    assert_eq!(tracker.current_step_index(), 4);
+    assert!(tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_resets_on_new_parse() {
+    let mut tracker = PlanTracker::new();
+    tracker.parse_plan("1. First\n2. Second");
+    tracker.confirm();
+    tracker.update_from_text("1. First ✓\n2. Second");
+    assert_eq!(tracker.current_step_index(), 2);
+
+    // Re-parse resets everything
+    tracker.parse_plan("1. New A\n2. New B\n3. New C");
+    assert_eq!(tracker.current_step_index(), 1);
     assert!(!tracker.is_completed());
 }

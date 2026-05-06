@@ -228,7 +228,7 @@ where
                         "✓ Plan confirmed, proceeding...".to_string(),
                     ));
                 }
-                // Update step statuses based on "y" markers in accumulated text
+                // Update step statuses based on ✓ markers in accumulated plan text
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
                     plan_tracker.update_from_text(&plan_text);
                     plan_tracker.log_progress();
