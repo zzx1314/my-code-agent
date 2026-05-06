@@ -206,9 +206,19 @@ where
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
                 }
+                // If plan was detected but not yet parsed, parse it now and auto-confirm
+                if plan_detected && !plan_tracker.has_active_plan() {
+                    plan_tracker.parse_plan(&plan_text);
+                    status_messages.push(plan_tracker.format_with_confirmation());
+                    plan_tracker.confirm();
+                }
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
-                    plan_tracker.complete_current_step();
                     plan_tracker.log_progress();
+                    plan_tracker.complete_current_step();
+                    let progress = plan_tracker.progress_display();
+                    if !progress.is_empty() {
+                        status_messages.push(progress);
+                    }
                 }
                 let tool_call_marker = format!("\n⟳ *Tool Call:* `{}`\n", tool_call.function.name);
                 // 追加到 full_response，让工具调用日志保存在对话历史中
@@ -245,7 +255,8 @@ where
                 }
 
                 if plan_tracker.has_active_plan() {
-                    status_messages.push("📋 Task Plan".to_string());
+                    let progress = plan_tracker.progress_display();
+                    status_messages.push(format!("📋 Task Plan {}", progress));
                     plan_tracker.log_completion();
                 }
 
