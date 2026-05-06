@@ -400,6 +400,41 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
             // Handle commands locally without sending to LLM
             if handle_command(app, &input_text) {
                 // Clear input after command is handled
+                let title = if app.shell_mode {
+                    " Input 🐚 Shell Mode (Enter to exec, !exit to leave, /shell to toggle) "
+                } else {
+                    " Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "
+                };
+                app.input = {
+                    let mut ta = TextArea::default();
+                    ta.set_block(
+                        ratatui::widgets::Block::default()
+                            .borders(ratatui::widgets::Borders::ALL)
+                            .title(title)
+                    );
+                    ta.set_cursor_line_style(ratatui::style::Style::default());
+                    ta
+                };
+                return; // Command was handled, don't send to LLM
+            }
+        }
+
+        // Shell mode: execute command in shell
+        let is_shell = app.shell_mode || input_text.starts_with('!');
+        if is_shell {
+            let cmd = if app.shell_mode {
+                // Shell mode: entire input is the command
+                input_text.clone()
+            } else {
+                // ! prefix: strip the '!' and execute
+                input_text.strip_prefix('!').unwrap_or(&input_text).trim().to_string()
+            };
+
+            // Handle shell mode exit commands
+            if cmd == "exit" || cmd == "!exit" {
+                app.shell_mode = false;
+                app.chat_history.push(("user".to_string(), input_text.clone()));
+                app.chat_history.push(("assistant".to_string(), "🐚 Shell mode deactivated.".to_string()));
                 app.input = {
                     let mut ta = TextArea::default();
                     ta.set_block(
@@ -410,8 +445,127 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                     ta.set_cursor_line_style(ratatui::style::Style::default());
                     ta
                 };
-                return; // Command was handled, don't send to LLM
+                app.show_banner = false;
+                app.auto_scroll = true;
+                return;
             }
+
+            if cmd.is_empty() {
+                return;
+            }
+
+            // Handle cd command specially — subprocess cd doesn't affect the parent process
+            let cmd_trimmed = cmd.trim();
+            let is_cd = cmd_trimmed == "cd"
+                || cmd_trimmed.starts_with("cd ")
+                || cmd_trimmed.starts_with("cd\t");
+            if is_cd {
+                let target = if cmd_trimmed == "cd" {
+                    // cd with no args goes to HOME
+                    std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
+                } else {
+                    cmd_trimmed[2..].trim().to_string()
+                };
+                // Handle ~ expansion
+                let target = if target.starts_with('~') {
+                    if let Ok(home) = std::env::var("HOME") {
+                        target.replacen('~', &home, 1)
+                    } else {
+                        target
+                    }
+                } else {
+                    target
+                };
+                app.chat_history.push(("user".to_string(), format!("$ {}", cmd)));
+                match std::env::set_current_dir(&target) {
+                    Ok(()) => {
+                        let cwd = std::env::current_dir()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|_| "?".to_string());
+                        app.chat_history.push(("assistant".to_string(), format!("Changed directory to {}", cwd)));
+                    }
+                    Err(e) => {
+                        app.chat_history.push(("assistant".to_string(), format!("❌ cd: {}: {}", target, e)));
+                    }
+                }
+                let title = if app.shell_mode {
+                    " Input 🐚 Shell Mode (Enter to exec, !exit to leave, /shell to toggle) "
+                } else {
+                    " Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "
+                };
+                app.input = {
+                    let mut ta = TextArea::default();
+                    ta.set_block(
+                        ratatui::widgets::Block::default()
+                            .borders(ratatui::widgets::Borders::ALL)
+                            .title(title)
+                    );
+                    ta.set_cursor_line_style(ratatui::style::Style::default());
+                    ta
+                };
+                app.show_banner = false;
+                app.auto_scroll = true;
+                return;
+            }
+
+            app.chat_history.push(("user".to_string(), if app.shell_mode {
+                format!("$ {}", cmd)
+            } else {
+                input_text.clone()
+            }));
+
+            // Execute shell command
+            let output = std::process::Command::new("bash")
+                .arg("-c")
+                .arg(&cmd)
+                .current_dir(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+                .output();
+
+            match output {
+                Ok(o) => {
+                    let stdout = String::from_utf8_lossy(&o.stdout);
+                    let stderr = String::from_utf8_lossy(&o.stderr);
+                    let mut result = String::new();
+                    if !stdout.is_empty() {
+                        result.push_str(&stdout);
+                    }
+                    if !stderr.is_empty() {
+                        if !result.is_empty() {
+                            result.push('\n');
+                        }
+                        result.push_str(&format!("stderr:\n{}", stderr));
+                    }
+                    if !o.status.success() {
+                        result.push_str(&format!("\n(exit code: {})", o.status.code().unwrap_or(-1)));
+                    }
+                    if result.is_empty() {
+                        result = "(no output)".to_string();
+                    }
+                    app.chat_history.push(("assistant".to_string(), result));
+                }
+                Err(e) => {
+                    app.chat_history.push(("assistant".to_string(), format!("❌ Failed to execute command: {}", e)));
+                }
+            }
+
+            let title = if app.shell_mode {
+                " Input 🐚 Shell Mode (Enter to exec, !exit to leave, /shell to toggle) "
+            } else {
+                " Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "
+            };
+            app.input = {
+                let mut ta = TextArea::default();
+                ta.set_block(
+                    ratatui::widgets::Block::default()
+                        .borders(ratatui::widgets::Borders::ALL)
+                        .title(title)
+                );
+                ta.set_cursor_line_style(ratatui::style::Style::default());
+                ta
+            };
+            app.show_banner = false;
+            app.auto_scroll = true;
+            return;
         }
 
         app.show_banner = false; // Hide startup banner
@@ -780,6 +934,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 "/model".to_string(),
                 "/init".to_string(),
                 "/undo".to_string(),
+                "/shell".to_string(),
             ]
         }
         '@' => {
@@ -1113,6 +1268,18 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
             }
             true
         }
+        "/shell" => {
+            app.shell_mode = !app.shell_mode;
+            app.chat_history.push(("user".to_string(), "/shell".to_string()));
+            if app.shell_mode {
+                app.chat_history.push(("assistant".to_string(), "🐚 Shell mode activated! All input will be executed as shell commands.\nType `exit` or `/shell` to deactivate.".to_string()));
+            } else {
+                app.chat_history.push(("assistant".to_string(), "🐚 Shell mode deactivated.".to_string()));
+            }
+            app.show_banner = false;
+            app.auto_scroll = true;
+            true
+        }
         _ => {
             // 未知命令，发送给 LLM 处理
             false
@@ -1140,6 +1307,7 @@ fn generate_help_text() -> String {
 | `/think` | Show last reasoning/thinking content |
 | `/init` | Initialize or update project knowledge file |
 | `/undo` | Undo all file changes made in this session (restore to session start) |
+| `/shell` | Toggle shell mode (all input executed as shell commands) |
 
 ## Input Features
 
@@ -1147,6 +1315,8 @@ fn generate_help_text() -> String {
   - Use `@path:N` to read from line N (e.g., `@src/main.rs:50`)
   - Large files (>500 lines or 50KB) are truncated with a notice
 
+- **`!command`** - Execute a shell command directly (e.g., `!ls -la`)
+- **`/shell`** - Enter persistent shell mode (type `exit` or `/shell` to leave)
 - **Alt+Enter** - Insert newline in input
 - **Enter** - Send message
 - **Esc** / **Ctrl+C** - Interrupt response | **Esc** twice / **Ctrl+C** twice - Quit

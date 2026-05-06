@@ -105,6 +105,8 @@ pub struct App {
      pub init_rx: Option<mpsc::Receiver<InitResult>>,
     /// Receiver for confirmation requests from tools
     pub confirmation_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ConfirmationRequest>>,
+    /// 是否处于 Shell 模式（所有输入作为 shell 命令执行）
+    pub shell_mode: bool,
 }
 
 impl App {
@@ -179,6 +181,7 @@ impl App {
              session_selected: 0,
              init_rx: None,
              confirmation_rx: None,
+              shell_mode: false,
          }
     }
 }

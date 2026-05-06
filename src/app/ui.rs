@@ -333,6 +333,11 @@ fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             format!(" | Streaming{}", dots),
             Style::default().fg(Color::Yellow)
         ));
+    } else if app.shell_mode {
+        spans.push(Span::styled(
+            " | 🐚 Shell",
+            Style::default().fg(Color::Cyan)
+        ));
     } else {
         spans.push(Span::styled(
             " | Ready",

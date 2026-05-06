@@ -5,7 +5,7 @@ use my_code_agent::tools::all_tools;
 fn test_all_tools_count() {
     let config = Config::default();
     let tools = all_tools(&config);
-    assert_eq!(tools.len(), 14);
+    assert_eq!(tools.len(), 15);
 }
 
 #[test]
