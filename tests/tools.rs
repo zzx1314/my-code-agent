@@ -5,7 +5,7 @@ use my_code_agent::tools::all_tools;
 fn test_all_tools_count() {
     let config = Config::default();
     let tools = all_tools(&config);
-    assert_eq!(tools.len(), 13);
+    assert_eq!(tools.len(), 14);
 }
 
 #[test]
@@ -14,6 +14,7 @@ fn test_all_tools_names() {
     let tools = all_tools(&config);
     let names: Vec<String> = tools.iter().map(|t| t.name()).collect();
     assert!(names.contains(&"file_read".to_string()));
+    assert!(names.contains(&"file_outline".to_string()));
     assert!(names.contains(&"file_write".to_string()));
     assert!(names.contains(&"shell_exec".to_string()));
     assert!(names.contains(&"code_search".to_string()));

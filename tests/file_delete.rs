@@ -6,7 +6,7 @@ async fn call_delete(
     path: &str,
     recursive: bool,
 ) -> Result<<FileDelete as Tool>::Output, <FileDelete as Tool>::Error> {
-    FileDelete
+    FileDelete::default()
         .call(my_code_agent::tools::file_delete::FileDeleteArgs {
             path: path.to_string(),
             recursive,
@@ -22,7 +22,7 @@ async fn call_delete_snippet(
     snippet: &str,
     allow_multiple: bool,
 ) -> Result<<FileDelete as Tool>::Output, <FileDelete as Tool>::Error> {
-    FileDelete
+    FileDelete::default()
         .call(my_code_agent::tools::file_delete::FileDeleteArgs {
             path: path.to_string(),
             recursive: false,
