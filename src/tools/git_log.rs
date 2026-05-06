@@ -94,13 +94,16 @@ impl Tool for GitLog {
         let mut cmd = tokio::process::Command::new("git");
         cmd.arg("log")
             .arg(&format!("--max-count={}", max_count))
-            .arg(&format!("--pretty=format:{}", match format {
-                "oneline" => "%H|%h|%an|%ar|%s",
-                "short" => "%H|%h|%an|%ar|%s",
-                "medium" => "%H|%h|%an|%ai|%s%n%b",
-                "full" => "%H|%h|%an|%ae|%ai|%cn|%ce|%s%n%b",
-                _ => "%H|%h|%an|%ar|%s",
-            }));
+            .arg(&format!(
+                "--pretty=format:{}",
+                match format {
+                    "oneline" => "%H|%h|%an|%ar|%s",
+                    "short" => "%H|%h|%an|%ar|%s",
+                    "medium" => "%H|%h|%an|%ai|%s%n%b",
+                    "full" => "%H|%h|%an|%ae|%ai|%cn|%ce|%s%n%b",
+                    _ => "%H|%h|%an|%ar|%s",
+                }
+            ));
 
         if let Some(file) = &args.file {
             cmd.arg("--").arg(file);

@@ -1,5 +1,8 @@
 use anyhow::Result;
 
+use my_code_agent::app;
+use my_code_agent::app::App;
+use my_code_agent::app::conversion::convert_rig_to_app;
 use my_code_agent::core::config::Config;
 use my_code_agent::core::context_manager::ContextManager;
 use my_code_agent::core::preamble::build_agent_with_confirmation;
@@ -7,9 +10,6 @@ use my_code_agent::core::session::SessionData;
 use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::tools::confirmation::ConfirmationHandle;
 use my_code_agent::tools::create_mcp_tools;
-use my_code_agent::app::App;
-use my_code_agent::app;
-use my_code_agent::app::conversion::convert_rig_to_app;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,17 +26,20 @@ async fn main() -> Result<()> {
         .with_ansi(false)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,tui_markdown=off"))
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,tui_markdown=off")),
         )
         .init();
 
     let config = Config::load();
 
     // Generate a unique session ID for undo history tracking
-    let session_id = format!("session_{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos());
+    let session_id = format!(
+        "session_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
     my_code_agent::tools::undo_history::set_session_id(session_id.clone());
     tracing::info!(session_id = %session_id, "Initialized session ID for undo tracking");
 
@@ -48,11 +51,19 @@ async fn main() -> Result<()> {
     if config.session.enabled {
         if let Some(load_result) = SessionData::load_default(config.session.save_file.as_deref()) {
             if let Ok(data) = load_result {
-                app_chat_history = data.chat_history.into_iter().map(convert_rig_to_app).collect();
+                app_chat_history = data
+                    .chat_history
+                    .into_iter()
+                    .map(convert_rig_to_app)
+                    .collect();
                 token_usage = data.token_usage;
                 last_reasoning = data.last_reasoning;
                 let turns = app_chat_history.iter().filter(|(r, _)| r == "user").count();
-                tracing::info!(turns, tokens = token_usage.total_tokens(), "Resumed session");
+                tracing::info!(
+                    turns,
+                    tokens = token_usage.total_tokens(),
+                    "Resumed session"
+                );
             }
         }
     }
@@ -61,7 +72,11 @@ async fn main() -> Result<()> {
 
     // Create confirmation channel for tool -> UI interaction
     let (confirmation_handle, confirmation_rx) = ConfirmationHandle::new();
-    let agent = Arc::new(build_agent_with_confirmation(&config, mcp_tools, confirmation_handle));
+    let agent = Arc::new(build_agent_with_confirmation(
+        &config,
+        mcp_tools,
+        confirmation_handle,
+    ));
 
     let context_manager = ContextManager::new(&config);
 
@@ -99,7 +114,7 @@ async fn main() -> Result<()> {
         } else {
             app.marquee_frame = 0;
         }
-        
+
         terminal.draw(|f| app::ui::ui(f, &mut app))?;
 
         // Check for completed stream result
@@ -152,7 +167,10 @@ async fn main() -> Result<()> {
     if app.config.session.cleanup_undo_history {
         match my_code_agent::tools::undo_history::clear_current_session_entries() {
             Ok(cleared) if cleared > 0 => {
-                tracing::info!(cleared, "Cleaned up undo history for current session on exit");
+                tracing::info!(
+                    cleared,
+                    "Cleaned up undo history for current session on exit"
+                );
             }
             Ok(_) => {}
             Err(e) => {
@@ -165,7 +183,9 @@ async fn main() -> Result<()> {
     if !app.chat_history.is_empty() {
         use my_code_agent::core::session::SessionData;
 
-        let rig_history: Vec<_> = app.chat_history.iter()
+        let rig_history: Vec<_> = app
+            .chat_history
+            .iter()
             .map(|(r, c)| match r.as_str() {
                 "user" => rig::completion::Message::user(c.clone()),
                 "assistant" => rig::completion::Message::assistant(c.clone()),
@@ -193,15 +213,17 @@ async fn main() -> Result<()> {
     // Save to default session file if session.enabled (for auto-resume)
     if app.config.session.enabled && !app.chat_history.is_empty() {
         use my_code_agent::core::session::SessionData;
-        
-        let rig_history: Vec<_> = app.chat_history.into_iter()
+
+        let rig_history: Vec<_> = app
+            .chat_history
+            .into_iter()
             .map(|(r, c)| match r.as_str() {
                 "user" => rig::completion::Message::user(c),
                 "assistant" => rig::completion::Message::assistant(c),
                 _ => rig::completion::Message::user(c),
             })
             .collect();
-        
+
         let data = SessionData::new(
             rig_history,
             app.token_usage.clone(),

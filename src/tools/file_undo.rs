@@ -3,7 +3,7 @@ use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::undo_history::{pop_current_session_entries, current_session_history_len, UndoEntry};
+use super::undo_history::{UndoEntry, current_session_history_len, pop_current_session_entries};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileUndoError {
@@ -79,13 +79,15 @@ impl Tool for FileUndo {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let available = current_session_history_len().map_err(|e| FileUndoError::History(e.to_string()))?;
+        let available =
+            current_session_history_len().map_err(|e| FileUndoError::History(e.to_string()))?;
         if available == 0 {
             return Err(FileUndoError::NoHistory);
         }
 
         // Pop all current session entries (session-scoped undo)
-        let mut entries = pop_current_session_entries().map_err(|e| FileUndoError::History(e.to_string()))?;
+        let mut entries =
+            pop_current_session_entries().map_err(|e| FileUndoError::History(e.to_string()))?;
 
         // If steps < available, only undo the N most recent
         if args.steps < entries.len() {
@@ -112,9 +114,11 @@ pub fn apply_undo(entry: &UndoEntry, details: &mut Vec<UndoDetail>) -> Result<()
     match &entry.old_content {
         Some(old_content) => {
             // File existed before — restore its old content.
-            std::fs::write(&entry.file_path, old_content).map_err(|e| FileUndoError::IoRestore {
-                path: path_str.clone(),
-                source: e,
+            std::fs::write(&entry.file_path, old_content).map_err(|e| {
+                FileUndoError::IoRestore {
+                    path: path_str.clone(),
+                    source: e,
+                }
             })?;
             details.push(UndoDetail {
                 file_path: path_str,

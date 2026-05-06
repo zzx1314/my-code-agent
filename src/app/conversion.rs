@@ -1,6 +1,6 @@
+use rig::completion::AssistantContent;
 use rig::completion::Message as RigMessage;
 use rig::message::UserContent;
-use rig::completion::AssistantContent;
 
 /// Extract text from UserContent
 pub fn text_from_user_content(content: &UserContent) -> String {

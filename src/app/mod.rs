@@ -1,11 +1,11 @@
+use crate::core::config::Config;
+use crate::core::preamble::Agent;
+use crate::core::streaming::{StreamEvent, StreamResult};
+use crate::core::token_usage::TokenUsage;
+use crate::tools::confirmation::ConfirmationRequest;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
-use crate::core::config::Config;
-use crate::core::token_usage::TokenUsage;
-use crate::core::streaming::{StreamResult, StreamEvent};
-use crate::core::preamble::Agent;
-use crate::tools::confirmation::ConfirmationRequest;
 
 /// Represents a pending confirmation request from a tool.
 pub struct PendingConfirmation {
@@ -23,9 +23,9 @@ pub struct InitResult {
     pub new_agent: Option<Agent>,
 }
 
-pub mod ui;
-pub mod event_handler;
 pub mod conversion;
+pub mod event_handler;
+pub mod ui;
 
 /// Application state
 pub struct App {
@@ -86,27 +86,27 @@ pub struct App {
     /// 当前待确认的请求
     pub pending_confirmation: Option<PendingConfirmation>,
     // === 模型选择器相关状态 ===
-     /// 是否显示模型选择器
-     pub show_model_picker: bool,
-     /// 可选的模型列表
-     pub model_options: Vec<String>,
-     /// 当前选中的模型索引
-     pub model_selected: usize,
-     // === Provider 选择器相关状态 ===
-     /// 是否显示 provider 选择器
-     pub show_provider_picker: bool,
-     /// 可选的 provider 列表
-     pub provider_options: Vec<String>,
-     /// 当前选中的 provider 索引
-     pub provider_selected: usize,
-     // === Session 选择器相关状态 ===
-     /// 是否显示 session 选择器
-     pub show_session_picker: bool,
-     /// 可选的 session 列表
-     pub session_options: Vec<crate::core::session::SessionInfo>,
-     /// 当前选中的 session 索引
-     pub session_selected: usize,
-     pub init_rx: Option<mpsc::Receiver<InitResult>>,
+    /// 是否显示模型选择器
+    pub show_model_picker: bool,
+    /// 可选的模型列表
+    pub model_options: Vec<String>,
+    /// 当前选中的模型索引
+    pub model_selected: usize,
+    // === Provider 选择器相关状态 ===
+    /// 是否显示 provider 选择器
+    pub show_provider_picker: bool,
+    /// 可选的 provider 列表
+    pub provider_options: Vec<String>,
+    /// 当前选中的 provider 索引
+    pub provider_selected: usize,
+    // === Session 选择器相关状态 ===
+    /// 是否显示 session 选择器
+    pub show_session_picker: bool,
+    /// 可选的 session 列表
+    pub session_options: Vec<crate::core::session::SessionInfo>,
+    /// 当前选中的 session 索引
+    pub session_selected: usize,
+    pub init_rx: Option<mpsc::Receiver<InitResult>>,
     /// Receiver for confirmation requests from tools
     pub confirmation_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ConfirmationRequest>>,
     /// 是否处于 Shell 模式（所有输入作为 shell 命令执行）
@@ -130,7 +130,7 @@ impl App {
         input_area.set_block(
             ratatui::widgets::Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
-                .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
+                .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "),
         );
         input_area.set_cursor_line_style(ratatui::style::Style::default());
 
@@ -173,49 +173,42 @@ impl App {
             // 确认弹窗
             pending_confirmation: None,
             // 模型选择器初始化
-             show_model_picker: false,
-             model_options: get_model_options_for_provider(&config.llm.provider),
-             model_selected: 0,
-             // Provider 选择器初始化
-             show_provider_picker: false,
-             provider_options: vec!["deepseek".to_string(), "openrouter".to_string()],
-             provider_selected: {
-                 let p = config.llm.provider.as_str();
-                 if p == "openrouter" { 1 } else { 0 }
-             },
-             // Session 选择器初始化
-             show_session_picker: false,
-             session_options: Vec::new(),
-             session_selected: 0,
-             init_rx: None,
-             confirmation_rx: None,
-              shell_mode: false,
-              message_queue: Vec::new(),
-         }
+            show_model_picker: false,
+            model_options: get_model_options_for_provider(&config.llm.provider),
+            model_selected: 0,
+            // Provider 选择器初始化
+            show_provider_picker: false,
+            provider_options: vec!["deepseek".to_string(), "openrouter".to_string()],
+            provider_selected: {
+                let p = config.llm.provider.as_str();
+                if p == "openrouter" { 1 } else { 0 }
+            },
+            // Session 选择器初始化
+            show_session_picker: false,
+            session_options: Vec::new(),
+            session_selected: 0,
+            init_rx: None,
+            confirmation_rx: None,
+            shell_mode: false,
+            message_queue: Vec::new(),
+        }
     }
 }
 
 /// 根据 provider 返回对应的模型选项列表
 pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
     match provider {
-        "deepseek" => vec![
-            "deepseek-chat".to_string(),
-            "deepseek-reasoner".to_string(),
-        ],
+        "deepseek" => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
         "openrouter" => vec![
             // OpenRouter 免费模型
             "nvidia/nemotron-3-super-120b-a12b:free".to_string(),
             "tencent/hy3-preview:free".to_string(),
-
             // Poolside 免费模型
             "poolside/laguna-m.1:free".to_string(),
             "poolside/laguna-xs.2:free".to_string(),
             // OpenRouter 特有模型
             "openrouter/owl-alpha".to_string(),
         ],
-        _ => vec![
-            "deepseek-chat".to_string(),
-            "deepseek-reasoner".to_string(),
-        ],
+        _ => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
     }
 }

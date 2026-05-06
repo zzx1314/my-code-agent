@@ -17,7 +17,10 @@ pub struct ConfirmationHandle {
 impl ConfirmationHandle {
     /// Create a new confirmation channel pair.
     /// Returns (handle, receiver) — the receiver should be given to the UI event loop.
-    pub fn new() -> (Self, tokio::sync::mpsc::UnboundedReceiver<ConfirmationRequest>) {
+    pub fn new() -> (
+        Self,
+        tokio::sync::mpsc::UnboundedReceiver<ConfirmationRequest>,
+    ) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         (Self { request_tx: tx }, rx)
     }

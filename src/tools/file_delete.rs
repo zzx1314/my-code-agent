@@ -64,7 +64,9 @@ pub struct FileDelete {
 
 impl FileDelete {
     pub fn new(confirmation_handle: ConfirmationHandle) -> Self {
-        Self { confirmation_handle }
+        Self {
+            confirmation_handle,
+        }
     }
 }
 
@@ -143,8 +145,12 @@ impl Tool for FileDelete {
             if !args.auto_approve
                 && let Some(reason) = is_dangerous_snippet_deletion(&args.path)
             {
-                let approved =
-                    confirm_action(&self.confirmation_handle, reason, &format!("snippet deletion from: {}", args.path)).await;
+                let approved = confirm_action(
+                    &self.confirmation_handle,
+                    reason,
+                    &format!("snippet deletion from: {}", args.path),
+                )
+                .await;
                 if !approved {
                     return Err(FileDeleteError::Cancelled { path: args.path });
                 }
@@ -220,12 +226,7 @@ impl Tool for FileDelete {
         } else if path.is_file() {
             // Record file content for undo before deletion
             let old_content = std::fs::read_to_string(path).ok();
-            let _ = undo_history::record_change(
-                &args.path,
-                old_content,
-                None,
-                "file_delete",
-            );
+            let _ = undo_history::record_change(&args.path, old_content, None, "file_delete");
             std::fs::remove_file(path).map_err(FileDeleteError::Io)?;
             "file".to_string()
         } else {

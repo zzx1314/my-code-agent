@@ -193,5 +193,8 @@ pub fn current_session_history_len() -> Result<usize> {
     if current_id.is_empty() {
         return Ok(0);
     }
-    Ok(history.iter().filter(|e| e.session_id == current_id).count())
+    Ok(history
+        .iter()
+        .filter(|e| e.session_id == current_id)
+        .count())
 }

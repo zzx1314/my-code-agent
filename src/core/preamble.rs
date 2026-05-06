@@ -1,13 +1,12 @@
 use rig::client::CompletionClient;
 
 use crate::core::config::Config;
-use crate::tools::confirmation::ConfirmationHandle;
 use crate::tools;
+use crate::tools::confirmation::ConfirmationHandle;
 use rig::providers::openrouter;
 
 use std::sync::OnceLock;
 use std::time::Duration;
-
 
 pub const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with access to tools for reading, writing, searching, and executing code.
 
@@ -104,7 +103,10 @@ fn load_knowledge() -> &'static str {
                     file = KNOWLEDGE_FILE,
                     "Knowledge file not found - project knowledge unavailable"
                 );
-                format!("({} not found - no project knowledge loaded)", KNOWLEDGE_FILE)
+                format!(
+                    "({} not found - no project knowledge loaded)",
+                    KNOWLEDGE_FILE
+                )
             })
     })
 }
@@ -127,7 +129,11 @@ fn check_api_key(provider_name: &str, api_key_env: &str) {
         );
         std::process::exit(1);
     }
-    tracing::info!(env_var = api_key_env, provider = provider_name, "API key loaded");
+    tracing::info!(
+        env_var = api_key_env,
+        provider = provider_name,
+        "API key loaded"
+    );
 }
 
 /// Supported LLM providers
@@ -223,7 +229,7 @@ pub fn build_agent_with_confirmation(
 
     let preamble = build_preamble();
     let mut all_tools = tools::all_tools_with_handle(config, confirmation_handle);
-    
+
     // Add MCP tools
     for tool in mcp_tools {
         all_tools.push(tool);
@@ -245,11 +251,10 @@ pub fn build_agent_with_confirmation(
         Provider::OpenRouter => {
             tracing::info!(model = %model, provider = "OpenRouter", "Model selected");
             let api_key = std::env::var(api_key_env).unwrap_or_default();
-            
+
             // Create builder
-            let mut builder = openrouter::Client::builder()
-                .api_key(&api_key);
-            
+            let mut builder = openrouter::Client::builder().api_key(&api_key);
+
             // Apply timeout if set
             if config.llm.timeout_secs > 0 {
                 let reqwest_client = reqwest::Client::builder()
@@ -258,9 +263,9 @@ pub fn build_agent_with_confirmation(
                     .expect("Failed to create reqwest client");
                 builder = builder.http_client(reqwest_client);
             }
-            
+
             let client = builder.build().expect("Failed to create OpenRouter client");
-            
+
             return Agent::OpenRouter(
                 client
                     .agent(&model)
@@ -275,7 +280,9 @@ pub fn build_agent_with_confirmation(
                 Some(url) => url.clone(),
                 None => {
                     tracing::error!("Custom provider requires base_url in config.toml");
-                    tracing::error!("Example:\n  [llm]\n  provider = \"custom\"\n  model = \"llama3\"\n  base_url = \"http://localhost:11434/v1\"");
+                    tracing::error!(
+                        "Example:\n  [llm]\n  provider = \"custom\"\n  model = \"llama3\"\n  base_url = \"http://localhost:11434/v1\""
+                    );
                     std::process::exit(1);
                 }
             };
@@ -314,14 +321,15 @@ fn create_openai_client(
     all_tools: Vec<Box<dyn rig::tool::ToolDyn>>,
     max_turns: usize,
     timeout_secs: u64,
-) -> Agent {  // 返回你的 Agent 枚举
+) -> Agent {
+    // 返回你的 Agent 枚举
     let api_key = std::env::var(api_key_env).unwrap_or_default();
-    
+
     // Start building the client
     let mut builder = rig::providers::openai::CompletionsClient::builder()
         .api_key(&api_key)
         .base_url(base_url);
-    
+
     // Apply timeout if set
     if timeout_secs > 0 {
         let reqwest_client = reqwest::Client::builder()
@@ -330,16 +338,17 @@ fn create_openai_client(
             .expect("Failed to create reqwest client");
         builder = builder.http_client(reqwest_client);
     }
-    
+
     let client = builder.build().expect("Failed to create OpenAI client");
 
-    Agent::OpenAI(  // ← 包装进枚举
+    Agent::OpenAI(
+        // ← 包装进枚举
         client
             .agent(model)
             .preamble(preamble)
             .tools(all_tools)
             .default_max_turns(max_turns)
-            .build()
+            .build(),
     )
 }
 

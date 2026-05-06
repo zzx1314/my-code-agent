@@ -150,9 +150,8 @@ fn test_parse_plan_skips_empty_step_text() {
 #[test]
 fn test_parse_plan_ignores_non_numbered_lines() {
     let mut tracker = PlanTracker::new();
-    tracker.parse_plan(
-        "Some intro text\n1. Step one\nMore text between\n2. Step two\nTrailing text",
-    );
+    tracker
+        .parse_plan("Some intro text\n1. Step one\nMore text between\n2. Step two\nTrailing text");
 
     assert_eq!(tracker.total_steps(), 2);
 }
@@ -191,7 +190,12 @@ fn test_confirm() {
 
     assert!(tracker.is_confirmed());
     assert!(!tracker.needs_confirmation());
-    assert!(tracker.messages().iter().any(|m| m.contains("Plan confirmed")));
+    assert!(
+        tracker
+            .messages()
+            .iter()
+            .any(|m| m.contains("Plan confirmed"))
+    );
 }
 
 #[test]
@@ -204,7 +208,12 @@ fn test_cancel() {
 
     assert!(!tracker.has_active_plan());
     assert_eq!(tracker.total_steps(), 0);
-    assert!(tracker.messages().iter().any(|m| m.contains("Plan cancelled")));
+    assert!(
+        tracker
+            .messages()
+            .iter()
+            .any(|m| m.contains("Plan cancelled"))
+    );
 }
 
 #[test]
@@ -397,7 +406,10 @@ fn test_log_progress() {
 
     tracker.log_progress();
     let msgs = tracker.messages();
-    assert!(msgs.iter().any(|m| m.contains("First step") && m.contains("1/3")));
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("First step") && m.contains("1/3"))
+    );
 }
 
 #[test]
@@ -419,9 +431,15 @@ fn test_log_progress_at_each_step() {
     tracker.complete_current_step();
 
     let msgs = tracker.messages();
-    assert!(msgs.iter().any(|m| m.contains("Alpha") && m.contains("1/3")));
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("Alpha") && m.contains("1/3"))
+    );
     assert!(msgs.iter().any(|m| m.contains("Beta") && m.contains("2/3")));
-    assert!(msgs.iter().any(|m| m.contains("Gamma") && m.contains("3/3")));
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("Gamma") && m.contains("3/3"))
+    );
 }
 
 #[test]
@@ -455,7 +473,12 @@ fn test_log_completion() {
     assert!(tracker.is_completed());
     tracker.log_completion();
 
-    assert!(tracker.messages().iter().any(|m| m.contains("Plan completed")));
+    assert!(
+        tracker
+            .messages()
+            .iter()
+            .any(|m| m.contains("Plan completed"))
+    );
 }
 
 #[test]
@@ -466,7 +489,12 @@ fn test_log_completion_not_yet_done() {
     // Only 1 of 2 completed
 
     tracker.log_completion();
-    assert!(tracker.messages().iter().all(|m| !m.contains("Plan completed")));
+    assert!(
+        tracker
+            .messages()
+            .iter()
+            .all(|m| !m.contains("Plan completed"))
+    );
 }
 
 #[test]
@@ -601,9 +629,18 @@ fn test_plan_confirmation_result_clone() {
 
 #[test]
 fn test_plan_confirmation_result_debug() {
-    assert_eq!(format!("{:?}", PlanConfirmationResult::Confirmed), "Confirmed");
-    assert_eq!(format!("{:?}", PlanConfirmationResult::Cancelled), "Cancelled");
-    assert_eq!(format!("{:?}", PlanConfirmationResult::AskDetails), "AskDetails");
+    assert_eq!(
+        format!("{:?}", PlanConfirmationResult::Confirmed),
+        "Confirmed"
+    );
+    assert_eq!(
+        format!("{:?}", PlanConfirmationResult::Cancelled),
+        "Cancelled"
+    );
+    assert_eq!(
+        format!("{:?}", PlanConfirmationResult::AskDetails),
+        "AskDetails"
+    );
 }
 
 // ============================================================================

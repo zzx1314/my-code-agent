@@ -39,7 +39,9 @@ pub struct ParallelWebSearch {
 impl ParallelWebSearch {
     pub fn new(api_key: &str) -> Self {
         let client = McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key));
-        Self { client: Some(client) }
+        Self {
+            client: Some(client),
+        }
     }
 
     pub fn is_available(&self) -> bool {
@@ -80,7 +82,12 @@ impl Tool for ParallelWebSearch {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let client = self.client.as_ref().ok_or(WebSearchError::NotAvailable)?;
 
-        let keywords: Vec<String> = args.query.split_whitespace().take(3).map(String::from).collect();
+        let keywords: Vec<String> = args
+            .query
+            .split_whitespace()
+            .take(3)
+            .map(String::from)
+            .collect();
         let call_args = serde_json::json!({
             "objective": args.query,
             "search_queries": keywords,
@@ -101,7 +108,7 @@ impl Tool for ParallelWebSearch {
                 }
                 Ok(WebSearchOutput { results: output })
             }
-            Err(e) => Err(WebSearchError::SearchFailed(e.to_string()))
+            Err(e) => Err(WebSearchError::SearchFailed(e.to_string())),
         }
     }
 }
@@ -113,7 +120,9 @@ pub struct ParallelWebFetch {
 impl ParallelWebFetch {
     pub fn new(api_key: &str) -> Self {
         let client = McpHttpClient::new("https://search.parallel.ai/mcp", Some(api_key));
-        Self { client: Some(client) }
+        Self {
+            client: Some(client),
+        }
     }
 
     pub fn is_available(&self) -> bool {
@@ -130,8 +139,7 @@ impl Tool for ParallelWebFetch {
     async fn definition(&self, _prompt: String) -> RigToolDefinition {
         RigToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Extract content from a URL in markdown format."
-                .to_string(),
+            description: "Extract content from a URL in markdown format.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -166,7 +174,7 @@ impl Tool for ParallelWebFetch {
                 }
                 Ok(WebSearchOutput { results: output })
             }
-            Err(e) => Err(WebSearchError::SearchFailed(e.to_string()))
+            Err(e) => Err(WebSearchError::SearchFailed(e.to_string())),
         }
     }
 }

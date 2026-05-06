@@ -4,6 +4,7 @@ pub mod confirmation;
 pub mod file_delete;
 pub mod file_outline;
 pub mod file_read;
+pub mod file_undo;
 pub mod file_update;
 pub mod file_write;
 pub mod git_commit;
@@ -15,13 +16,13 @@ pub mod list_dir;
 pub mod safety;
 pub mod shell_exec;
 pub mod undo_history;
-pub mod file_undo;
 
 pub use code_review::CodeReview;
 pub use code_search::CodeSearch;
 pub use file_delete::FileDelete;
 pub use file_outline::FileOutline;
 pub use file_read::FileRead;
+pub use file_undo::FileUndo;
 pub use file_update::FileUpdate;
 pub use file_update::build_diff;
 pub use file_write::FileWrite;
@@ -36,7 +37,6 @@ pub use safety::{
     is_dangerous_snippet_deletion,
 };
 pub use shell_exec::ShellExec;
-pub use file_undo::FileUndo;
 
 use crate::core::config::Config;
 use crate::tools::confirmation::ConfirmationHandle;
@@ -62,7 +62,10 @@ pub fn all_tools_with_handle(
         Box::new(FileWrite),
         Box::new(FileUpdate),
         Box::new(FileDelete::new(confirmation_handle.clone())),
-        Box::new(ShellExec::new(config.shell.default_timeout_secs, confirmation_handle.clone())),
+        Box::new(ShellExec::new(
+            config.shell.default_timeout_secs,
+            confirmation_handle.clone(),
+        )),
         Box::new(CodeSearch),
         Box::new(CodeReview),
         Box::new(ListDir),

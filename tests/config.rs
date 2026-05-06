@@ -94,7 +94,10 @@ fn test_mcp_config_load() {
 
     let config = Config::load_from(&path);
     assert!(config.mcp.enabled);
-    assert_eq!(config.mcp.parallel_api_key, Some("test_key_123".to_string()));
+    assert_eq!(
+        config.mcp.parallel_api_key,
+        Some("test_key_123".to_string())
+    );
 }
 
 #[test]

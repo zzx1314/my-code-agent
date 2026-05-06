@@ -1,9 +1,9 @@
 use ratatui::{
     prelude::*,
-    widgets::{Paragraph, Wrap, Block, Borders, List, ListItem, ListState, Clear},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
-use tui_textarea::TextArea;
 use tui_markdown::from_str;
+use tui_textarea::TextArea;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
@@ -84,7 +84,11 @@ pub fn apply_input_wrap(app: &mut App, text_width: usize) {
         let (wrapped, wr, wc) = wrap_line(
             line,
             text_width,
-            if line_idx == cursor_row { cursor_char_idx } else { usize::MAX },
+            if line_idx == cursor_row {
+                cursor_char_idx
+            } else {
+                usize::MAX
+            },
         );
         if line_idx == cursor_row && wr != usize::MAX {
             new_cursor_row = row_offset + wr;
@@ -105,10 +109,13 @@ pub fn apply_input_wrap(app: &mut App, text_width: usize) {
     new_ta.set_block(
         ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)
-            .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
+            .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "),
     );
     new_ta.set_cursor_line_style(ratatui::style::Style::default());
-    new_ta.move_cursor(tui_textarea::CursorMove::Jump(new_cursor_row as u16, new_cursor_col as u16));
+    new_ta.move_cursor(tui_textarea::CursorMove::Jump(
+        new_cursor_row as u16,
+        new_cursor_col as u16,
+    ));
     app.input = new_ta;
 }
 
@@ -138,7 +145,8 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     let input_height = calculate_input_height(app, area.width);
 
-    let has_reasoning = app.show_reasoning && (!app.last_reasoning.is_empty() || !app.streaming_reasoning.is_empty());
+    let has_reasoning = app.show_reasoning
+        && (!app.last_reasoning.is_empty() || !app.streaming_reasoning.is_empty());
 
     let chunks = if has_reasoning {
         Layout::default()
@@ -209,8 +217,7 @@ fn render_reasoning_area(f: &mut Frame, app: &mut App, area: Rect) {
     let inner_width = area.width.saturating_sub(2);
 
     // Use Paragraph::line_count to get actual visual lines after wrapping
-    let temp_paragraph = Paragraph::new(reasoning_text.clone())
-        .wrap(Wrap { trim: true });
+    let temp_paragraph = Paragraph::new(reasoning_text.clone()).wrap(Wrap { trim: true });
     app.reasoning_total_lines = temp_paragraph.line_count(inner_width) as u16;
 
     if app.reasoning_auto_scroll || app.is_streaming {
@@ -229,7 +236,7 @@ fn render_reasoning_area(f: &mut Frame, app: &mut App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(" 🤔 Reasoning ")
-                .border_style(Style::default().fg(Color::Yellow))
+                .border_style(Style::default().fg(Color::Yellow)),
         )
         .style(Style::default().fg(Color::DarkGray));
 
@@ -253,7 +260,12 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         match role.as_str() {
             "user" => {
                 lines.push(Line::from(vec![
-                    Span::styled("You: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "You: ",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw(content.clone()),
                 ]));
                 lines.push(Line::default());
@@ -272,9 +284,12 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
     if app.is_streaming {
         if !app.streaming_text.is_empty() || app.current_tool_call.is_some() {
-            lines.push(Line::from(vec![
-                Span::styled("Assistant: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                "Assistant: ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )]));
             if !app.streaming_text.is_empty() {
                 let md = from_str(&app.streaming_text);
                 lines.extend(md.lines);
@@ -282,14 +297,16 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             // Show running indicator only when a tool is actively executing
             // (the tool call name is already rendered in streaming_text above)
             if let Some(ref tool_name) = app.current_tool_call {
-                lines.push(Line::from(vec![
-                    Span::styled(format!("  ⏳ {}...", tool_name), Style::default().fg(Color::DarkGray)),
-                ]));
+                lines.push(Line::from(vec![Span::styled(
+                    format!("  ⏳ {}...", tool_name),
+                    Style::default().fg(Color::DarkGray),
+                )]));
             }
         } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
-            lines.push(Line::from(
-                Span::styled("⏳ Generating response...", Style::default().fg(Color::Yellow))
-            ));
+            lines.push(Line::from(Span::styled(
+                "⏳ Generating response...",
+                Style::default().fg(Color::Yellow),
+            )));
         }
     }
 
@@ -335,20 +352,25 @@ fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
     let mut spans = Vec::new();
 
     spans.push(Span::styled(
-        format!("Model: {}", app.config.llm.model.as_deref().unwrap_or("unknown")),
-        Style::default().fg(Color::DarkGray)
+        format!(
+            "Model: {}",
+            app.config.llm.model.as_deref().unwrap_or("unknown")
+        ),
+        Style::default().fg(Color::DarkGray),
     ));
 
     if let Some(ref turn_line) = app.turn_usage_line {
         spans.push(Span::styled(
             format!(" | {}", turn_line),
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(Color::DarkGray),
         ));
         // Show per-turn cache hit rate if available
-        if let Some(cache_line) = crate::core::context_cache::global_cache().format_turn_cache_line() {
+        if let Some(cache_line) =
+            crate::core::context_cache::global_cache().format_turn_cache_line()
+        {
             spans.push(Span::styled(
                 format!(" | {}", cache_line),
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(Color::DarkGray),
             ));
         }
     }
@@ -358,18 +380,15 @@ fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
         let dots = ".".repeat(dot_cycle as usize);
         spans.push(Span::styled(
             format!(" | Streaming{}", dots),
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(Color::Yellow),
         ));
     } else if app.shell_mode {
         spans.push(Span::styled(
             " | 🐚 Shell",
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(Color::Cyan),
         ));
     } else {
-        spans.push(Span::styled(
-            " | Ready",
-            Style::default().fg(Color::Green)
-        ));
+        spans.push(Span::styled(" | Ready", Style::default().fg(Color::Green)));
     }
 
     let status_bar = Paragraph::new(Line::from(spans));
@@ -400,11 +419,15 @@ fn render_completion_menu(f: &mut Frame, app: &mut App, input_area: Rect) {
 
     f.render_widget(Clear, menu_rect);
 
-    let items: Vec<ListItem> = app.completion_items
+    let items: Vec<ListItem> = app
+        .completion_items
         .iter()
         .map(|item| {
             let style = if item == &app.completion_items[app.completion_selected] {
-                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(Color::Blue)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
@@ -425,9 +448,14 @@ fn render_completion_menu(f: &mut Frame, app: &mut App, input_area: Rect) {
                     _ => " Completions ",
                 })
                 .border_style(Style::default().fg(Color::Cyan))
-                .style(Style::default().bg(Color::Black))
+                .style(Style::default().bg(Color::Black)),
         )
-        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_symbol("> ");
 
     f.render_stateful_widget(list, menu_rect, &mut state);
@@ -457,7 +485,12 @@ fn render_confirmation_dialog(f: &mut Frame, app: &mut App) {
     };
 
     // Dim the background
-    let overlay = Rect { x: 0, y: 0, width: area.width, height: area.height };
+    let overlay = Rect {
+        x: 0,
+        y: 0,
+        width: area.width,
+        height: area.height,
+    };
     f.render_widget(Clear, overlay);
 
     // Dialog block
@@ -472,37 +505,48 @@ fn render_confirmation_dialog(f: &mut Frame, app: &mut App) {
 
     // Render the reason (bold, yellow)
     let reason_text = format!("\n{}\n", &pending.reason);
-    let reason_paragraph = Paragraph::new(reason_text)
-        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-    f.render_widget(reason_paragraph, Rect {
-        x: inner.x,
-        y: inner.y,
-        width: inner.width,
-        height: 2,
-    });
+    let reason_paragraph = Paragraph::new(reason_text).style(
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    );
+    f.render_widget(
+        reason_paragraph,
+        Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 2,
+        },
+    );
 
     // Render the detail
     let detail_paragraph = Paragraph::new(pending.detail.as_str())
         .wrap(Wrap { trim: false })
         .style(Style::default().fg(Color::White));
-    f.render_widget(detail_paragraph, Rect {
-        x: inner.x,
-        y: inner.y + 2,
-        width: inner.width,
-        height: inner.height.saturating_sub(5),
-    });
+    f.render_widget(
+        detail_paragraph,
+        Rect {
+            x: inner.x,
+            y: inner.y + 2,
+            width: inner.width,
+            height: inner.height.saturating_sub(5),
+        },
+    );
 
     // Render prompt at the bottom
     let prompt_text = "  [Y] Yes   [N] No   [Esc] Cancel";
-    let prompt = Paragraph::new(prompt_text)
-        .style(Style::default().fg(Color::Cyan));
+    let prompt = Paragraph::new(prompt_text).style(Style::default().fg(Color::Cyan));
 
-    f.render_widget(prompt, Rect {
-        x: inner.x,
-        y: inner.y + inner.height.saturating_sub(2),
-        width: inner.width,
-        height: 1,
-    });
+    f.render_widget(
+        prompt,
+        Rect {
+            x: inner.x,
+            y: inner.y + inner.height.saturating_sub(2),
+            width: inner.width,
+            height: 1,
+        },
+    );
 }
 
 fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
@@ -529,13 +573,21 @@ fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
 
     f.render_widget(Clear, menu_rect);
 
-    let items: Vec<ListItem> = app.model_options
+    let items: Vec<ListItem> = app
+        .model_options
         .iter()
         .enumerate()
         .map(|(idx, model)| {
-            let prefix = if idx == app.model_selected { "▶ " } else { "  " };
+            let prefix = if idx == app.model_selected {
+                "▶ "
+            } else {
+                "  "
+            };
             let style = if idx == app.model_selected {
-                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(Color::Blue)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Cyan)
             };
@@ -552,9 +604,14 @@ fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
                 .borders(Borders::ALL)
                 .title(" Select Model (↑↓ Enter Esc) ")
                 .border_style(Style::default().fg(Color::Yellow))
-                .style(Style::default().bg(Color::Black))
+                .style(Style::default().bg(Color::Black)),
         )
-        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        );
 
     f.render_stateful_widget(list, menu_rect, &mut state);
 }
@@ -582,13 +639,21 @@ fn render_provider_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
 
     f.render_widget(Clear, menu_rect);
 
-    let items: Vec<ListItem> = app.provider_options
+    let items: Vec<ListItem> = app
+        .provider_options
         .iter()
         .enumerate()
         .map(|(idx, provider)| {
-            let prefix = if idx == app.provider_selected { "▶ " } else { "  " };
+            let prefix = if idx == app.provider_selected {
+                "▶ "
+            } else {
+                "  "
+            };
             let style = if idx == app.provider_selected {
-                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(Color::Blue)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Cyan)
             };
@@ -607,7 +672,12 @@ fn render_provider_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
                 .border_style(Style::default().fg(Color::Green))
                 .style(Style::default().bg(Color::Black)),
         )
-        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        );
 
     f.render_stateful_widget(list, menu_rect, &mut state);
 }
@@ -635,18 +705,28 @@ fn render_session_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
 
     f.render_widget(Clear, menu_rect);
 
-    let items: Vec<ListItem> = app.session_options
+    let items: Vec<ListItem> = app
+        .session_options
         .iter()
         .enumerate()
         .map(|(idx, session)| {
-            let prefix = if idx == app.session_selected { "▶ " } else { "  " };
+            let prefix = if idx == app.session_selected {
+                "▶ "
+            } else {
+                "  "
+            };
             let style = if idx == app.session_selected {
-                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(Color::Blue)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Cyan)
             };
-            let display_text = format!("{}{} ({} turns, {} tokens)", 
-                prefix, session.name, session.turns, session.tokens);
+            let display_text = format!(
+                "{}{} ({} turns, {} tokens)",
+                prefix, session.name, session.turns, session.tokens
+            );
             ListItem::new(display_text).style(style)
         })
         .collect();
@@ -662,8 +742,12 @@ fn render_session_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
                 .border_style(Style::default().fg(Color::Yellow))
                 .style(Style::default().bg(Color::Black)),
         )
-        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        );
 
     f.render_stateful_widget(list, menu_rect, &mut state);
 }
-

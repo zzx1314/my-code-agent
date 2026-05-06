@@ -48,7 +48,9 @@ pub struct GitCommit {
 
 impl GitCommit {
     pub fn new(confirmation_handle: ConfirmationHandle) -> Self {
-        Self { confirmation_handle }
+        Self {
+            confirmation_handle,
+        }
     }
 
     /// Check if there are staged changes
@@ -76,11 +78,7 @@ impl GitCommit {
         match cmd.output().await {
             Ok(output) => {
                 let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if hash.is_empty() {
-                    None
-                } else {
-                    Some(hash)
-                }
+                if hash.is_empty() { None } else { Some(hash) }
             }
             Err(_) => None,
         }

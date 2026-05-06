@@ -56,10 +56,7 @@ impl ShellExec {
     }
 
     /// Creates a `ShellExec` with config-specified defaults and a confirmation handle.
-    pub fn new(
-        default_timeout_secs: u64,
-        confirmation_handle: ConfirmationHandle,
-    ) -> Self {
+    pub fn new(default_timeout_secs: u64, confirmation_handle: ConfirmationHandle) -> Self {
         Self {
             default_timeout_secs,
             confirmation_handle,

@@ -99,9 +99,7 @@ impl Tool for CodeSearch {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, CodeSearchError> {
         let mut cmd = tokio::process::Command::new("rg");
 
-        cmd.arg("-n")
-            .arg("--no-heading")
-            .arg("--color=never");
+        cmd.arg("-n").arg("--no-heading").arg("--color=never");
 
         if args.case_insensitive {
             cmd.arg("-i");

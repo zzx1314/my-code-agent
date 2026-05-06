@@ -93,7 +93,8 @@ impl PlanTracker {
     /// Mark the plan as confirmed by user
     pub fn confirm(&mut self) {
         self.confirmed = true;
-        self.messages.push("✓ Plan confirmed, proceeding...".to_string());
+        self.messages
+            .push("✓ Plan confirmed, proceeding...".to_string());
     }
 
     /// Mark the plan as cancelled
@@ -206,5 +207,3 @@ impl Default for PlanTracker {
         Self::new()
     }
 }
-
-

@@ -82,9 +82,8 @@ impl CodeReview {
 
     /// Get language hint from file extension
     fn get_language(path: &std::path::Path) -> Option<String> {
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| match ext {
+        path.extension().and_then(|ext| ext.to_str()).map(|ext| {
+            match ext {
                 "rs" => "rust",
                 "ts" => "typescript",
                 "tsx" => "typescript",
@@ -124,19 +123,28 @@ impl CodeReview {
                 "ex" | "exs" => "elixir",
                 "erl" | "hrl" => "erlang",
                 _ => ext,
-            }.to_string())
+            }
+            .to_string()
+        })
     }
 
     /// Read a file with line limit
-    fn read_file_with_limit(path: &std::path::Path, max_lines: usize) -> Result<(String, usize, bool), std::io::Error> {
+    fn read_file_with_limit(
+        path: &std::path::Path,
+        max_lines: usize,
+    ) -> Result<(String, usize, bool), std::io::Error> {
         let content = std::fs::read_to_string(path)?;
         let lines: Vec<&str> = content.lines().collect();
         let line_count = lines.len();
-        
+
         if line_count > max_lines {
             let truncated: Vec<&str> = lines.into_iter().take(max_lines).collect();
             Ok((
-                format!("{}\n\n... [file truncated, {} more lines]", truncated.join("\n"), line_count - max_lines),
+                format!(
+                    "{}\n\n... [file truncated, {} more lines]",
+                    truncated.join("\n"),
+                    line_count - max_lines
+                ),
                 line_count,
                 true,
             ))
@@ -156,9 +164,10 @@ impl CodeReview {
             if Self::is_code_file(path, extensions) {
                 Ok(vec![path.to_path_buf()])
             } else {
-                Err(CodeReviewError::InvalidPath(
-                    format!("File {} is not a recognized code file", path.display())
-                ))
+                Err(CodeReviewError::InvalidPath(format!(
+                    "File {} is not a recognized code file",
+                    path.display()
+                )))
             }
         } else if path.is_dir() {
             let mut files = Vec::new();
@@ -166,7 +175,7 @@ impl CodeReview {
                 .filter_map(|e| e.ok())
                 .map(|e| e.path())
                 .collect::<Vec<_>>();
-            
+
             // Sort for consistent ordering
             entries.sort();
 
@@ -179,7 +188,8 @@ impl CodeReview {
                     files.push(entry);
                 } else if entry.is_dir() {
                     // Recursively search subdirectories
-                    let mut sub_files = self.collect_files(&entry, extensions, max_files - files.len())?;
+                    let mut sub_files =
+                        self.collect_files(&entry, extensions, max_files - files.len())?;
                     files.append(&mut sub_files);
                 }
             }
@@ -190,9 +200,10 @@ impl CodeReview {
                 Ok(files)
             }
         } else {
-            Err(CodeReviewError::InvalidPath(
-                format!("Path {} is not a file or directory", path.display())
-            ))
+            Err(CodeReviewError::InvalidPath(format!(
+                "Path {} is not a file or directory",
+                path.display()
+            )))
         }
     }
 }
@@ -240,22 +251,23 @@ impl Tool for CodeReview {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let path = std::path::Path::new(&args.path);
-        
+
         if !path.exists() {
-            return Err(CodeReviewError::InvalidPath(
-                format!("Path {} does not exist", args.path)
-            ));
+            return Err(CodeReviewError::InvalidPath(format!(
+                "Path {} does not exist",
+                args.path
+            )));
         }
 
         let extensions = args.file_extensions.unwrap_or_default();
         let files = self.collect_files(path, &extensions, args.max_files)?;
-        
+
         let mut files_to_review = Vec::new();
         let mut truncated = false;
 
         for file in files.iter().take(args.max_files) {
             let language = Self::get_language(file);
-            
+
             match Self::read_file_with_limit(file, args.max_lines_per_file) {
                 Ok((content, line_count, file_truncated)) => {
                     truncated |= file_truncated;

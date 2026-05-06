@@ -1,22 +1,22 @@
 use crossterm::{
     event::{self, KeyCode, KeyModifiers, MouseEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::Write as _;
 use tokio::sync::mpsc;
-use tui_textarea::TextArea;
 use toml;
+use tui_textarea::TextArea;
 
 use crate::app::App;
 use crate::app::InitResult;
 use crate::app::conversion::{convert_app_to_rig, convert_rig_to_app};
 use crate::core::context::expand_file_refs;
 use crate::core::context_manager::ContextManager;
-use crate::core::streaming::{stream_response, StreamResult, StreamEvent};
-use std::sync::Arc;
 use crate::core::preamble::Agent;
+use crate::core::streaming::{StreamEvent, StreamResult, stream_response};
+use std::sync::Arc;
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {
@@ -46,7 +46,8 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         match key.code {
             KeyCode::Down | KeyCode::Tab => {
                 if !app.provider_options.is_empty() {
-                    app.provider_selected = (app.provider_selected + 1) % app.provider_options.len();
+                    app.provider_selected =
+                        (app.provider_selected + 1) % app.provider_options.len();
                 }
                 return;
             }
@@ -72,19 +73,35 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                         _ => String::new(),
                     };
                     // 更新模型列表为对应 provider 的模型
-                    app.model_options = crate::app::get_model_options_for_provider(&selected_provider);
+                    app.model_options =
+                        crate::app::get_model_options_for_provider(&selected_provider);
                     app.model_selected = 0;
                     // 如果当前模型不在新列表中，重置为 None
                     app.config.llm.model = app.model_options.first().cloned();
 
-                    app.chat_history.push(("user".to_string(), format!("/connect {}", selected_provider)));
+                    app.chat_history.push((
+                        "user".to_string(),
+                        format!("/connect {}", selected_provider),
+                    ));
 
                     // 尝试重建 agent
                     if let Ok(new_agent) = rebuild_agent(&app.config) {
                         app.agent = Arc::new(new_agent);
-                        app.chat_history.push(("assistant".to_string(), format!("Provider switched to: {} (model: {})", selected_provider, app.config.llm.model.as_deref().unwrap_or("default"))));
+                        app.chat_history.push((
+                            "assistant".to_string(),
+                            format!(
+                                "Provider switched to: {} (model: {})",
+                                selected_provider,
+                                app.config.llm.model.as_deref().unwrap_or("default")
+                            ),
+                        ));
                     } else {
-                        app.chat_history.push(("assistant".to_string(), format!("Failed to switch provider. Please check API key and try again.")));
+                        app.chat_history.push((
+                            "assistant".to_string(),
+                            format!(
+                                "Failed to switch provider. Please check API key and try again."
+                            ),
+                        ));
                     }
                 }
                 app.show_provider_picker = false;
@@ -129,35 +146,54 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 if !app.session_options.is_empty() {
                     let selected_session = &app.session_options[app.session_selected];
                     let session_name = selected_session.name.clone();
-                    
+
                     // 加载选中的 session
                     match crate::core::session::SessionData::load_by_name(&session_name) {
                         Some(Ok(session_data)) => {
                             // 恢复 session 数据
-                            app.chat_history = session_data.chat_history.into_iter()
+                            app.chat_history = session_data
+                                .chat_history
+                                .into_iter()
                                 .map(convert_rig_to_app)
                                 .collect();
                             app.token_usage = session_data.token_usage;
                             app.last_reasoning = session_data.last_reasoning;
-                            
+
                             // Update session ID so the loaded session has its own undo context
-                            let new_session_id = format!("session_{}", std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_nanos());
+                            let new_session_id = format!(
+                                "session_{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_nanos()
+                            );
                             crate::tools::undo_history::set_session_id(new_session_id);
-                            
-                            app.chat_history.push(("user".to_string(), format!("/load {}", session_name)));
-                            app.chat_history.push(("assistant".to_string(), format!("Session '{}' loaded ({} turns, {} tokens)", 
-                                session_name, selected_session.turns, selected_session.tokens)));
+
+                            app.chat_history
+                                .push(("user".to_string(), format!("/load {}", session_name)));
+                            app.chat_history.push((
+                                "assistant".to_string(),
+                                format!(
+                                    "Session '{}' loaded ({} turns, {} tokens)",
+                                    session_name, selected_session.turns, selected_session.tokens
+                                ),
+                            ));
                         }
                         Some(Err(e)) => {
-                            app.chat_history.push(("user".to_string(), format!("/load {}", session_name)));
-                            app.chat_history.push(("assistant".to_string(), format!("Failed to load session '{}': {}", session_name, e)));
+                            app.chat_history
+                                .push(("user".to_string(), format!("/load {}", session_name)));
+                            app.chat_history.push((
+                                "assistant".to_string(),
+                                format!("Failed to load session '{}': {}", session_name, e),
+                            ));
                         }
                         None => {
-                            app.chat_history.push(("user".to_string(), format!("/load {}", session_name)));
-                            app.chat_history.push(("assistant".to_string(), format!("Session '{}' not found", session_name)));
+                            app.chat_history
+                                .push(("user".to_string(), format!("/load {}", session_name)));
+                            app.chat_history.push((
+                                "assistant".to_string(),
+                                format!("Session '{}' not found", session_name),
+                            ));
                         }
                     }
                 }
@@ -200,14 +236,21 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 if !app.model_options.is_empty() {
                     let selected_model = app.model_options[app.model_selected].clone();
                     app.config.llm.model = Some(selected_model.clone());
-                    app.chat_history.push(("user".to_string(), format!("/model {}", selected_model)));
-                    
+                    app.chat_history
+                        .push(("user".to_string(), format!("/model {}", selected_model)));
+
                     // 尝试重建 agent
                     if let Ok(new_agent) = rebuild_agent(&app.config) {
                         app.agent = Arc::new(new_agent);
-                        app.chat_history.push(("assistant".to_string(), format!("Model switched to: {}", selected_model)));
+                        app.chat_history.push((
+                            "assistant".to_string(),
+                            format!("Model switched to: {}", selected_model),
+                        ));
                     } else {
-                        app.chat_history.push(("assistant".to_string(), format!("Failed to switch model. Please check API key and try again.")));
+                        app.chat_history.push((
+                            "assistant".to_string(),
+                            format!("Failed to switch model. Please check API key and try again."),
+                        ));
                     }
                 }
                 app.show_model_picker = false;
@@ -234,7 +277,8 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             KeyCode::Down | KeyCode::Tab => {
                 // 向下选择补全项
                 if !app.completion_items.is_empty() {
-                    app.completion_selected = (app.completion_selected + 1) % app.completion_items.len();
+                    app.completion_selected =
+                        (app.completion_selected + 1) % app.completion_items.len();
                 }
                 return;
             }
@@ -361,7 +405,8 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             if app.show_completion {
                 // 向下选择补全项
                 if !app.completion_items.is_empty() {
-                    app.completion_selected = (app.completion_selected + 1) % app.completion_items.len();
+                    app.completion_selected =
+                        (app.completion_selected + 1) % app.completion_items.len();
                 }
             } else {
                 let max_scroll = app.total_lines.saturating_sub(app.chat_area_height);
@@ -422,7 +467,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                     ta.set_block(
                         ratatui::widgets::Block::default()
                             .borders(ratatui::widgets::Borders::ALL)
-                            .title(title)
+                            .title(title),
                     );
                     ta.set_cursor_line_style(ratatui::style::Style::default());
                     ta
@@ -439,14 +484,22 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                 input_text.clone()
             } else {
                 // ! prefix: strip the '!' and execute
-                input_text.strip_prefix('!').unwrap_or(&input_text).trim().to_string()
+                input_text
+                    .strip_prefix('!')
+                    .unwrap_or(&input_text)
+                    .trim()
+                    .to_string()
             };
 
             // Handle shell mode exit commands
             if cmd == "exit" || cmd == "!exit" {
                 app.shell_mode = false;
-                app.chat_history.push(("user".to_string(), input_text.clone()));
-                app.chat_history.push(("assistant".to_string(), "🐚 Shell mode deactivated.".to_string()));
+                app.chat_history
+                    .push(("user".to_string(), input_text.clone()));
+                app.chat_history.push((
+                    "assistant".to_string(),
+                    "🐚 Shell mode deactivated.".to_string(),
+                ));
                 app.input = {
                     let mut ta = TextArea::default();
                     ta.set_block(
@@ -488,16 +541,21 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                 } else {
                     target
                 };
-                app.chat_history.push(("user".to_string(), format!("$ {}", cmd)));
+                app.chat_history
+                    .push(("user".to_string(), format!("$ {}", cmd)));
                 match std::env::set_current_dir(&target) {
                     Ok(()) => {
                         let cwd = std::env::current_dir()
                             .map(|p| p.display().to_string())
                             .unwrap_or_else(|_| "?".to_string());
-                        app.chat_history.push(("assistant".to_string(), format!("Changed directory to {}", cwd)));
+                        app.chat_history.push((
+                            "assistant".to_string(),
+                            format!("Changed directory to {}", cwd),
+                        ));
                     }
                     Err(e) => {
-                        app.chat_history.push(("assistant".to_string(), format!("❌ cd: {}: {}", target, e)));
+                        app.chat_history
+                            .push(("assistant".to_string(), format!("❌ cd: {}: {}", target, e)));
                     }
                 }
                 let title = if app.shell_mode {
@@ -510,7 +568,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                     ta.set_block(
                         ratatui::widgets::Block::default()
                             .borders(ratatui::widgets::Borders::ALL)
-                            .title(title)
+                            .title(title),
                     );
                     ta.set_cursor_line_style(ratatui::style::Style::default());
                     ta
@@ -520,17 +578,22 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                 return;
             }
 
-            app.chat_history.push(("user".to_string(), if app.shell_mode {
-                format!("$ {}", cmd)
-            } else {
-                input_text.clone()
-            }));
+            app.chat_history.push((
+                "user".to_string(),
+                if app.shell_mode {
+                    format!("$ {}", cmd)
+                } else {
+                    input_text.clone()
+                },
+            ));
 
             // Execute shell command
             let output = std::process::Command::new("bash")
                 .arg("-c")
                 .arg(&cmd)
-                .current_dir(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+                .current_dir(
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+                )
                 .output();
 
             match output {
@@ -548,7 +611,8 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                         result.push_str(&format!("stderr:\n{}", stderr));
                     }
                     if !o.status.success() {
-                        result.push_str(&format!("\n(exit code: {})", o.status.code().unwrap_or(-1)));
+                        result
+                            .push_str(&format!("\n(exit code: {})", o.status.code().unwrap_or(-1)));
                     }
                     if result.is_empty() {
                         result = "(no output)".to_string();
@@ -556,7 +620,10 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                     app.chat_history.push(("assistant".to_string(), result));
                 }
                 Err(e) => {
-                    app.chat_history.push(("assistant".to_string(), format!("❌ Failed to execute command: {}", e)));
+                    app.chat_history.push((
+                        "assistant".to_string(),
+                        format!("❌ Failed to execute command: {}", e),
+                    ));
                 }
             }
 
@@ -570,7 +637,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                 ta.set_block(
                     ratatui::widgets::Block::default()
                         .borders(ratatui::widgets::Borders::ALL)
-                        .title(title)
+                        .title(title),
                 );
                 ta.set_cursor_line_style(ratatui::style::Style::default());
                 ta
@@ -584,7 +651,8 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
     } else if !input_text.is_empty() && app.is_streaming {
         // Queue the message for processing after current response completes
         app.message_queue.push(input_text.clone());
-        app.chat_history.push(("user".to_string(), format!("⏳ [Queued] {}", input_text)));
+        app.chat_history
+            .push(("user".to_string(), format!("⏳ [Queued] {}", input_text)));
         // Clear input
         let title = if app.shell_mode {
             " Input 🐚 Shell Mode (Enter to exec, !exit to leave, /shell to toggle) "
@@ -596,7 +664,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
             ta.set_block(
                 ratatui::widgets::Block::default()
                     .borders(ratatui::widgets::Borders::ALL)
-                    .title(title)
+                    .title(title),
             );
             ta.set_cursor_line_style(ratatui::style::Style::default());
             ta
@@ -623,7 +691,7 @@ fn reset_streaming_state(app: &mut App) {
 /// Spawn an async LLM streaming task with the given prompt
 fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, prompt: &str) {
     let expanded = expand_file_refs(prompt, &app.config);
-    
+
     let mut rig_chat_history = convert_app_to_rig(&app.chat_history);
     let agent_clone = app.agent.clone();
     let config_clone = app.config.clone();
@@ -649,22 +717,28 @@ fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, prompt:
             &mut ctx_mgr,
             &config_clone.agent,
             Some(event_tx),
-        ).await;
+        )
+        .await;
 
         response_tx.send(result).await.ok();
     });
 }
 
 /// Send a message to the LLM (extracted for reuse by message queue)
-pub fn send_message_to_llm(app: &mut App, context_manager: &mut ContextManager, input_text: String) {
+pub fn send_message_to_llm(
+    app: &mut App,
+    context_manager: &mut ContextManager,
+    input_text: String,
+) {
     app.show_banner = false; // Hide startup banner
-    app.chat_history.push(("user".to_string(), input_text.clone()));
+    app.chat_history
+        .push(("user".to_string(), input_text.clone()));
     app.input = {
         let mut ta = TextArea::default();
         ta.set_block(
             ratatui::widgets::Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
-                .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
+                .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "),
         );
         ta.set_cursor_line_style(ratatui::style::Style::default());
         ta
@@ -783,12 +857,19 @@ pub fn check_init_result(app: &mut App) {
     if let Some(ref mut rx) = app.init_rx {
         match rx.try_recv() {
             Ok(result) => {
-                app.chat_history.push(("assistant".to_string(), result.message));
+                app.chat_history
+                    .push(("assistant".to_string(), result.message));
                 if let Some(new_agent) = result.new_agent {
                     app.agent = Arc::new(new_agent);
                 }
                 app.init_rx = None;
+                // Clean up all streaming state
                 app.is_streaming = false;
+                app.streaming_text.clear();
+                app.streaming_reasoning.clear();
+                app.current_tool_call = None;
+                app.streaming_events_rx = None;
+                app.streaming_status_messages.clear();
                 app.auto_scroll = true;
                 app.scroll = u16::MAX;
             }
@@ -796,6 +877,12 @@ pub fn check_init_result(app: &mut App) {
             Err(mpsc::error::TryRecvError::Disconnected) => {
                 app.init_rx = None;
                 app.is_streaming = false;
+                app.streaming_text.clear();
+                app.streaming_reasoning.clear();
+                app.current_tool_call = None;
+                app.streaming_events_rx = None;
+                app.streaming_status_messages.clear();
+                app.auto_scroll = true;
             }
         }
     }
@@ -811,7 +898,8 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
     app.streaming_status_messages.clear();
 
     if !result.full_response.is_empty() {
-        app.chat_history.push(("assistant".to_string(), result.full_response));
+        app.chat_history
+            .push(("assistant".to_string(), result.full_response));
     }
 
     if !result.last_reasoning.is_empty() {
@@ -859,7 +947,9 @@ pub fn enter_terminal() -> anyhow::Result<Terminal<CrosstermBackend<std::io::Std
 }
 
 /// Leave alternate screen and disable raw mode
-pub fn leave_terminal(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> anyhow::Result<()> {
+pub fn leave_terminal(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+) -> anyhow::Result<()> {
     let _ = write!(std::io::stdout(), "\x1b[?1007l");
     let _ = write!(std::io::stdout(), "\x1b[?2004l");
     let _ = std::io::stdout().flush();
@@ -877,7 +967,7 @@ fn trigger_completion(app: &mut App, trigger_char: char) {
     app.completion_selected = 0;
     app.completion_trigger_pos = get_cursor_position(app);
     app.completion_query = String::new();
-    
+
     // 获取补全项
     app.completion_items = get_completion_items(trigger_char);
 }
@@ -906,7 +996,7 @@ fn apply_completion(app: &mut App) {
         hide_completion(app);
         return;
     }
-    
+
     let selected = app.completion_items[app.completion_selected].clone();
     let trigger_char = match app.completion_type {
         Some(c) => c,
@@ -915,40 +1005,45 @@ fn apply_completion(app: &mut App) {
             return;
         }
     };
-    
+
     // 获取当前输入文本
     let mut lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
     let cursor = app.input.cursor();
-    
+
     // 找到当前行
     if cursor.0 < lines.len() {
         let line = &mut lines[cursor.0];
         let pos = char_idx_to_byte(line, cursor.1);
-        
+
         // 找到触发字符的位置（从光标位置向前找）
-        let trigger_pos = line[..pos].rfind(trigger_char).unwrap_or(pos.saturating_sub(1));
-        
+        let trigger_pos = line[..pos]
+            .rfind(trigger_char)
+            .unwrap_or(pos.saturating_sub(1));
+
         // 替换从触发位置到光标位置的内容
         let new_line = format!("{}{}{}", &line[..trigger_pos], selected, &line[pos..]);
         lines[cursor.0] = new_line;
     }
-    
+
     let new_text = lines.join("\n");
     let mut new_input = TextArea::from(new_text.lines());
     new_input.set_block(
         ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)
-            .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
+            .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "),
     );
     new_input.set_cursor_line_style(ratatui::style::Style::default());
     app.input = new_input;
-    
+
     // 设置光标位置到补全项末尾
     let completion_len = selected.len();
     let cursor = app.input.cursor();
     let new_cursor_col = app.completion_trigger_pos + completion_len;
-    app.input.move_cursor(tui_textarea::CursorMove::Jump(cursor.0 as u16, new_cursor_col as u16));
-    
+    app.input.move_cursor(tui_textarea::CursorMove::Jump(
+        cursor.0 as u16,
+        new_cursor_col as u16,
+    ));
+
     hide_completion(app);
 }
 
@@ -959,11 +1054,11 @@ fn update_completion_query(app: &mut App) {
         hide_completion(app);
         return;
     }
-    
+
     // 获取触发位置到光标位置的文本作为查询字符串
     let lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
     let cursor = app.input.cursor();
-    
+
     if cursor.0 < lines.len() {
         let line = &lines[cursor.0];
         let byte_start = char_idx_to_byte(line, app.completion_trigger_pos);
@@ -972,7 +1067,7 @@ fn update_completion_query(app: &mut App) {
             app.completion_query = line[byte_start..byte_end].to_string();
         }
     }
-    
+
     // 过滤补全项
     if let Some(trigger_char) = app.completion_type {
         let all_items = get_completion_items(trigger_char);
@@ -981,7 +1076,10 @@ fn update_completion_query(app: &mut App) {
         } else {
             app.completion_items = all_items
                 .into_iter()
-                .filter(|item| item.to_lowercase().contains(&app.completion_query.to_lowercase()))
+                .filter(|item| {
+                    item.to_lowercase()
+                        .contains(&app.completion_query.to_lowercase())
+                })
                 .collect();
         }
         app.completion_selected = 0;
@@ -1020,7 +1118,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
             // 文件补全 - 使用 glob 获取当前目录下的文件
             use glob::glob;
             let mut files = Vec::new();
-            
+
             // 获取当前目录下的所有文件（递归深度2）
             if let Ok(entries) = glob("**/*") {
                 for entry in entries.flatten() {
@@ -1032,7 +1130,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                     }
                 }
             }
-            
+
             // 如果没有找到文件，添加一些示例
             if files.is_empty() {
                 files.push("@src/main.rs".to_string());
@@ -1040,7 +1138,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 files.push("@Cargo.toml".to_string());
                 files.push("@README.md".to_string());
             }
-            
+
             files.sort();
             files.dedup();
             files
@@ -1053,11 +1151,12 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
 /// 返回 true 表示命令已处理，false 表示需要发送给 LLM
 fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {
     let command = input.trim().to_lowercase();
-    
+
     match command.as_str() {
         "/help" => {
             let help_text = generate_help_text();
-            app.chat_history.push(("user".to_string(), "/help".to_string()));
+            app.chat_history
+                .push(("user".to_string(), "/help".to_string()));
             app.chat_history.push(("assistant".to_string(), help_text));
             app.show_banner = false;
             app.auto_scroll = true;
@@ -1085,44 +1184,56 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
                 tracing::warn!(error = %e, "Failed to clear undo history on /clear");
             }
             // Generate a new session ID so the cleared session's history is separate
-            let new_session_id = format!("session_{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos());
+            let new_session_id = format!(
+                "session_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            );
             crate::tools::undo_history::set_session_id(new_session_id);
             true
         }
         "/save" => {
-            use crate::core::session::{SessionData, generate_session_name, format_saved_confirmation};
-            
+            use crate::core::session::{
+                SessionData, format_saved_confirmation, generate_session_name,
+            };
+
             let session_name = generate_session_name();
-            let rig_history: Vec<_> = app.chat_history.iter()
+            let rig_history: Vec<_> = app
+                .chat_history
+                .iter()
                 .map(|(r, c)| match r.as_str() {
                     "user" => rig::completion::Message::user(c.clone()),
                     "assistant" => rig::completion::Message::assistant(c.clone()),
                     _ => rig::completion::Message::user(c.clone()),
                 })
                 .collect();
-            
+
             let data = SessionData::new(
                 rig_history,
                 app.token_usage.clone(),
                 app.last_reasoning.clone(),
             );
-            
+
             match data.save_with_name(&session_name) {
                 Ok(()) => {
                     let path = SessionData::session_file_path(&session_name);
                     let msg = format_saved_confirmation(&path, &data);
-                    app.chat_history.push(("user".to_string(), "/save".to_string()));
+                    app.chat_history
+                        .push(("user".to_string(), "/save".to_string()));
                     app.chat_history.push(("assistant".to_string(), msg));
                 }
                 Err(e) => {
-                    app.chat_history.push(("user".to_string(), "/save".to_string()));
-                    app.chat_history.push(("assistant".to_string(), format!("❌ Failed to save session: {}", e)));
+                    app.chat_history
+                        .push(("user".to_string(), "/save".to_string()));
+                    app.chat_history.push((
+                        "assistant".to_string(),
+                        format!("❌ Failed to save session: {}", e),
+                    ));
                 }
             }
-            
+
             app.show_banner = false;
             app.auto_scroll = true;
             true
@@ -1131,8 +1242,12 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             // 获取可用的 session 列表
             let sessions = crate::core::session::SessionData::list_sessions();
             if sessions.is_empty() {
-                app.chat_history.push(("user".to_string(), "/load".to_string()));
-                app.chat_history.push(("assistant".to_string(), "No saved sessions found. Use /save to save a session first.".to_string()));
+                app.chat_history
+                    .push(("user".to_string(), "/load".to_string()));
+                app.chat_history.push((
+                    "assistant".to_string(),
+                    "No saved sessions found. Use /save to save a session first.".to_string(),
+                ));
                 app.show_banner = false;
                 app.auto_scroll = true;
             } else {
@@ -1144,12 +1259,15 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             true
         }
         "/status" => {
-            let status = format!("Session enabled: {}\nModel: {}\nProvider: {}\nTotal tokens used: {}", 
+            let status = format!(
+                "Session enabled: {}\nModel: {}\nProvider: {}\nTotal tokens used: {}",
                 app.config.session.enabled,
                 app.config.llm.model.as_deref().unwrap_or("default"),
                 app.config.llm.provider,
-                app.token_usage.total_tokens());
-            app.chat_history.push(("user".to_string(), "/status".to_string()));
+                app.token_usage.total_tokens()
+            );
+            app.chat_history
+                .push(("user".to_string(), "/status".to_string()));
             app.chat_history.push(("assistant".to_string(), status));
             app.show_banner = false;
             app.auto_scroll = true;
@@ -1161,7 +1279,8 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             let cache_report = crate::core::context_cache::global_cache().format_session_report();
             report.extend(cache_report);
             let token_info = report.join("\n").trim().to_string();
-            app.chat_history.push(("user".to_string(), "/tokens".to_string()));
+            app.chat_history
+                .push(("user".to_string(), "/tokens".to_string()));
             app.chat_history.push(("assistant".to_string(), token_info));
             app.show_banner = false;
             app.auto_scroll = true;
@@ -1171,13 +1290,18 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             // 打开 provider 选择器
             app.show_provider_picker = true;
             // 找到当前 provider 在选项中的位置
-            if let Some(pos) = app.provider_options.iter().position(|p| p == &app.config.llm.provider) {
+            if let Some(pos) = app
+                .provider_options
+                .iter()
+                .position(|p| p == &app.config.llm.provider)
+            {
                 app.provider_selected = pos;
             }
             true
         }
         "/think" => {
-            app.chat_history.push(("user".to_string(), "/think".to_string()));
+            app.chat_history
+                .push(("user".to_string(), "/think".to_string()));
 
             if !app.last_reasoning.is_empty() {
                 app.chat_history.push(("assistant".to_string(), format!("💭 Reasoning:\n─────────────────────────────────────────\n{}\n─────────────────────────────────────────", app.last_reasoning)));
@@ -1193,7 +1317,8 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
         }
         "/model" => {
             // 打开模型选择器，确保模型列表对应当前 provider
-            app.model_options = crate::app::get_model_options_for_provider(&app.config.llm.provider);
+            app.model_options =
+                crate::app::get_model_options_for_provider(&app.config.llm.provider);
             app.show_model_picker = true;
             // 找到当前模型在选项中的位置
             if let Some(current_model) = &app.config.llm.model {
@@ -1207,33 +1332,76 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             let knowledge_file = crate::core::preamble::KNOWLEDGE_FILE.to_string();
             let is_update = std::path::Path::new(&knowledge_file).exists();
 
-            app.chat_history.push(("user".to_string(), "/init".to_string()));
-            app.chat_history.push(("assistant".to_string(), "⏳ Generating knowledge file...".to_string()));
+            app.chat_history
+                .push(("user".to_string(), "/init".to_string()));
+            let status_msg = if is_update {
+                "⏳ Updating knowledge file — exploring project..."
+            } else {
+                "⏳ Creating knowledge file — exploring project..."
+            };
+            app.chat_history
+                .push(("assistant".to_string(), status_msg.to_string()));
             app.show_banner = false;
             app.auto_scroll = true;
             app.scroll = u16::MAX;
 
-            // 读取现有知识内容
-            let existing_content = std::fs::read_to_string(&knowledge_file).unwrap_or_default();
-            
-            let prompt = format!(
-                r#"You are a technical documentation expert. Update the following knowledge document based on the current project structure and code.
+            // Build the init prompt — instruct the LLM to use tools
+            let prompt = if is_update {
+                let existing_content = std::fs::read_to_string(&knowledge_file).unwrap_or_default();
+                format!(
+                    r#"You are a technical documentation expert. Your task is to UPDATE the project knowledge document.
 
 Current knowledge document:
 ```markdown
 {}
 ```
 
-Read the project files (README.md, src/, Cargo.toml, etc.) and update this knowledge document to be accurate and comprehensive. Keep the same Markdown structure but update all content to reflect the current state of the project.
+## Instructions
+1. Use the available tools (list_dir, glob, file_read, code_search) to explore the current project structure
+2. Check the project root for README.md, Cargo.toml, package.json, or similar config files
+3. Look at the source directory structure to understand the codebase layout
+4. Update the knowledge document to accurately reflect the current state of the project
+5. Keep the existing Markdown structure but update all content
+6. Add any new important files, modules, or patterns you discover
+7. Remove references to files or features that no longer exist
 
-Respond ONLY with the updated Markdown content, no explanation needed."#,
-                existing_content
-            );
+## Output Rules
+- Respond ONLY with the complete updated Markdown content
+- Do NOT include any explanation, commentary, or wrapping text
+- Do NOT use code fences around your response
+- The response should be valid Markdown that can be directly saved as a file"#,
+                    existing_content
+                )
+            } else {
+                r#"You are a technical documentation expert. Your task is to CREATE a comprehensive project knowledge document.
 
-            // 设置流式响应通道
-            let (response_tx, response_rx) = mpsc::channel::<StreamResult>(1);
+## Instructions
+1. Use the available tools (list_dir, glob, file_read, code_search) to thoroughly explore the project
+2. Read README.md, Cargo.toml/package.json, and other config files in the project root
+3. Explore the source directory structure (src/, lib/, etc.)
+4. Identify the project type, key dependencies, architecture patterns, and conventions
+5. Create a well-structured Markdown knowledge document
+
+## Document Structure
+The document should include these sections:
+- **## What This Is** — Brief project description (from README or code)
+- **## Features** — Key features and capabilities
+- **## Project Structure** — Directory/file layout with descriptions
+- **## Key Dependencies** — Major libraries and their purposes
+- **## Configuration** — How the project is configured
+- **## Conventions & Gotchas** — Important patterns, naming conventions, things to know
+
+## Output Rules
+- Respond ONLY with the complete Markdown content
+- Do NOT include any explanation, commentary, or wrapping text
+- Do NOT use code fences around your response
+- The response should be valid Markdown that can be directly saved as a file"#.to_string()
+            };
+
+            // Set up streaming channels — events go through event_tx for live UI,
+            // but we do NOT use response_tx (check_stream_result) to avoid dumping
+            // the entire knowledge content into chat. Only init_tx is used.
             let (event_tx, event_rx) = mpsc::unbounded_channel::<StreamEvent>();
-            app.response_rx = Some(response_rx);
             app.streaming_events_rx = Some(event_rx);
             app.is_streaming = true;
             app.streaming_text.clear();
@@ -1262,45 +1430,76 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
                     &mut ctx_mgr,
                     &config_clone.agent,
                     Some(event_tx),
-                ).await;
+                )
+                .await;
 
-                // 发送流式结果供 UI 处理
-                response_tx.send(result.clone()).await.ok();
-
-                // 从流式结果中提取知识内容
+                // Extract the knowledge content from the LLM response
                 let new_content = if result.full_response.is_empty() {
-                    tracing::warn!("LLM returned empty response, falling back to local generation");
+                    tracing::warn!(
+                        "LLM returned empty response for /init, falling back to local generation"
+                    );
                     generate_knowledge_content_local()
                 } else {
-                    tracing::info!("Generated knowledge content using LLM");
-                    result.full_response.clone()
+                    // Strip code fences if the LLM wrapped them despite instructions
+                    let raw = result.full_response.trim();
+                    let stripped = if raw.starts_with("```") && raw.ends_with("```") {
+                        // Remove opening ```markdown or ``` and closing ```
+                        let inner = &raw[raw.find('\n').unwrap_or(3)..raw.len() - 3];
+                        inner.trim()
+                    } else {
+                        raw
+                    };
+                    tracing::info!(
+                        bytes = stripped.len(),
+                        "Generated knowledge content via LLM"
+                    );
+                    stripped.to_string()
                 };
 
-                // 写入文件并重建 agent
+                // Write the file and rebuild the agent
                 let init_result = match std::fs::write(&knowledge_file, &new_content) {
-                    Ok(_) => {
-                        match rebuild_agent(&config_clone) {
-                            Ok(new_agent) => {
-                                let msg = if is_update {
-                                    format!("✅ Updated '{}' with current project info.\nAgent reloaded with updated knowledge.", knowledge_file)
-                                } else {
-                                    format!("✅ Created '{}' with project analysis.\nAgent reloaded with new knowledge.", knowledge_file)
-                                };
-                                InitResult { message: msg, new_agent: Some(new_agent) }
-                            }
-                            Err(e) => {
-                                let msg = if is_update {
-                                    format!("✅ Updated '{}' with current project info.\n⚠️ Failed to reload agent: {}", knowledge_file, e)
-                                } else {
-                                    format!("✅ Created '{}' with project analysis.\n⚠️ Failed to reload agent: {}", knowledge_file, e)
-                                };
-                                InitResult { message: msg, new_agent: None }
+                    Ok(_) => match rebuild_agent(&config_clone) {
+                        Ok(new_agent) => {
+                            let msg = if is_update {
+                                format!(
+                                    "✅ Updated '{}' ({} bytes) with current project info.\nAgent reloaded with updated knowledge.",
+                                    knowledge_file,
+                                    new_content.len()
+                                )
+                            } else {
+                                format!(
+                                    "✅ Created '{}' ({} bytes) with project analysis.\nAgent reloaded with new knowledge.",
+                                    knowledge_file,
+                                    new_content.len()
+                                )
+                            };
+                            InitResult {
+                                message: msg,
+                                new_agent: Some(new_agent),
                             }
                         }
-                    }
-                    Err(e) => {
-                        InitResult { message: format!("❌ Failed to write '{}': {}", knowledge_file, e), new_agent: None }
-                    }
+                        Err(e) => {
+                            let msg = if is_update {
+                                format!(
+                                    "✅ Updated '{}' with current project info.\n⚠️ Failed to reload agent: {}",
+                                    knowledge_file, e
+                                )
+                            } else {
+                                format!(
+                                    "✅ Created '{}' with project analysis.\n⚠️ Failed to reload agent: {}",
+                                    knowledge_file, e
+                                )
+                            };
+                            InitResult {
+                                message: msg,
+                                new_agent: None,
+                            }
+                        }
+                    },
+                    Err(e) => InitResult {
+                        message: format!("❌ Failed to write '{}': {}", knowledge_file, e),
+                        new_agent: None,
+                    },
                 };
 
                 init_tx.send(init_result).await.ok();
@@ -1309,10 +1508,13 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
             true
         }
         "/undo" => {
-            use crate::tools::undo_history::{pop_current_session_entries, current_session_history_len};
             use crate::tools::file_undo;
+            use crate::tools::undo_history::{
+                current_session_history_len, pop_current_session_entries,
+            };
 
-            app.chat_history.push(("user".to_string(), "/undo".to_string()));
+            app.chat_history
+                .push(("user".to_string(), "/undo".to_string()));
             app.show_banner = false;
             app.auto_scroll = true;
 
@@ -1322,7 +1524,10 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
             } else {
                 match pop_current_session_entries() {
                     Ok(entries) if entries.is_empty() => {
-                        app.chat_history.push(("assistant".to_string(), "No undo history for current session.".to_string()));
+                        app.chat_history.push((
+                            "assistant".to_string(),
+                            "No undo history for current session.".to_string(),
+                        ));
                     }
                     Ok(entries) => {
                         let mut details = Vec::new();
@@ -1332,9 +1537,15 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
                                 errors.push(e.to_string());
                             }
                         }
-                        let mut msg = format!("↩️ Undid {} change(s) for current session:\n", details.len());
+                        let mut msg = format!(
+                            "↩️ Undid {} change(s) for current session:\n",
+                            details.len()
+                        );
                         for d in &details {
-                            msg.push_str(&format!("  • `{}`: {} ({})\n", d.file_path, d.action, d.operation));
+                            msg.push_str(&format!(
+                                "  • `{}`: {} ({})\n",
+                                d.file_path, d.action, d.operation
+                            ));
                         }
                         if !errors.is_empty() {
                             msg.push_str(&format!("\n⚠️ Errors:\n"));
@@ -1345,7 +1556,8 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
                         app.chat_history.push(("assistant".to_string(), msg));
                     }
                     Err(e) => {
-                        app.chat_history.push(("assistant".to_string(), format!("❌ Undo failed: {}", e)));
+                        app.chat_history
+                            .push(("assistant".to_string(), format!("❌ Undo failed: {}", e)));
                     }
                 }
             }
@@ -1353,19 +1565,21 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
         }
         "/shell" => {
             app.shell_mode = !app.shell_mode;
-            app.chat_history.push(("user".to_string(), "/shell".to_string()));
+            app.chat_history
+                .push(("user".to_string(), "/shell".to_string()));
             if app.shell_mode {
                 app.chat_history.push(("assistant".to_string(), "🐚 Shell mode activated! All input will be executed as shell commands.\nType `exit` or `/shell` to deactivate.".to_string()));
             } else {
-                app.chat_history.push(("assistant".to_string(), "🐚 Shell mode deactivated.".to_string()));
+                app.chat_history.push((
+                    "assistant".to_string(),
+                    "🐚 Shell mode deactivated.".to_string(),
+                ));
             }
             app.show_banner = false;
             app.auto_scroll = true;
             true
         }
-        cmd if cmd.starts_with("/plan") => {
-            handle_plan_command(app, input, context_manager)
-        }
+        cmd if cmd.starts_with("/plan") => handle_plan_command(app, input, context_manager),
         _ => {
             // 未知命令，发送给 LLM 处理
             false
@@ -1376,16 +1590,20 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
 /// Handle the /plan command: analyze task and create implementation plan without executing
 fn handle_plan_command(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {
     let task = input.trim().strip_prefix("/plan").unwrap_or("").trim();
-    app.chat_history.push(("user".to_string(), input.to_string()));
+    app.chat_history
+        .push(("user".to_string(), input.to_string()));
     app.show_banner = false;
 
     if task.is_empty() {
-        app.chat_history.push(("assistant".to_string(), 
+        app.chat_history.push((
+            "assistant".to_string(),
             "📋 **Plan Mode**\n\n\
                     Usage: `/plan <task description>`\n\n\
                     Example: `/plan Add user authentication with JWT tokens`\n\n\
                     In plan mode, I will analyze your task and create a detailed plan \
-                    without executing any actions. You can review the plan before proceeding.".to_string()));
+                    without executing any actions. You can review the plan before proceeding."
+                .to_string(),
+        ));
         app.auto_scroll = true;
         return true;
     }
@@ -1491,7 +1709,7 @@ fn generate_help_text() -> String {
 fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> {
     use crate::core::preamble::build_agent;
     use crate::tools::create_mcp_tools;
-    
+
     let mcp_tools = futures::executor::block_on(create_mcp_tools(config));
     Ok(build_agent(config, mcp_tools))
 }
@@ -1500,16 +1718,19 @@ fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> 
 fn generate_knowledge_content_local() -> String {
     let mut content = String::new();
     content.push_str("# Project Knowledge\n\n");
-    
+
+    // === What This Is ===
     content.push_str("## What This Is\n");
     if let Ok(readme) = std::fs::read_to_string("README.md") {
-        let first_section: String = readme.lines()
+        // Try to extract the first meaningful paragraph after the title
+        let meaningful: String = readme
+            .lines()
             .skip_while(|line| line.starts_with('#') || line.trim().is_empty())
-            .take(5)
+            .take_while(|line| !line.trim().is_empty())
             .collect::<Vec<_>>()
             .join("\n");
-        if !first_section.is_empty() {
-            content.push_str(&first_section);
+        if !meaningful.is_empty() {
+            content.push_str(&meaningful);
             content.push_str("\n\n");
         } else {
             content.push_str("[Project description from README.md]\n\n");
@@ -1517,8 +1738,10 @@ fn generate_knowledge_content_local() -> String {
     } else {
         content.push_str("[Describe your project here]\n\n");
     }
-    
-    content.push_str("## Project Structure\n```\n");
+
+    // === Project Structure ===
+    content.push_str("## Project Structure\n\n");
+    content.push_str("```\n");
     if let Ok(entries) = glob::glob("**/*.rs") {
         let mut files: Vec<String> = entries
             .filter_map(|e| e.ok())
@@ -1527,41 +1750,150 @@ fn generate_knowledge_content_local() -> String {
             .collect();
         files.sort();
         files.dedup();
-        for file in files.iter().take(30) {
+        for file in files.iter().take(40) {
             content.push_str(&format!("{}\n", file));
         }
-        if files.len() > 30 {
-            content.push_str(&format!("... ({} more files)\n", files.len() - 30));
+        if files.len() > 40 {
+            content.push_str(&format!("... ({} more files)\n", files.len() - 40));
         }
     }
     content.push_str("```\n\n");
-    
-    content.push_str("## Key Dependencies\n");
+
+    // === Entry Points ===
+    content.push_str("## Entry Points\n\n");
+    let entry_files = ["src/main.rs", "src/lib.rs", "src/index.rs", "src/app.rs"];
+    for entry in &entry_files {
+        if std::path::Path::new(entry).exists() {
+            content.push_str(&format!("- `{}`\n", entry));
+        }
+    }
+    content.push_str("\n");
+
+    // === Key Dependencies ===
+    content.push_str("## Key Dependencies\n\n");
     if let Ok(cargo_content) = std::fs::read_to_string("Cargo.toml") {
         if let Ok(cargo_toml) = cargo_content.parse::<toml::Value>() {
+            // Main dependencies
             if let Some(deps) = cargo_toml.get("dependencies").and_then(|d| d.as_table()) {
-                let mut dep_list: Vec<String> = deps.iter()
+                let mut dep_list: Vec<String> = deps
+                    .iter()
+                    .filter(|(name, _)| !name.starts_with('_')) // skip internal path deps
                     .map(|(name, value)| {
                         let version = match value {
                             toml::Value::String(v) => v.clone(),
-                            toml::Value::Table(t) => t.get("version")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("*")
-                                .to_string(),
+                            toml::Value::Table(t) => {
+                                let ver = t.get("version").and_then(|v| v.as_str()).unwrap_or("*");
+                                let features = t
+                                    .get("features")
+                                    .and_then(|f| f.as_array())
+                                    .map(|arr| {
+                                        let feats: Vec<&str> =
+                                            arr.iter().filter_map(|v| v.as_str()).collect();
+                                        format!(" (features: {})", feats.join(", "))
+                                    })
+                                    .unwrap_or_default();
+                                format!("{}{}", ver, features)
+                            }
                             _ => "*".to_string(),
                         };
-                        format!("- **{}** {}", name, version)
+                        format!("- **{}** v{}", name, version)
                     })
                     .collect();
                 dep_list.sort();
                 content.push_str(&dep_list.join("\n"));
                 content.push_str("\n\n");
             }
+            // Dev dependencies
+            if let Some(dev_deps) = cargo_toml
+                .get("dev-dependencies")
+                .and_then(|d| d.as_table())
+            {
+                if !dev_deps.is_empty() {
+                    content.push_str("### Dev Dependencies\n\n");
+                    let mut dev_list: Vec<String> = dev_deps
+                        .iter()
+                        .map(|(name, value)| {
+                            let version = match value {
+                                toml::Value::String(v) => v.clone(),
+                                _ => "*".to_string(),
+                            };
+                            format!("- **{}** v{}", name, version)
+                        })
+                        .collect();
+                    dev_list.sort();
+                    content.push_str(&dev_list.join("\n"));
+                    content.push_str("\n\n");
+                }
+            }
         }
     }
-    
-    content.push_str("## Conventions & Gotchas\n");
-    content.push_str("- [Add important conventions here]\n");
-    
+
+    // === Rust Edition & Features ===
+    if let Ok(cargo_content) = std::fs::read_to_string("Cargo.toml") {
+        if let Ok(cargo_toml) = cargo_content.parse::<toml::Value>() {
+            if let Some(package) = cargo_toml.get("package") {
+                let mut meta_parts = Vec::new();
+                if let Some(edition) = package.get("edition").and_then(|e| e.as_str()) {
+                    meta_parts.push(format!("Rust edition: {}", edition));
+                }
+                if let Some(name) = package.get("name").and_then(|n| n.as_str()) {
+                    meta_parts.push(format!("Crate name: {}", name));
+                }
+                if !meta_parts.is_empty() {
+                    content.push_str("## Project Metadata\n\n");
+                    for part in &meta_parts {
+                        content.push_str(&format!("- {}\n", part));
+                    }
+                    content.push_str("\n");
+                }
+            }
+        }
+    }
+
+    // === Test Files ===
+    content.push_str("## Tests\n\n");
+    if let Ok(entries) = glob::glob("tests/**/*.rs") {
+        let mut test_files: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.to_string_lossy().to_string())
+            .collect();
+        test_files.sort();
+        if test_files.is_empty() {
+            content.push_str("[No test files found in tests/]\n\n");
+        } else {
+            for file in test_files.iter().take(15) {
+                content.push_str(&format!("- `{}`\n", file));
+            }
+            if test_files.len() > 15 {
+                content.push_str(&format!(
+                    "... ({} more test files)\n",
+                    test_files.len() - 15
+                ));
+            }
+            content.push_str("\n");
+        }
+    }
+
+    // === Conventions ===
+    content.push_str("## Conventions & Gotchas\n\n");
+    // Auto-detect some conventions
+    let mut conventions = Vec::new();
+    if std::path::Path::new(".gitignore").exists() {
+        conventions.push("- Project uses .gitignore for version control");
+    }
+    if std::path::Path::new("clippy.toml").exists() || std::path::Path::new("rustfmt.toml").exists()
+    {
+        conventions.push("- Clippy/rustfmt configuration present — follow formatting rules");
+    }
+    if std::path::Path::new(".github/workflows").exists() {
+        conventions.push("- CI/CD workflows in `.github/workflows/`");
+    }
+    if conventions.is_empty() {
+        conventions.push("- [Add important conventions here]");
+    }
+    for conv in &conventions {
+        content.push_str(&format!("{}\n", conv));
+    }
+
     content
 }

@@ -1,7 +1,7 @@
 use my_code_agent::app::App;
 use my_code_agent::core::config::Config;
-use my_code_agent::core::token_usage::TokenUsage;
 use my_code_agent::core::preamble::build_agent;
+use my_code_agent::core::token_usage::TokenUsage;
 use std::sync::Arc;
 
 fn make_app() -> App {
@@ -9,7 +9,14 @@ fn make_app() -> App {
     let agent = Arc::new(build_agent(&config, vec![]));
     let (interrupt_tx, _) = tokio::sync::broadcast::channel(1);
     let token_usage = TokenUsage::with_config(&config);
-    App::new(vec![], token_usage, String::new(), config, agent, interrupt_tx)
+    App::new(
+        vec![],
+        token_usage,
+        String::new(),
+        config,
+        agent,
+        interrupt_tx,
+    )
 }
 
 #[test]

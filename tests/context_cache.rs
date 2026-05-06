@@ -1,6 +1,6 @@
 use my_code_agent::core::context_cache::{
-    preamble_cache::PreambleCacheEntry, preamble_cache::PreambleCacheKey,
-    CacheMetrics, TurnCacheStats, global_cache,
+    CacheMetrics, TurnCacheStats, global_cache, preamble_cache::PreambleCacheEntry,
+    preamble_cache::PreambleCacheKey,
 };
 use rig::completion::Usage;
 
@@ -98,7 +98,9 @@ fn test_global_cache_record_turn() {
     assert_eq!(stats.cached_tokens, 400);
     assert_eq!(stats.input_tokens, 500);
 
-    let line = cache.format_turn_cache_line().expect("should have cache line");
+    let line = cache
+        .format_turn_cache_line()
+        .expect("should have cache line");
     assert!(line.contains("80%"));
 }
 

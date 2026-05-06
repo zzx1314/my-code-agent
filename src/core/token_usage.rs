@@ -196,11 +196,9 @@ impl ContextWarning {
     pub fn format(&self) -> Vec<String> {
         match self {
             ContextWarning::Approaching => {
-                vec![
-                    format!(
-                        "  ⚠ Approaching limit: Context window getting full. Consider using 'clear' to reset history.",
-                    ),
-                ]
+                vec![format!(
+                    "  ⚠ Approaching limit: Context window getting full. Consider using 'clear' to reset history.",
+                )]
             }
             ContextWarning::Critical => {
                 vec![
@@ -235,9 +233,7 @@ impl ContextWarning {
 pub fn format_turn_usage(turn_usage: &Usage) -> String {
     format!(
         "📊 in: {} · out: {} · total: {}",
-        turn_usage.input_tokens,
-        turn_usage.output_tokens,
-        turn_usage.total_tokens,
+        turn_usage.input_tokens, turn_usage.output_tokens, turn_usage.total_tokens,
     )
 }
 

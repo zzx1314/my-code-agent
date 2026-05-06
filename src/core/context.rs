@@ -335,17 +335,11 @@ pub fn format_attachments(attachments: &[(String, AttachStatus)]) -> Vec<String>
                         path, shown, lines
                     ));
                 } else {
-                    output_lines.push(format!(
-                        "📎 attached: {} ({} lines)",
-                        path, lines
-                    ));
+                    output_lines.push(format!("📎 attached: {} ({} lines)", path, lines));
                 }
             }
             AttachStatus::Error(msg) => {
-                output_lines.push(format!(
-                    "⚠ could not read {}: {}",
-                    path, msg
-                ));
+                output_lines.push(format!("⚠ could not read {}: {}", path, msg));
             }
         }
     }

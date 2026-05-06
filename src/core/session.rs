@@ -169,15 +169,9 @@ impl SessionData {
 
         for (idx, message) in self.chat_history.iter().enumerate() {
             let (role, content) = match message {
-                Message::User { content, .. } => {
-                    ("User", format!("{:?}", content))
-                }
-                Message::Assistant { content, .. } => {
-                    ("Assistant", format!("{:?}", content))
-                }
-                Message::System { content, .. } => {
-                    ("System", format!("{:?}", content))
-                }
+                Message::User { content, .. } => ("User", format!("{:?}", content)),
+                Message::Assistant { content, .. } => ("Assistant", format!("{:?}", content)),
+                Message::System { content, .. } => ("System", format!("{:?}", content)),
             };
 
             if content.to_lowercase().contains(&keyword_lower) {
@@ -288,7 +282,8 @@ pub fn search_sessions(keyword: &str) -> Vec<SearchResult> {
             if path.extension().map(|e| e == "json").unwrap_or(false) {
                 if let Some(name) = path.file_stem() {
                     let name_str = name.to_string_lossy().to_string();
-                    if let Some(load_result) = SessionData::load_from_file(&path.to_string_lossy()) {
+                    if let Some(load_result) = SessionData::load_from_file(&path.to_string_lossy())
+                    {
                         if let Ok(session_data) = load_result {
                             let matches = session_data.search_in_session(keyword);
                             if !matches.is_empty() {
@@ -332,11 +327,20 @@ fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String 
 
         // Calculate character-based start and end
         let char_start = char_pos.saturating_sub(context_size / 2);
-        let char_end = (char_pos + keyword.chars().count() + context_size / 2).min(content.chars().count());
+        let char_end =
+            (char_pos + keyword.chars().count() + context_size / 2).min(content.chars().count());
 
         // Convert back to byte indices safely
-        let start_byte = content.char_indices().nth(char_start).map(|(i, _)| i).unwrap_or(0);
-        let end_byte = content.char_indices().nth(char_end).map(|(i, _)| i).unwrap_or(content.len());
+        let start_byte = content
+            .char_indices()
+            .nth(char_start)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let end_byte = content
+            .char_indices()
+            .nth(char_end)
+            .map(|(i, _)| i)
+            .unwrap_or(content.len());
 
         let mut snippet = String::new();
         if char_start > 0 {

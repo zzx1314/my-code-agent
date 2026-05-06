@@ -130,7 +130,9 @@ impl McpClientInner {
         let mut cursor: Option<String> = None;
 
         loop {
-            let params = ListToolsParams { cursor: cursor.clone() };
+            let params = ListToolsParams {
+                cursor: cursor.clone(),
+            };
             let response = self
                 .send_request("tools/list", Some(serde_json::to_value(params)?))
                 .await?;

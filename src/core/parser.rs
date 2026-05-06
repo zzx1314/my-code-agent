@@ -1,4 +1,4 @@
-use tree_sitter::{Parser, Tree, Node};
+use tree_sitter::{Node, Parser, Tree};
 
 /// Information about a code structure (function, struct, impl, etc.)
 #[derive(Debug, Clone)]
@@ -16,8 +16,21 @@ pub struct StructureInfo {
 impl std::fmt::Display for StructureInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.name {
-            Some(name) => write!(f, "{} {} (lines {}-{})", self.kind, name, self.start_line + 1, self.end_line + 1),
-            None => write!(f, "{} (lines {}-{})", self.kind, self.start_line + 1, self.end_line + 1),
+            Some(name) => write!(
+                f,
+                "{} {} (lines {}-{})",
+                self.kind,
+                name,
+                self.start_line + 1,
+                self.end_line + 1
+            ),
+            None => write!(
+                f,
+                "{} (lines {}-{})",
+                self.kind,
+                self.start_line + 1,
+                self.end_line + 1
+            ),
         }
     }
 }
@@ -110,7 +123,8 @@ impl ParsedFile {
             _ => return None,
         };
 
-        let name = node.child_by_field_name("name")
+        let name = node
+            .child_by_field_name("name")
             .and_then(|n| n.utf8_text(self.source.as_bytes()).ok())
             .map(|s| s.to_string());
 
@@ -150,7 +164,8 @@ impl ParsedFile {
                 }
             };
 
-            let name = child.child_by_field_name("name")
+            let name = child
+                .child_by_field_name("name")
                 .and_then(|n| n.utf8_text(self.source.as_bytes()).ok())
                 .map(|s| s.to_string());
 
@@ -170,5 +185,3 @@ impl ParsedFile {
         structures
     }
 }
-
-

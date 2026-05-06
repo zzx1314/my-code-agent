@@ -54,8 +54,12 @@ pub fn style_text(text: &str, fg: Option<Color>, bold: bool, dim: bool) -> Strin
     if let Some(color) = fg {
         result.push_str(&color_to_fg_ansi(color));
     }
-    if bold { result.push_str("\x1b[1m"); }
-    if dim { result.push_str("\x1b[2m"); }
+    if bold {
+        result.push_str("\x1b[1m");
+    }
+    if dim {
+        result.push_str("\x1b[2m");
+    }
     result.push_str(text);
     result.push_str(ansi_reset());
     result
@@ -79,7 +83,9 @@ pub fn make_startup_text() -> Text<'static> {
     for l in BANNER_ART.lines() {
         lines.push(Line::from(Span::styled(
             l.to_string(),
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         )));
     }
 
@@ -88,20 +94,26 @@ pub fn make_startup_text() -> Text<'static> {
     // 标题行
     lines.push(Line::from(Span::styled(
         "My Code Agent",
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     )));
 
     // 副标题
     lines.push(Line::from(Span::styled(
         "  Interactive AI Coding Assistant",
-        Style::default().fg(Color::LightYellow).add_modifier(Modifier::DIM),
+        Style::default()
+            .fg(Color::LightYellow)
+            .add_modifier(Modifier::DIM),
     )));
 
     lines.push(Line::from(""));
 
     lines.push(Line::from(Span::styled(
         "Type your message below to start chatting.",
-        Style::default().fg(Color::LightYellow).add_modifier(Modifier::DIM),
+        Style::default()
+            .fg(Color::LightYellow)
+            .add_modifier(Modifier::DIM),
     )));
 
     lines.push(Line::from(Span::styled(

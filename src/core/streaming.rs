@@ -4,7 +4,6 @@ use rig::completion::{CompletionModel, GetTokenUsage, Message};
 use rig::streaming::{StreamedAssistantContent, StreamingChat};
 use tokio::sync::mpsc;
 
-
 use super::config::AgentConfig;
 use super::context_manager::ContextManager;
 use super::plan_tracker::PlanTracker;
@@ -225,7 +224,9 @@ where
                     status_messages.push(plan_display.clone());
                     send_event(StreamEvent::PlanProgress(plan_display));
                     plan_tracker.confirm();
-                    send_event(StreamEvent::PlanProgress("✓ Plan confirmed, proceeding...".to_string()));
+                    send_event(StreamEvent::PlanProgress(
+                        "✓ Plan confirmed, proceeding...".to_string(),
+                    ));
                 }
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
                     plan_tracker.log_progress();
@@ -295,7 +296,8 @@ where
 
                 let input_tokens = session_usage.input_tokens();
                 if context_manager.should_compact(input_tokens) {
-                    status_messages.push("📝 Context window full - pruning old messages...".to_string());
+                    status_messages
+                        .push("📝 Context window full - pruning old messages...".to_string());
                     let pruned_messages = context_manager.prune_messages(chat_history);
                     let pruned_count = chat_history.len() - pruned_messages.len();
                     *chat_history = pruned_messages;
@@ -332,9 +334,13 @@ where
                 let err_msg = e.to_string();
                 if err_msg.contains("MaxTurnError") || err_msg.contains("max turn limit") {
                     if full_response.is_empty() {
-                        status_messages.push("⚠ Reached tool call limit without producing a response.".to_string());
+                        status_messages.push(
+                            "⚠ Reached tool call limit without producing a response.".to_string(),
+                        );
                     } else {
-                        status_messages.push("⚠ Reached tool call limit. Here is what I have so far:".to_string());
+                        status_messages.push(
+                            "⚠ Reached tool call limit. Here is what I have so far:".to_string(),
+                        );
                     }
                 } else {
                     status_messages.push(format!("✗ Error: {}", e));
