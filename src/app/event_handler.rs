@@ -605,20 +605,8 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
     }
 }
 
-/// Send a message to the LLM (extracted for reuse by message queue)
-pub fn send_message_to_llm(app: &mut App, context_manager: &mut ContextManager, input_text: String) {
-    app.show_banner = false; // Hide startup banner
-    app.chat_history.push(("user".to_string(), input_text.clone()));
-    app.input = {
-        let mut ta = TextArea::default();
-        ta.set_block(
-            ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
-        );
-        ta.set_cursor_line_style(ratatui::style::Style::default());
-        ta
-    };
+/// Reset all streaming-related state in the app
+fn reset_streaming_state(app: &mut App) {
     app.is_streaming = true;
     app.auto_scroll = true;
     app.reasoning_auto_scroll = true;
@@ -630,8 +618,11 @@ pub fn send_message_to_llm(app: &mut App, context_manager: &mut ContextManager, 
     app.status_messages.clear();
     app.streaming_status_messages.clear();
     app.turn_usage_line = None;
+}
 
-    let expanded = expand_file_refs(&input_text, &app.config);
+/// Spawn an async LLM streaming task with the given prompt
+fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, prompt: &str) {
+    let expanded = expand_file_refs(prompt, &app.config);
     
     let mut rig_chat_history = convert_app_to_rig(&app.chat_history);
     let agent_clone = app.agent.clone();
@@ -662,6 +653,24 @@ pub fn send_message_to_llm(app: &mut App, context_manager: &mut ContextManager, 
 
         response_tx.send(result).await.ok();
     });
+}
+
+/// Send a message to the LLM (extracted for reuse by message queue)
+pub fn send_message_to_llm(app: &mut App, context_manager: &mut ContextManager, input_text: String) {
+    app.show_banner = false; // Hide startup banner
+    app.chat_history.push(("user".to_string(), input_text.clone()));
+    app.input = {
+        let mut ta = TextArea::default();
+        ta.set_block(
+            ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
+        );
+        ta.set_cursor_line_style(ratatui::style::Style::default());
+        ta
+    };
+    reset_streaming_state(app);
+    spawn_llm_stream(app, context_manager, &input_text);
 }
 
 pub fn handle_paste_event(text: &str, app: &mut App) {
@@ -1355,23 +1364,34 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
             true
         }
         cmd if cmd.starts_with("/plan") => {
-            let task = cmd.strip_prefix("/plan").unwrap_or("").trim();
-            app.chat_history.push(("user".to_string(), input.to_string()));
-            app.show_banner = false;
+            handle_plan_command(app, input, context_manager)
+        }
+        _ => {
+            // 未知命令，发送给 LLM 处理
+            false
+        }
+    }
+}
 
-            if task.is_empty() {
-                app.chat_history.push(("assistant".to_string(), 
-                    "📋 **Plan Mode**\n\n\
+/// Handle the /plan command: analyze task and create implementation plan without executing
+fn handle_plan_command(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {
+    let task = input.trim().strip_prefix("/plan").unwrap_or("").trim();
+    app.chat_history.push(("user".to_string(), input.to_string()));
+    app.show_banner = false;
+
+    if task.is_empty() {
+        app.chat_history.push(("assistant".to_string(), 
+            "📋 **Plan Mode**\n\n\
                     Usage: `/plan <task description>`\n\n\
                     Example: `/plan Add user authentication with JWT tokens`\n\n\
                     In plan mode, I will analyze your task and create a detailed plan \
                     without executing any actions. You can review the plan before proceeding.".to_string()));
-                app.auto_scroll = true;
-                return true;
-            }
+        app.auto_scroll = true;
+        return true;
+    }
 
-            let planning_prompt = format!(
-                r#"You are in PLAN-ONLY mode. Your task is to analyze the following request and create a comprehensive, actionable plan.
+    let planning_prompt = format!(
+        r#"You are in PLAN-ONLY mode. Your task is to analyze the following request and create a comprehensive, actionable plan.
 
 ## Rules for Plan Mode:
 - Do NOT execute any tools (no file reads, writes, shell commands, etc.)
@@ -1407,60 +1427,12 @@ Structure your plan as follows:
 
 ---
 **Task:** {task}"#
-            );
+    );
 
-            // Set up streaming to send the planning prompt
-            app.is_streaming = true;
-            app.auto_scroll = true;
-            app.reasoning_auto_scroll = true;
-            app.reasoning_scroll = 0;
-            app.streaming_text.clear();
-            app.streaming_reasoning.clear();
-            app.current_tool_call = None;
-            app.current_response.clear();
-            app.status_messages.clear();
-            app.streaming_status_messages.clear();
-            app.turn_usage_line = None;
+    reset_streaming_state(app);
+    spawn_llm_stream(app, context_manager, &planning_prompt);
 
-            let expanded = crate::core::context::expand_file_refs(&planning_prompt, &app.config);
-            
-            let mut rig_chat_history = convert_app_to_rig(&app.chat_history);
-            let agent_clone = app.agent.clone();
-            let config_clone = app.config.clone();
-            let mut token_usage_clone = app.token_usage.clone();
-            let interrupt_rx = app.interrupt_tx.subscribe();
-            let (response_tx, response_rx) = mpsc::channel::<crate::core::streaming::StreamResult>(1);
-            let (event_tx, event_rx) = mpsc::unbounded_channel::<crate::core::streaming::StreamEvent>();
-
-            let mut ctx_mgr = context_manager.clone();
-
-            app.response_rx = Some(response_rx);
-            app.streaming_events_rx = Some(event_rx);
-
-            tokio::spawn(async move {
-                let mut interrupt_rx = interrupt_rx;
-
-                let result = crate::core::streaming::stream_response(
-                    &agent_clone,
-                    &expanded.expanded,
-                    &mut rig_chat_history,
-                    &mut token_usage_clone,
-                    &mut interrupt_rx,
-                    &mut ctx_mgr,
-                    &config_clone.agent,
-                    Some(event_tx),
-                ).await;
-
-                response_tx.send(result).await.ok();
-            });
-
-            true
-        }
-        _ => {
-            // 未知命令，发送给 LLM 处理
-            false
-        }
-    }
+    true
 }
 
 /// 生成帮助文本
