@@ -674,6 +674,11 @@ pub fn process_streaming_events(app: &mut App) {
         loop {
             match rx.try_recv() {
                 Ok(StreamEvent::Text(delta)) => {
+                    // When transitioning from tool call display to text,
+                    // insert a newline so the tool output doesn't run into the next text
+                    if app.current_tool_call.is_some() {
+                        app.streaming_text.push('\n');
+                    }
                     app.streaming_text.push_str(&delta);
                     app.current_tool_call = None;
                 }
