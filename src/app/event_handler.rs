@@ -1331,76 +1331,24 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
         "/init" => {
             let knowledge_file = crate::core::preamble::KNOWLEDGE_FILE.to_string();
             let is_update = std::path::Path::new(&knowledge_file).exists();
+            let prompt = build_init_prompt(is_update);
 
             app.chat_history
                 .push(("user".to_string(), "/init".to_string()));
-            let status_msg = if is_update {
-                "⏳ Updating knowledge file — exploring project..."
-            } else {
-                "⏳ Creating knowledge file — exploring project..."
-            };
-            app.chat_history
-                .push(("assistant".to_string(), status_msg.to_string()));
+            app.chat_history.push((
+                "assistant".to_string(),
+                if is_update {
+                    "⏳ Updating knowledge file — exploring project..."
+                } else {
+                    "⏳ Creating knowledge file — exploring project..."
+                }
+                .to_string(),
+            ));
             app.show_banner = false;
             app.auto_scroll = true;
             app.scroll = u16::MAX;
 
-            // Build the init prompt — instruct the LLM to use tools
-            let prompt = if is_update {
-                let existing_content = std::fs::read_to_string(&knowledge_file).unwrap_or_default();
-                format!(
-                    r#"You are a technical documentation expert. Your task is to UPDATE the project knowledge document.
-
-Current knowledge document:
-```markdown
-{}
-```
-
-## Instructions
-1. Use the available tools (list_dir, glob, file_read, code_search) to explore the current project structure
-2. Check the project root for README.md, Cargo.toml, package.json, or similar config files
-3. Look at the source directory structure to understand the codebase layout
-4. Update the knowledge document to accurately reflect the current state of the project
-5. Keep the existing Markdown structure but update all content
-6. Add any new important files, modules, or patterns you discover
-7. Remove references to files or features that no longer exist
-
-## Output Rules
-- Respond ONLY with the complete updated Markdown content
-- Do NOT include any explanation, commentary, or wrapping text
-- Do NOT use code fences around your response
-- The response should be valid Markdown that can be directly saved as a file"#,
-                    existing_content
-                )
-            } else {
-                r#"You are a technical documentation expert. Your task is to CREATE a comprehensive project knowledge document.
-
-## Instructions
-1. Use the available tools (list_dir, glob, file_read, code_search) to thoroughly explore the project
-2. Read README.md, Cargo.toml/package.json, and other config files in the project root
-3. Explore the source directory structure (src/, lib/, etc.)
-4. Identify the project type, key dependencies, architecture patterns, and conventions
-5. Create a well-structured Markdown knowledge document
-
-## Document Structure
-The document should include these sections:
-- **## What This Is** — Brief project description (from README or code)
-- **## Features** — Key features and capabilities
-- **## Project Structure** — Directory/file layout with descriptions
-- **## Key Dependencies** — Major libraries and their purposes
-- **## Configuration** — How the project is configured
-- **## Conventions & Gotchas** — Important patterns, naming conventions, things to know
-
-## Output Rules
-- Respond ONLY with the complete Markdown content
-- Do NOT include any explanation, commentary, or wrapping text
-- Do NOT use code fences around your response
-- The response should be valid Markdown that can be directly saved as a file"#.to_string()
-            };
-
-            // Set up streaming channels — events go through event_tx for live UI,
-            // but we do NOT use response_tx (check_stream_result) to avoid dumping
-            // the entire knowledge content into chat. Only init_tx is used.
+            // Set up streaming channels
             let (event_tx, event_rx) = mpsc::unbounded_channel::<StreamEvent>();
             app.streaming_events_rx = Some(event_rx);
             app.is_streaming = true;
@@ -1419,7 +1367,8 @@ The document should include these sections:
                 let mut chat_history = Vec::new();
                 let mut token_usage = crate::core::token_usage::TokenUsage::new();
                 let mut interrupt_rx = interrupt_rx;
-                let mut ctx_mgr = crate::core::context_manager::ContextManager::new(&config_clone);
+                let mut ctx_mgr =
+                    crate::core::context_manager::ContextManager::new(&config_clone);
 
                 let result = stream_response(
                     &agent_clone,
@@ -1433,75 +1382,20 @@ The document should include these sections:
                 )
                 .await;
 
-                // Extract the knowledge content from the LLM response
+                // Extract content: use LLM response, or fallback to local generation
                 let new_content = if result.full_response.is_empty() {
                     tracing::warn!(
                         "LLM returned empty response for /init, falling back to local generation"
                     );
                     generate_knowledge_content_local()
                 } else {
-                    // Strip code fences if the LLM wrapped them despite instructions
                     let raw = result.full_response.trim();
-                    let stripped = if raw.starts_with("```") && raw.ends_with("```") {
-                        // Remove opening ```markdown or ``` and closing ```
-                        let inner = &raw[raw.find('\n').unwrap_or(3)..raw.len() - 3];
-                        inner.trim()
-                    } else {
-                        raw
-                    };
-                    tracing::info!(
-                        bytes = stripped.len(),
-                        "Generated knowledge content via LLM"
-                    );
+                    let stripped = strip_code_fences(raw);
+                    tracing::info!(bytes = stripped.len(), "Generated knowledge content via LLM");
                     stripped.to_string()
                 };
 
-                // Write the file and rebuild the agent
-                let init_result = match std::fs::write(&knowledge_file, &new_content) {
-                    Ok(_) => match rebuild_agent(&config_clone) {
-                        Ok(new_agent) => {
-                            let msg = if is_update {
-                                format!(
-                                    "✅ Updated '{}' ({} bytes) with current project info.\nAgent reloaded with updated knowledge.",
-                                    knowledge_file,
-                                    new_content.len()
-                                )
-                            } else {
-                                format!(
-                                    "✅ Created '{}' ({} bytes) with project analysis.\nAgent reloaded with new knowledge.",
-                                    knowledge_file,
-                                    new_content.len()
-                                )
-                            };
-                            InitResult {
-                                message: msg,
-                                new_agent: Some(new_agent),
-                            }
-                        }
-                        Err(e) => {
-                            let msg = if is_update {
-                                format!(
-                                    "✅ Updated '{}' with current project info.\n⚠️ Failed to reload agent: {}",
-                                    knowledge_file, e
-                                )
-                            } else {
-                                format!(
-                                    "✅ Created '{}' with project analysis.\n⚠️ Failed to reload agent: {}",
-                                    knowledge_file, e
-                                )
-                            };
-                            InitResult {
-                                message: msg,
-                                new_agent: None,
-                            }
-                        }
-                    },
-                    Err(e) => InitResult {
-                        message: format!("❌ Failed to write '{}': {}", knowledge_file, e),
-                        new_agent: None,
-                    },
-                };
-
+                let init_result = build_init_result(&knowledge_file, &new_content, &config_clone, is_update);
                 init_tx.send(init_result).await.ok();
             });
 
@@ -1706,6 +1600,104 @@ fn generate_help_text() -> String {
 }
 
 /// 重建 agent（用于模型切换）
+/// Build the LLM prompt for `/init` command
+fn build_init_prompt(is_update: bool) -> String {
+    if is_update {
+        let existing_content =
+            std::fs::read_to_string(crate::core::preamble::KNOWLEDGE_FILE).unwrap_or_default();
+        format!(
+            r#"You are a technical documentation expert. Your task is to UPDATE the project knowledge document.
+
+Current knowledge document:
+```markdown
+{}
+```
+
+## Instructions
+1. Use the available tools (list_dir, glob, file_read, code_search) to explore the current project structure
+2. Check the project root for README.md, Cargo.toml, package.json, or similar config files
+3. Look at the source directory structure to understand the codebase layout
+4. Update the knowledge document to accurately reflect the current state of the project
+5. Keep the existing Markdown structure but update all content
+6. Add any new important files, modules, or patterns you discover
+7. Remove references to files or features that no longer exist
+
+## Output Rules
+- Respond ONLY with the complete updated Markdown content
+- Do NOT include any explanation, commentary, or wrapping text
+- Do NOT use code fences around your response
+- The response should be valid Markdown that can be directly saved as a file"#,
+            existing_content
+        )
+    } else {
+        r#"You are a technical documentation expert. Your task is to CREATE a comprehensive project knowledge document.
+
+## Instructions
+1. Use the available tools (list_dir, glob, file_read, code_search) to thoroughly explore the project
+2. Read README.md, Cargo.toml/package.json, and other config files in the project root
+3. Explore the source directory structure (src/, lib/, etc.)
+4. Identify the project type, key dependencies, architecture patterns, and conventions
+5. Create a well-structured Markdown knowledge document
+
+## Document Structure
+The document should include these sections:
+- **## What This Is** — Brief project description (from README or code)
+- **## Features** — Key features and capabilities
+- **## Project Structure** — Directory/file layout with descriptions
+- **## Key Dependencies** — Major libraries and their purposes
+- **## Configuration** — How the project is configured
+- **## Conventions & Gotchas** — Important patterns, naming conventions, things to know
+
+## Output Rules
+- Respond ONLY with the complete Markdown content
+- Do NOT include any explanation, commentary, or wrapping text
+- Do NOT use code fences around your response
+- The response should be valid Markdown that can be directly saved as a file"#.to_string()
+    }
+}
+
+/// Strip wrapping code fences from LLM response (e.g. ```markdown ... ```)
+fn strip_code_fences(raw: &str) -> &str {
+    if raw.starts_with("```") && raw.ends_with("```") {
+        let inner = &raw[raw.find('\n').unwrap_or(3)..raw.len() - 3];
+        inner.trim()
+    } else {
+        raw
+    }
+}
+
+/// Write knowledge content to disk and rebuild the agent, returning an `InitResult`
+fn build_init_result(
+    knowledge_file: &str,
+    new_content: &str,
+    config: &crate::core::config::Config,
+    is_update: bool,
+) -> InitResult {
+    let action = if is_update { "Updated" } else { "Created" };
+    match std::fs::write(knowledge_file, new_content) {
+        Ok(_) => match rebuild_agent(config) {
+            Ok(new_agent) => InitResult {
+                message: format!(
+                    "✅ {} '{}' ({} bytes) with current project info.\nAgent reloaded with updated knowledge.",
+                    action, knowledge_file, new_content.len()
+                ),
+                new_agent: Some(new_agent),
+            },
+            Err(e) => InitResult {
+                message: format!(
+                    "✅ {} '{}' with current project info.\n⚠️ Failed to reload agent: {}",
+                    action, knowledge_file, e
+                ),
+                new_agent: None,
+            },
+        },
+        Err(e) => InitResult {
+            message: format!("❌ Failed to write '{}': {}", knowledge_file, e),
+            new_agent: None,
+        },
+    }
+}
+
 fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> {
     use crate::core::preamble::build_agent;
     use crate::tools::create_mcp_tools;

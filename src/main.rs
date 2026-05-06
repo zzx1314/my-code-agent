@@ -115,13 +115,12 @@ async fn main() -> Result<()> {
             app.marquee_frame = 0;
         }
 
-        terminal.draw(|f| app::ui::ui(f, &mut app))?;
-
-        // Check for completed stream result
+        app::event_handler::process_streaming_events(&mut app);
         app::event_handler::check_stream_result(&mut app);
         app::event_handler::check_init_result(&mut app);
 
-        // Process queued messages (messages entered during streaming)
+        terminal.draw(|f| app::ui::ui(f, &mut app))?;
+
         app::event_handler::process_message_queue(&mut app, &mut context_manager);
 
         // Check for confirmation requests from tools
@@ -136,9 +135,6 @@ async fn main() -> Result<()> {
                 }
             }
         }
-
-        // Poll streaming text events for live display
-        app::event_handler::process_streaming_events(&mut app);
 
         if crossterm::event::poll(Duration::from_millis(100))? {
             match crossterm::event::read()? {
