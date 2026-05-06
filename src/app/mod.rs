@@ -45,6 +45,8 @@ pub struct App {
     pub streaming_reasoning: String,
     /// Currently executing tool name (displayed inline, replaces previous)
     pub current_tool_call: Option<String>,
+    /// Status messages accumulated during streaming (displayed in real-time)
+    pub streaming_status_messages: Vec<String>,
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
     /// Agent for processing requests
@@ -146,6 +148,7 @@ impl App {
             streaming_text: String::new(),
             streaming_reasoning: String::new(),
             current_tool_call: None,
+            streaming_status_messages: Vec::new(),
             status_messages: Vec::new(),
             turn_usage_line: None,
             agent,

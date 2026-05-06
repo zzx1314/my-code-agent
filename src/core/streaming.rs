@@ -39,6 +39,8 @@ pub enum StreamEvent {
     ReasoningActive(bool),
     /// Reasoning content delta.
     ReasoningDelta(String),
+    /// Plan progress message (e.g., step status, completion).
+    PlanProgress(String),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,15 +211,19 @@ where
                 // If plan was detected but not yet parsed, parse it now and auto-confirm
                 if plan_detected && !plan_tracker.has_active_plan() {
                     plan_tracker.parse_plan(&plan_text);
-                    status_messages.push(plan_tracker.format_with_confirmation());
+                    let plan_display = plan_tracker.format_with_confirmation();
+                    status_messages.push(plan_display.clone());
+                    send_event(StreamEvent::PlanProgress(plan_display));
                     plan_tracker.confirm();
+                    send_event(StreamEvent::PlanProgress("✓ Plan confirmed, proceeding...".to_string()));
                 }
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
                     plan_tracker.log_progress();
                     plan_tracker.complete_current_step();
                     let progress = plan_tracker.progress_display();
                     if !progress.is_empty() {
-                        status_messages.push(progress);
+                        status_messages.push(progress.clone());
+                        send_event(StreamEvent::PlanProgress(progress));
                     }
                 }
                 // 工具调用仅通过 StreamEvent::ToolCall 在流式阶段实时显示（render_chat_area 中的 current_tool_call）
@@ -256,6 +262,9 @@ where
                     let progress = plan_tracker.progress_display();
                     status_messages.push(format!("📋 Task Plan {}", progress));
                     plan_tracker.log_completion();
+                    for msg in plan_tracker.messages() {
+                        send_event(StreamEvent::PlanProgress(msg.clone()));
+                    }
                 }
 
                 if let Some(history) = final_res.history() {

@@ -279,11 +279,22 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
                 let md = from_str(&app.streaming_text);
                 lines.extend(md.lines);
             }
-            // Show current tool call inline (only the latest one)
+            // Show running indicator only when a tool is actively executing
+            // (the tool call name is already rendered in streaming_text above)
             if let Some(ref tool_name) = app.current_tool_call {
                 lines.push(Line::from(vec![
-                    Span::styled(format!("⟳ Tool Call: `{}`", tool_name), Style::default().fg(Color::Yellow)),
+                    Span::styled(format!("  ⏳ {}...", tool_name), Style::default().fg(Color::DarkGray)),
                 ]));
+            }
+            // Show real-time plan progress messages during streaming
+            if !app.streaming_status_messages.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "─".repeat(area.width as usize),
+                    Style::default().fg(Color::DarkGray),
+                )));
+                for msg in &app.streaming_status_messages {
+                    lines.push(Line::from(msg.as_str()));
+                }
             }
         } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
             lines.push(Line::from(

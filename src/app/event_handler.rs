@@ -310,6 +310,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 app.streaming_reasoning.clear();
                 app.current_tool_call = None;
                 app.status_messages.clear();
+                app.streaming_status_messages.clear();
             } else {
                 app.should_exit = true;
             }
@@ -600,6 +601,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
         app.current_tool_call = None;
         app.current_response.clear();
         app.status_messages.clear();
+        app.streaming_status_messages.clear();
         app.turn_usage_line = None;
 
         let expanded = expand_file_refs(&input_text, &app.config);
@@ -674,16 +676,18 @@ pub fn process_streaming_events(app: &mut App) {
         loop {
             match rx.try_recv() {
                 Ok(StreamEvent::Text(delta)) => {
-                    // When transitioning from tool call display to text,
-                    // insert a newline so the tool output doesn't run into the next text
-                    if app.current_tool_call.is_some() {
-                        app.streaming_text.push('\n');
-                    }
                     app.streaming_text.push_str(&delta);
                     app.current_tool_call = None;
                 }
                 Ok(StreamEvent::ToolCall(name)) => {
-                    // Replace with the latest tool call — only show the current one
+                    // When a tool call starts, append it to streaming_text so it persists
+                    // after the tool completes (current_tool_call is ephemeral and only
+                    // shows during execution)
+                    if !app.streaming_text.is_empty() {
+                        app.streaming_text.push_str("\n\n");
+                    }
+                    app.streaming_text.push_str(&format!("**⟳ Tool Call: `{}`**\n\n", name));
+                    // Also set current_tool_call for the live indicator
                     app.current_tool_call = Some(name);
                 }
                 Ok(StreamEvent::ReasoningActive(active)) => {
@@ -698,6 +702,9 @@ pub fn process_streaming_events(app: &mut App) {
                 Ok(StreamEvent::ReasoningDelta(delta)) => {
                     app.streaming_reasoning.push_str(&delta);
                     app.current_tool_call = None;
+                }
+                Ok(StreamEvent::PlanProgress(msg)) => {
+                    app.streaming_status_messages.push(msg);
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
@@ -738,6 +745,7 @@ fn cleanup_stream_state(app: &mut App) {
     app.streaming_reasoning.clear();
     app.current_tool_call = None;
     app.streaming_events_rx = None;
+    app.streaming_status_messages.clear();
     app.auto_scroll = true;
 }
 
@@ -770,6 +778,7 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
     app.streaming_reasoning.clear();
     app.current_tool_call = None;
     app.streaming_events_rx = None;
+    app.streaming_status_messages.clear();
 
     if !result.full_response.is_empty() {
         app.chat_history.push(("assistant".to_string(), result.full_response));
