@@ -229,6 +229,9 @@ where
                 }
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
                     plan_tracker.log_progress();
+                    if let Some(msg) = plan_tracker.messages().last() {
+                        send_event(StreamEvent::PlanProgress(msg.clone()));
+                    }
                     plan_tracker.complete_current_step();
                     let progress = plan_tracker.progress_display();
                     if !progress.is_empty() {
