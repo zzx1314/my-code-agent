@@ -772,6 +772,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 "/connect".to_string(),
                 "/model".to_string(),
                 "/init".to_string(),
+                "/undo".to_string(),
             ]
         }
         '@' => {
@@ -1052,6 +1053,49 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
 
             true
         }
+        "/undo" => {
+            use crate::tools::undo_history::{pop_last_entries, history_len};
+            use crate::tools::file_undo;
+
+            app.chat_history.push(("user".to_string(), "/undo".to_string()));
+            app.show_banner = false;
+            app.auto_scroll = true;
+
+            let available = history_len().unwrap_or(0);
+            if available == 0 {
+                app.chat_history.push(("assistant".to_string(), "No undo history available. Undo history is recorded when AI tools modify files.".to_string()));
+            } else {
+                match pop_last_entries(1) {
+                    Ok(entries) if entries.is_empty() => {
+                        app.chat_history.push(("assistant".to_string(), "No undo history available.".to_string()));
+                    }
+                    Ok(entries) => {
+                        let mut details = Vec::new();
+                        let mut errors = Vec::new();
+                        for entry in &entries {
+                            if let Err(e) = file_undo::apply_undo(entry, &mut details) {
+                                errors.push(e.to_string());
+                            }
+                        }
+                        let mut msg = format!("↩️ Undid {} change(s):\n", details.len());
+                        for d in &details {
+                            msg.push_str(&format!("  • `{}`: {} ({})\n", d.file_path, d.action, d.operation));
+                        }
+                        if !errors.is_empty() {
+                            msg.push_str(&format!("\n⚠️ Errors:\n"));
+                            for e in &errors {
+                                msg.push_str(&format!("  • {}\n", e));
+                            }
+                        }
+                        app.chat_history.push(("assistant".to_string(), msg));
+                    }
+                    Err(e) => {
+                        app.chat_history.push(("assistant".to_string(), format!("❌ Undo failed: {}", e)));
+                    }
+                }
+            }
+            true
+        }
         _ => {
             // 未知命令，发送给 LLM 处理
             false
@@ -1078,6 +1122,7 @@ fn generate_help_text() -> String {
 | `/model` | Select model from dropdown menu |
 | `/think` | Show last reasoning/thinking content |
 | `/init` | Initialize or update project knowledge file |
+| `/undo` | Undo last file change made by AI tools |
 
 ## Input Features
 

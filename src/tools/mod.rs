@@ -14,6 +14,8 @@ pub mod glob;
 pub mod list_dir;
 pub mod safety;
 pub mod shell_exec;
+pub mod undo_history;
+pub mod file_undo;
 
 pub use code_review::CodeReview;
 pub use code_search::CodeSearch;
@@ -34,6 +36,7 @@ pub use safety::{
     is_dangerous_snippet_deletion,
 };
 pub use shell_exec::ShellExec;
+pub use file_undo::FileUndo;
 
 use crate::core::config::Config;
 use crate::tools::confirmation::ConfirmationHandle;
@@ -68,6 +71,7 @@ pub fn all_tools_with_handle(
         Box::new(GitDiff),
         Box::new(GitLog),
         Box::new(GitCommit::new(confirmation_handle)),
+        Box::new(FileUndo),
     ]
 }
 

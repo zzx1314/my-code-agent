@@ -3,6 +3,8 @@ use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::undo_history;
+
 #[derive(Debug, thiserror::Error)]
 pub enum FileUpdateError {
     #[error("IO error: {0}")]
@@ -94,6 +96,15 @@ impl Tool for FileUpdate {
         }
 
         let new_content = content.replace(&args.old, &args.new);
+
+        // Record the change for undo before writing
+        let _ = undo_history::record_change(
+            &args.path,
+            Some(content.clone()),
+            Some(new_content.clone()),
+            "file_update",
+        );
+
         std::fs::write(&args.path, &new_content).map_err(FileUpdateError::Io)?;
 
         // Build a minimal diff showing the change

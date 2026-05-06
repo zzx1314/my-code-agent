@@ -3,6 +3,8 @@ use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::undo_history;
+
 #[derive(Debug, thiserror::Error)]
 pub enum FileWriteError {
     #[error("IO error: {0}")]
@@ -66,6 +68,15 @@ impl Tool for FileWrite {
         {
             std::fs::create_dir_all(parent).map_err(FileWriteError::Io)?;
         }
+
+        // Record the change for undo before writing
+        let old_content = std::fs::read_to_string(&args.path).ok();
+        let _ = undo_history::record_change(
+            &args.path,
+            old_content,
+            Some(args.content.clone()),
+            "file_write",
+        );
 
         let bytes_written = args.content.len();
         std::fs::write(&args.path, &args.content).map_err(FileWriteError::Io)?;

@@ -3,3 +3,4 @@
 /.sessions
 .session.json
 .my-code-agent.log
+.undo_history.json

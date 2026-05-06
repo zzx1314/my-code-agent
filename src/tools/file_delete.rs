@@ -5,6 +5,7 @@ use serde_json::json;
 
 use super::confirmation::ConfirmationHandle;
 use super::safety::{confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion};
+use super::undo_history;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileDeleteError {
@@ -164,6 +165,15 @@ impl Tool for FileDelete {
             }
 
             let new_content = content.replace(&snippet, "");
+
+            // Record the change for undo before writing
+            let _ = undo_history::record_change(
+                &args.path,
+                Some(content.clone()),
+                Some(new_content.clone()),
+                "file_delete (snippet)",
+            );
+
             std::fs::write(path, &new_content).map_err(FileDeleteError::Io)?;
 
             let diff = super::build_diff(&snippet, "", &content);
@@ -208,6 +218,14 @@ impl Tool for FileDelete {
                 "directory".to_string()
             }
         } else if path.is_file() {
+            // Record file content for undo before deletion
+            let old_content = std::fs::read_to_string(path).ok();
+            let _ = undo_history::record_change(
+                &args.path,
+                old_content,
+                None,
+                "file_delete",
+            );
             std::fs::remove_file(path).map_err(FileDeleteError::Io)?;
             "file".to_string()
         } else {
