@@ -228,12 +228,13 @@ where
                         "✓ Plan confirmed, proceeding...".to_string(),
                     ));
                 }
+                // Update step statuses based on "y" markers in accumulated text
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
+                    plan_tracker.update_from_text(&plan_text);
                     plan_tracker.log_progress();
-                    if let Some(msg) = plan_tracker.messages().last() {
-                        send_event(StreamEvent::PlanProgress(msg.clone()));
+                    for msg in plan_tracker.take_messages() {
+                        send_event(StreamEvent::PlanProgress(msg));
                     }
-                    plan_tracker.complete_current_step();
                     let progress = plan_tracker.progress_display();
                     if !progress.is_empty() {
                         status_messages.push(progress.clone());
@@ -269,16 +270,27 @@ where
             }
 
             Ok(MultiTurnStreamItem::FinalResponse(final_res)) => {
+                // Fallback: 如果 plan 被检测到但没有 tool call 触发 parse，在这里补上
+                if plan_detected && !plan_tracker.has_active_plan() {
+                    plan_tracker.parse_plan(&plan_text);
+                    let plan_display = plan_tracker.format_with_confirmation();
+                    status_messages.push(plan_display.clone());
+                    send_event(StreamEvent::PlanProgress(plan_display));
+                }
+
                 if reasoning.is_reasoning() && display_mode != "hidden" {
                     reasoning.end_segment();
                 }
 
                 if plan_tracker.has_active_plan() {
+                    // Final update: re-parse markers one last time
+                    plan_tracker.update_from_text(&plan_text);
                     let progress = plan_tracker.progress_display();
                     status_messages.push(format!("📋 Task Plan {}", progress));
                     plan_tracker.log_completion();
-                    for msg in plan_tracker.messages() {
+                    for msg in plan_tracker.take_messages() {
                         send_event(StreamEvent::PlanProgress(msg.clone()));
+                        status_messages.push(msg);
                     }
                 }
 
@@ -309,9 +321,6 @@ where
                         chat_history.len()
                     ));
                 }
-
-                // Collect plan tracker messages
-                status_messages.extend(plan_tracker.take_messages());
 
                 return StreamResult {
                     full_response,

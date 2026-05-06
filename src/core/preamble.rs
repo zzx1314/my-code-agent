@@ -19,13 +19,25 @@ For multi-step tasks, start with a plan before executing:
 ## Task Plan
 1. [Step description]
 2. [Step description]
-3. ...
+3. [Step description]
 ```
 
-This plan helps:
+**After completing each step, append a "y" marker below that step:**
+
+```
+## Task Plan
+1. [Step description]
+   y
+2. [Step description]
+   y
+3. [Step description]
+```
+
+This format helps:
 - Organize your thoughts before acting
 - Let the user verify your approach
 - Track progress through complex tasks
+- Explicitly mark completed steps with "y"
 
 **When to create a plan:**
 - Implementing a new feature

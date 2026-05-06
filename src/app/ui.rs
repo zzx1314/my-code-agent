@@ -415,7 +415,8 @@ fn render_completion_menu(f: &mut Frame, app: &mut App, input_area: Rect) {
         y: menu_y,
         width: menu_width,
         height: menu_height,
-    };
+    }
+    .intersection(f.area());
 
     f.render_widget(Clear, menu_rect);
 
@@ -569,7 +570,8 @@ fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
         y: menu_y,
         width: menu_width,
         height: menu_height,
-    };
+    }
+    .intersection(f.area());
 
     f.render_widget(Clear, menu_rect);
 
@@ -635,7 +637,8 @@ fn render_provider_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
         y: menu_y,
         width: menu_width,
         height: menu_height,
-    };
+    }
+    .intersection(f.area());
 
     f.render_widget(Clear, menu_rect);
 
@@ -701,7 +704,8 @@ fn render_session_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
         y: menu_y,
         width: menu_width,
         height: menu_height,
-    };
+    }
+    .intersection(f.area());
 
     f.render_widget(Clear, menu_rect);
 

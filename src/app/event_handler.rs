@@ -1239,8 +1239,11 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             true
         }
         "/load" => {
-            // Get the list of available sessions
-            let sessions = crate::core::session::SessionData::list_sessions();
+            // Get the list of available sessions (latest 5)
+            let sessions: Vec<_> = crate::core::session::SessionData::list_sessions()
+                .into_iter()
+                .take(5)
+                .collect();
             if sessions.is_empty() {
                 app.chat_history
                     .push(("user".to_string(), "/load".to_string()));
@@ -1367,8 +1370,7 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
                 let mut chat_history = Vec::new();
                 let mut token_usage = crate::core::token_usage::TokenUsage::new();
                 let mut interrupt_rx = interrupt_rx;
-                let mut ctx_mgr =
-                    crate::core::context_manager::ContextManager::new(&config_clone);
+                let mut ctx_mgr = crate::core::context_manager::ContextManager::new(&config_clone);
 
                 let result = stream_response(
                     &agent_clone,
@@ -1391,11 +1393,15 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
                 } else {
                     let raw = result.full_response.trim();
                     let stripped = strip_code_fences(raw);
-                    tracing::info!(bytes = stripped.len(), "Generated knowledge content via LLM");
+                    tracing::info!(
+                        bytes = stripped.len(),
+                        "Generated knowledge content via LLM"
+                    );
                     stripped.to_string()
                 };
 
-                let init_result = build_init_result(&knowledge_file, &new_content, &config_clone, is_update);
+                let init_result =
+                    build_init_result(&knowledge_file, &new_content, &config_clone, is_update);
                 init_tx.send(init_result).await.ok();
             });
 
@@ -1679,7 +1685,9 @@ fn build_init_result(
             Ok(new_agent) => InitResult {
                 message: format!(
                     "✅ {} '{}' ({} bytes) with current project info.\nAgent reloaded with updated knowledge.",
-                    action, knowledge_file, new_content.len()
+                    action,
+                    knowledge_file,
+                    new_content.len()
                 ),
                 new_agent: Some(new_agent),
             },

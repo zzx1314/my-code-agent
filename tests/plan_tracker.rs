@@ -776,3 +776,71 @@ fn test_progress_display_consistency_with_completion() {
 
     assert!(tracker.is_completed());
 }
+
+// ============================================================================
+// update_from_text — marker-based completion tracking
+// ============================================================================
+
+#[test]
+fn test_update_from_text_no_plan() {
+    // Should be a no-op if there's no active plan
+    let mut tracker = PlanTracker::new();
+    tracker.update_from_text("1. Step\n   y");
+    assert!(!tracker.has_active_plan());
+}
+
+#[test]
+fn test_update_from_text_basic_y_marker() {
+    let mut tracker = PlanTracker::new();
+    tracker.parse_plan("1. First step\n2. Second step\n3. Third step");
+    tracker.confirm();
+
+    // First step has "y" marker
+    tracker.update_from_text("1. First step\n   y\n2. Second step\n3. Third step");
+    // current_step_index should advance to 2 (first step completed)
+    assert_eq!(tracker.current_step_index(), 2);
+    assert!(!tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_checkmark_marker() {
+    let mut tracker = PlanTracker::new();
+    tracker.parse_plan("1. First step\n2. Second step");
+    tracker.confirm();
+
+    tracker.update_from_text("1. First step\n   ✓\n2. Second step");
+    assert_eq!(tracker.current_step_index(), 2);
+    assert!(!tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_multiple_completed() {
+    let mut tracker = PlanTracker::new();
+    tracker.parse_plan("1. First\n2. Second\n3. Third");
+    tracker.confirm();
+
+    tracker.update_from_text("1. First\n   y\n2. Second\n   y\n3. Third");
+    assert_eq!(tracker.current_step_index(), 3);
+    assert!(!tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_all_completed() {
+    let mut tracker = PlanTracker::new();
+    tracker.parse_plan("1. A\n2. B\n3. C");
+    tracker.confirm();
+
+    tracker.update_from_text("1. A\n   y\n2. B\n   y\n3. C\n   y");
+    assert!(tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_with_header() {
+    let mut tracker = PlanTracker::new();
+    tracker.parse_plan("## Task Plan\n1. Read file\n2. Analyze code\n3. Fix issue");
+    tracker.confirm();
+
+    tracker.update_from_text("## Task Plan\n1. Read file\n   y\n2. Analyze code\n3. Fix issue");
+    assert_eq!(tracker.current_step_index(), 2);
+    assert!(!tracker.is_completed());
+}
