@@ -1,8 +1,7 @@
-
 # Project Knowledge
 
 ## What This Is
-An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) with tool-augmented capabilities for reading, writing, searching, and executing code — all from your terminal.
+An interactive AI coding assistant powered by configurable LLM providers with tool-augmented capabilities for reading, writing, searching, and executing code — all from your terminal.
 
 ## Features
 
@@ -10,11 +9,16 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 - **🔧 Tool-Augmented** — The agent can read files, write files, search code, and run shell commands
 - **📊 Token Usage Tracking** — Monitor token consumption per-turn and per-session
 - **⚡ Interrupt Handling** — Esc or Ctrl+C to interrupt a response, double-press to quit
-- **💾 Session Persistence** — Save/load conversation sessions (enable in config)
+- **💾 Session Persistence** — Save/load conversation sessions with named sessions and timestamps (stored in `.sessions/` directory)
 - **📎 File References** — Use `@<filepath>` to attach file contents directly into your message, with `@<filepath>:N` offset syntax for large files
 - **🎨 Colored Output** — Rich terminal UI with syntax-highlighted tool calls and usage stats
-- **💭 Collapsible Reasoning** — DeepSeek's reasoning (thinking) is collapsed into a one-line summary; use `think` to expand
+- **💭 Collapsible Reasoning** — Model reasoning (thinking) is collapsed into a one-line summary; use `think` to expand
 - **🛡️ Tool Safety** — Built-in checks for dangerous file deletions and shell commands
+- **📋 Task Planning** — Interactive plan confirmation with step tracking and timeout support
+- **🔄 Undo Support** — Revert recent file operations with persistent undo history
+- **🔍 Context Management** — Context window tracking with warning thresholds and caching
+- **✅ Tab Completion** — Input completion for commands and `@filepath` references
+- **🌐 MCP Web Search** — Web search and URL fetching via Parallel Search MCP integration
 
 ## Tools
 
@@ -46,34 +50,34 @@ src/
 ├── lib.rs                # Library crate root (module declarations)
 ├── core/                 # Core functionality (12 files)
 │   ├── mod.rs
-│   ├── config.rs         # Configuration (TOML) with defaults
-│   ├── connection.rs     # LLM connection management
-│   ├── context.rs        # @filepath parsing and expansion
-│   ├── context_cache.rs  # Context caching
-│   ├── context_manager.rs# Context window management
-│   ├── file_cache.rs     # File content caching
-│   ├── parser.rs         # General parsing utilities
-│   ├── plan_tracker.rs   # Task planning and tracking
-│   ├── preamble.rs       # Agent builder, preamble template
-│   ├── session.rs        # Session persistence (save/load/resume)
-│   ├── streaming.rs      # Streaming response handling
-│   └── token_usage.rs    # Token usage tracking
-├── app/                  # Application layer (3 submodules + main struct)
+│   ├── config.rs         # Configuration (TOML) with defaults (Config, LLMConfig, FileConfig, ContextConfig, ShellConfig, AgentConfig, SessionConfig, McpConfig)
+│   ├── connection.rs     # LLM connection management (ConnectionStatus, ConnectionState)
+│   ├── context.rs        # @filepath parsing and expansion (FileRef, ExpandResult)
+│   ├── context_cache.rs  # Context caching (preamble_cache, CacheMetrics, ContextCache)
+│   ├── context_manager.rs# Context window management (ContextManager)
+│   ├── file_cache.rs     # File content caching (FileCache, FileCacheEntry)
+│   ├── parser.rs         # General parsing utilities (StructureInfo, SmartReadResult, ParsedFile)
+│   ├── plan_tracker.rs   # Task planning and tracking (PlanTracker, PlanStepStatus, PlanConfirmationResult)
+│   ├── preamble.rs       # Agent builder, preamble template, provider setup
+│   ├── session.rs        # Session persistence (save/load/resume, SessionData, SessionInfo, search_sessions)
+│   ├── streaming.rs      # Streaming response handling (StreamResult, StreamEvent)
+│   └── token_usage.rs    # Token usage tracking (TokenUsage, ContextWarning)
+├── app/                  # Application layer (4 files)
 │   ├── mod.rs            # App struct, InitResult, PendingConfirmation
-│   ├── conversion.rs     # Data conversion utilities
-│   ├── event_handler.rs  # User input event handling
-│   └── ui.rs             # Application UI logic
+│   ├── conversion.rs     # Data conversion utilities (rig ↔ app message types)
+│   ├── event_handler.rs  # User input event handling, command dispatch, completions
+│   └── ui.rs             # Application UI rendering (chat area, status bar, completion menu, dialogs)
 ├── ui/                   # Terminal UI (3 files)
 │   ├── mod.rs            # UI module root
 │   ├── render.rs         # Markdown renderer
-│   └── terminal.rs       # Banner, help, commands
+│   └── terminal.rs       # Banner, help, startup text
 ├── tools/                # Tool implementations (19 files)
 │   ├── mod.rs            # Tool registry (all_tools, all_tools_with_handle, create_mcp_tools)
 │   ├── code_review.rs    # Code review tool
 │   ├── code_search.rs    # Ripgrep-based code search
 │   ├── confirmation.rs   # User confirmation prompts
 │   ├── file_delete.rs    # File/directory deletion
-│   ├── file_outline.rs   # File structure outline (functions, structs, etc.)
+│   ├── file_outline.rs   # File structure outline (tree-sitter based)
 │   ├── file_read.rs      # File content reading
 │   ├── file_undo.rs      # Undo file changes
 │   ├── file_update.rs    # Targeted find & replace edits
@@ -86,15 +90,16 @@ src/
 │   ├── list_dir.rs       # Directory listing
 │   ├── safety.rs         # Dangerous command/file checks
 │   ├── shell_exec.rs     # Shell command execution
-│   └── undo_history.rs   # Undo history management
+│   └── undo_history.rs   # Undo history management (persistent .undo_history.json)
 └── mcp/                  # Model Context Protocol (4 files)
     ├── mod.rs
     ├── client.rs         # MCP client implementation
     ├── types.rs          # MCP type definitions
     └── web_search_tool.rs # Web search via Parallel Search MCP
 
-tests/                    # Integration tests (23 test files)
+tests/                    # Integration tests (25 test files)
 .github/workflows/        # CI/CD (release.yml)
+.sessions/                # Session persistence directory (gitignored, timestamped JSON files)
 ```
 
 ## Key Dependencies
@@ -113,13 +118,13 @@ tests/                    # Integration tests (23 test files)
 | [glob](https://crates.io/crates/glob) | 0.3.3 | File pattern matching for the glob tool |
 | [toml](https://crates.io/crates/toml) | 1.1.2 | TOML configuration parsing |
 | [crossterm](https://crates.io/crates/crossterm) | 0.28 | Cross-platform terminal features |
-| [ratatui](https://crates.io/crates/ratatui) | 0.28.1 | Terminal UI rendering |
+| [ratatui](https://crates.io/crates/ratatui) | 0.28.1 | Terminal UI rendering (with unstable-rendered-line-info feature) |
 | [tui-textarea](https://crates.io/crates/tui-textarea) | 0.6 | Text input area widget |
 | [tui-markdown](https://crates.io/crates/tui-markdown) | 0.2 | Markdown rendering in terminal |
 | [async-process](https://crates.io/crates/async-process) | 2 | Process spawning for MCP servers |
 | [async-trait](https://crates.io/crates/async-trait) | 0.1 | Async trait support |
 | [tracing](https://crates.io/crates/tracing) | 0.1 | Application-level tracing |
-| [tracing-subscriber](https://crates.io/crates/tracing-subscriber) | 0.3 | Tracing subscriber for logging |
+| [tracing-subscriber](https://crates.io/crates/tracing-subscriber) | 0.3 | Tracing subscriber for logging (fmt, env-filter features) |
 | [unicode-width](https://crates.io/crates/unicode-width) | 0.1 | Unicode character width calculation |
 | [tree-sitter](https://crates.io/crates/tree-sitter) | 0.26 | Source code parsing for file_outline |
 | [tree-sitter-rust](https://crates.io/crates/tree-sitter-rust) | 0.24 | Rust grammar for tree-sitter |
@@ -161,13 +166,17 @@ thinking_display = "collapsed"  # "streaming" | "collapsed" | "hidden"
 think_command = true            # enable /think command
 thinking_display_height = 5     # terminal lines for reasoning display
 
+[plan]
+timeout_secs = 0                # plan confirmation timeout in seconds (0 = wait indefinitely)
+
 [session]
 enabled = false                 # set to true to enable session persistence
 save_file = ".session.json"     # default
+cleanup_undo_history = false    # clean up undo history entries on session exit
 
 [mcp]
-enabled = false
-parallel_api_key = "your_key_here"
+enabled = false                 # enable MCP web search tools
+parallel_api_key = ""           # or set PARALLEL_API_KEY env var (optional, works without for free usage)
 ```
 
 All fields are optional — sensible defaults are used when omitted.
@@ -176,14 +185,18 @@ All fields are optional — sensible defaults are used when omitted.
 
 - **Tool naming**: Tools use snake_case (e.g., `file_read`, `shell_exec`)
 - **File attachments**: Use `@filepath` syntax to attach files inline; `@filepath:N` to offset (0-indexed). Files over 500 lines or 50 KB are truncated with a continuation hint
-- **Session files**: Saved sessions are gitignored (`.session.json` by default)
-- **Token limits**: Default context window is 128K tokens; warnings at 75% and 90% thresholds
+- **Session files**: Saved sessions are stored in `.sessions/` directory as timestamped JSON files (e.g., `session_2026_05_06_16_45_39.json`). Both `.sessions/` and `.session.json` are gitignored
+- **Token limits**: Default context window is 1M tokens (1,048,576); warnings at 75% and 90% thresholds
 - **Reasoning display**: Collapsed by default; use `think` command to expand. Configurable via `thinking_display` setting
 - **Interrupt behavior**: Single Esc/Ctrl+C interrupts; double-tap to quit; Ctrl+D for EOF quit
 - **MCP tools**: `web_search` and `web_fetch` require MCP to be enabled in `config.toml`
-- **Undo support**: `file_undo` tool can revert recent `file_write`, `file_update`, or `file_delete` operations (uses `undo_history.rs`)
+- **Undo support**: `file_undo` tool can revert recent `file_write`, `file_update`, or `file_delete` operations. Undo history is persisted in `.undo_history.json` (gitignored) and can be optionally cleaned up per session via `cleanup_undo_history`
 - **File outline**: Uses tree-sitter for structured code parsing (currently supports Rust via `tree-sitter-rust`)
 - **Tool safety**: Destructive shell commands and file deletions trigger a user confirmation prompt via `confirmation.rs`
+- **Context caching**: The system caches preamble content and file reads for performance (via `context_cache.rs` and `file_cache.rs`)
+- **Connection management**: LLM connection state is tracked with status indicators (connected, disconnected, reconnecting)
+- **Task planning**: The agent supports interactive plan confirmation with configurable timeout and step status tracking
+- **Tab completion**: Input area supports tab completion for commands and `@filepath` references
 - **Test files**: All test cases should be written in the `tests/` directory as integration tests
 - **Rust edition**: Project uses Rust edition 2024
 - **Git commit convention**: Use Conventional Commits format: `<type>(<scope>): <description>`. Allowed types: `feat` (new feature), `fix` (bug fix), `docs` (documentation only), `style` (formatting, no code change), `refactor` (code restructure without behavior change), `perf` (performance improvement), `test` (add or fix tests), `build` (build system or dependencies), `ci` (CI/CD configuration), `chore` (maintenance tasks). Scope is optional and should be a lowercase noun (e.g., `tools`, `core`, `ui`). Description should be lowercase, imperative mood, no period at the end. Examples: `feat(tools): add git_commit tool`, `fix(core): resolve parser edge case`, `docs: update README with usage guide`, `refactor(app): simplify event handling logic`. Breaking changes should add `!` after the type/scope (e.g., `feat!: change API response format`) and include a `BREAKING CHANGE:` footer in the commit body.
