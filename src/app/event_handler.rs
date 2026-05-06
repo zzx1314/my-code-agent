@@ -675,6 +675,7 @@ pub fn process_streaming_events(app: &mut App) {
             match rx.try_recv() {
                 Ok(StreamEvent::Text(delta)) => {
                     app.streaming_text.push_str(&delta);
+                    app.current_tool_call = None;
                 }
                 Ok(StreamEvent::ToolCall(name)) => {
                     // Replace with the latest tool call — only show the current one
@@ -691,6 +692,7 @@ pub fn process_streaming_events(app: &mut App) {
                 }
                 Ok(StreamEvent::ReasoningDelta(delta)) => {
                     app.streaming_reasoning.push_str(&delta);
+                    app.current_tool_call = None;
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
