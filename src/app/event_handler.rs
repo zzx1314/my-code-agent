@@ -580,62 +580,88 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
             return;
         }
 
-        app.show_banner = false; // Hide startup banner
-        app.chat_history.push(("user".to_string(), input_text.clone()));
+        send_message_to_llm(app, context_manager, input_text);
+    } else if !input_text.is_empty() && app.is_streaming {
+        // Queue the message for processing after current response completes
+        app.message_queue.push(input_text.clone());
+        app.chat_history.push(("user".to_string(), format!("⏳ [Queued] {}", input_text)));
+        // Clear input
+        let title = if app.shell_mode {
+            " Input 🐚 Shell Mode (Enter to exec, !exit to leave, /shell to toggle) "
+        } else {
+            " Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "
+        };
         app.input = {
             let mut ta = TextArea::default();
             ta.set_block(
                 ratatui::widgets::Block::default()
                     .borders(ratatui::widgets::Borders::ALL)
-                    .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
+                    .title(title)
             );
             ta.set_cursor_line_style(ratatui::style::Style::default());
             ta
         };
-        app.is_streaming = true;
         app.auto_scroll = true;
-        app.reasoning_auto_scroll = true;
-        app.reasoning_scroll = 0;
-        app.streaming_text.clear();
-        app.streaming_reasoning.clear();
-        app.current_tool_call = None;
-        app.current_response.clear();
-        app.status_messages.clear();
-        app.streaming_status_messages.clear();
-        app.turn_usage_line = None;
-
-        let expanded = expand_file_refs(&input_text, &app.config);
-        
-        let mut rig_chat_history = convert_app_to_rig(&app.chat_history);
-        let agent_clone = app.agent.clone();
-        let config_clone = app.config.clone();
-        let mut token_usage_clone = app.token_usage.clone();
-        let interrupt_rx = app.interrupt_tx.subscribe();
-        let (response_tx, response_rx) = mpsc::channel::<StreamResult>(1);
-        let (event_tx, event_rx) = mpsc::unbounded_channel::<StreamEvent>();
-
-        let mut ctx_mgr = context_manager.clone();
-
-        app.response_rx = Some(response_rx);
-        app.streaming_events_rx = Some(event_rx);
-
-        tokio::spawn(async move {
-            let mut interrupt_rx = interrupt_rx;
-
-            let result = stream_response(
-                &agent_clone,
-                &expanded.expanded,
-                &mut rig_chat_history,
-                &mut token_usage_clone,
-                &mut interrupt_rx,
-                &mut ctx_mgr,
-                &config_clone.agent,
-                Some(event_tx),
-            ).await;
-
-            response_tx.send(result).await.ok();
-        });
     }
+}
+
+/// Send a message to the LLM (extracted for reuse by message queue)
+pub fn send_message_to_llm(app: &mut App, context_manager: &mut ContextManager, input_text: String) {
+    app.show_banner = false; // Hide startup banner
+    app.chat_history.push(("user".to_string(), input_text.clone()));
+    app.input = {
+        let mut ta = TextArea::default();
+        ta.set_block(
+            ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) ")
+        );
+        ta.set_cursor_line_style(ratatui::style::Style::default());
+        ta
+    };
+    app.is_streaming = true;
+    app.auto_scroll = true;
+    app.reasoning_auto_scroll = true;
+    app.reasoning_scroll = 0;
+    app.streaming_text.clear();
+    app.streaming_reasoning.clear();
+    app.current_tool_call = None;
+    app.current_response.clear();
+    app.status_messages.clear();
+    app.streaming_status_messages.clear();
+    app.turn_usage_line = None;
+
+    let expanded = expand_file_refs(&input_text, &app.config);
+    
+    let mut rig_chat_history = convert_app_to_rig(&app.chat_history);
+    let agent_clone = app.agent.clone();
+    let config_clone = app.config.clone();
+    let mut token_usage_clone = app.token_usage.clone();
+    let interrupt_rx = app.interrupt_tx.subscribe();
+    let (response_tx, response_rx) = mpsc::channel::<StreamResult>(1);
+    let (event_tx, event_rx) = mpsc::unbounded_channel::<StreamEvent>();
+
+    let mut ctx_mgr = context_manager.clone();
+
+    app.response_rx = Some(response_rx);
+    app.streaming_events_rx = Some(event_rx);
+
+    tokio::spawn(async move {
+        let mut interrupt_rx = interrupt_rx;
+
+        let result = stream_response(
+            &agent_clone,
+            &expanded.expanded,
+            &mut rig_chat_history,
+            &mut token_usage_clone,
+            &mut interrupt_rx,
+            &mut ctx_mgr,
+            &config_clone.agent,
+            Some(event_tx),
+        ).await;
+
+        response_tx.send(result).await.ok();
+    });
 }
 
 pub fn handle_paste_event(text: &str, app: &mut App) {
@@ -794,6 +820,24 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
 
     if result.should_exit {
         app.should_exit = true;
+    }
+}
+
+/// Process queued messages after streaming completes.
+/// Returns true if there was a queued message and it started sending.
+pub fn process_message_queue(app: &mut App, context_manager: &mut ContextManager) -> bool {
+    if !app.is_streaming && !app.message_queue.is_empty() {
+        let next_message = app.message_queue.remove(0);
+        // Remove the "[Queued]" entry from chat history since we're now sending the real message
+        if let Some(last) = app.chat_history.last() {
+            if last.1.starts_with("⏳ [Queued] ") {
+                app.chat_history.pop();
+            }
+        }
+        send_message_to_llm(app, context_manager, next_message);
+        true
+    } else {
+        false
     }
 }
 

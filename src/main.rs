@@ -106,6 +106,9 @@ async fn main() -> Result<()> {
         app::event_handler::check_stream_result(&mut app);
         app::event_handler::check_init_result(&mut app);
 
+        // Process queued messages (messages entered during streaming)
+        app::event_handler::process_message_queue(&mut app, &mut context_manager);
+
         // Check for confirmation requests from tools
         if app.pending_confirmation.is_none() {
             if let Some(rx) = &mut app.confirmation_rx {

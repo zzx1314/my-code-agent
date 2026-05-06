@@ -111,6 +111,8 @@ pub struct App {
     pub confirmation_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ConfirmationRequest>>,
     /// 是否处于 Shell 模式（所有输入作为 shell 命令执行）
     pub shell_mode: bool,
+    /// 消息队列：当模型正在输出时，用户输入的消息会进入此队列
+    pub message_queue: Vec<String>,
 }
 
 impl App {
@@ -188,6 +190,7 @@ impl App {
              init_rx: None,
              confirmation_rx: None,
               shell_mode: false,
+              message_queue: Vec::new(),
          }
     }
 }
