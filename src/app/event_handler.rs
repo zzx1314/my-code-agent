@@ -308,6 +308,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 app.is_streaming = false;
                 app.streaming_text.clear();
                 app.streaming_reasoning.clear();
+                app.current_tool_call = None;
                 app.status_messages.clear();
             } else {
                 app.should_exit = true;
@@ -596,6 +597,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
         app.reasoning_scroll = 0;
         app.streaming_text.clear();
         app.streaming_reasoning.clear();
+        app.current_tool_call = None;
         app.current_response.clear();
         app.status_messages.clear();
         app.turn_usage_line = None;
@@ -675,7 +677,8 @@ pub fn process_streaming_events(app: &mut App) {
                     app.streaming_text.push_str(&delta);
                 }
                 Ok(StreamEvent::ToolCall(name)) => {
-                    app.streaming_text.push_str(&format!("\n⟳ [`{}`]\n", name));
+                    // Replace with the latest tool call — only show the current one
+                    app.current_tool_call = Some(name);
                 }
                 Ok(StreamEvent::ReasoningActive(active)) => {
                     if !active {
@@ -726,6 +729,7 @@ fn cleanup_stream_state(app: &mut App) {
     app.is_streaming = false;
     app.streaming_text.clear();
     app.streaming_reasoning.clear();
+    app.current_tool_call = None;
     app.streaming_events_rx = None;
     app.auto_scroll = true;
 }
@@ -757,6 +761,7 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
     app.is_streaming = false;
     app.streaming_text.clear();
     app.streaming_reasoning.clear();
+    app.current_tool_call = None;
     app.streaming_events_rx = None;
 
     if !result.full_response.is_empty() {
@@ -1165,6 +1170,7 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
             app.is_streaming = true;
             app.streaming_text.clear();
             app.streaming_reasoning.clear();
+            app.current_tool_call = None;
 
             let agent_clone = app.agent.clone();
             let config_clone = app.config.clone();

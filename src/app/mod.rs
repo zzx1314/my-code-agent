@@ -43,6 +43,8 @@ pub struct App {
     pub streaming_events_rx: Option<mpsc::UnboundedReceiver<StreamEvent>>,
     pub streaming_text: String,
     pub streaming_reasoning: String,
+    /// Currently executing tool name (displayed inline, replaces previous)
+    pub current_tool_call: Option<String>,
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
     /// Agent for processing requests
@@ -143,6 +145,7 @@ impl App {
             streaming_events_rx: None,
             streaming_text: String::new(),
             streaming_reasoning: String::new(),
+            current_tool_call: None,
             status_messages: Vec::new(),
             turn_usage_line: None,
             agent,

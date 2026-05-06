@@ -270,12 +270,20 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     if app.is_streaming {
-        if !app.streaming_text.is_empty() {
+        if !app.streaming_text.is_empty() || app.current_tool_call.is_some() {
             lines.push(Line::from(vec![
                 Span::styled("Assistant: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             ]));
-            let md = from_str(&app.streaming_text);
-            lines.extend(md.lines);
+            if !app.streaming_text.is_empty() {
+                let md = from_str(&app.streaming_text);
+                lines.extend(md.lines);
+            }
+            // Show current tool call inline (only the latest one)
+            if let Some(ref tool_name) = app.current_tool_call {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("⟳ Tool Call: `{}`", tool_name), Style::default().fg(Color::Yellow)),
+                ]));
+            }
         } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
             lines.push(Line::from(
                 Span::styled("⏳ Generating response...", Style::default().fg(Color::Yellow))
