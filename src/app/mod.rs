@@ -53,65 +53,65 @@ pub struct App {
     pub agent: Arc<Agent>,
     /// Broadcast channel for interrupt signals
     pub interrupt_tx: tokio::sync::broadcast::Sender<()>,
-    /// 是否显示思考区域
+    /// Whether to show the reasoning area
     pub show_reasoning: bool,
-    /// 思考区域的滚动位置
+    /// Scroll position within the reasoning area
     pub reasoning_scroll: u16,
-    /// 思考区域的总行数
+    /// Total number of lines in the reasoning area
     pub reasoning_total_lines: u16,
-    /// 是否自动滚动到最新内容
+    /// Whether to automatically scroll to the latest content
     pub auto_scroll: bool,
-    /// 思考区域是否自动滚动
+    /// Whether the reasoning area auto-scrolls
     pub reasoning_auto_scroll: bool,
-    /// 是否在启动时显示 banner（首次发送消息后隐藏）
+    /// Whether to show the banner at startup (hidden after the first message is sent)
     pub show_banner: bool,
-    /// 跑马灯动画帧计数器
+    /// Marquee animation frame counter
     pub marquee_frame: u64,
-    // === 补全菜单相关状态 ===
-    /// 是否显示补全菜单
+    // === Completion menu state ===
+    /// Whether to show the completion menu
     pub show_completion: bool,
-    /// 补全项列表
+    /// Completion item list
     pub completion_items: Vec<String>,
-    /// 当前选中的补全项索引
+    /// Index of the currently selected completion item
     pub completion_selected: usize,
-    /// 补全类型：'/' 命令补全 或 '@' 文件补全
+    /// Completion type: '/' command completion or '@' file completion
     pub completion_type: Option<char>,
-    /// 补全查询字符串（用于过滤）
+    /// Completion query string (used for filtering)
     pub completion_query: String,
-    /// 补全触发位置（光标位置）
+    /// Completion trigger position (cursor position)
     pub completion_trigger_pos: usize,
-    /// 聊天区域高度
+    /// Chat area height
     pub chat_area_height: u16,
-    // === 确认弹窗相关状态 ===
-    /// 当前待确认的请求
+    // === Confirmation dialog state ===
+    /// Currently pending confirmation request
     pub pending_confirmation: Option<PendingConfirmation>,
-    // === 模型选择器相关状态 ===
-    /// 是否显示模型选择器
+    // === Model picker state ===
+    /// Whether to show the model picker
     pub show_model_picker: bool,
-    /// 可选的模型列表
+    /// Available model options
     pub model_options: Vec<String>,
-    /// 当前选中的模型索引
+    /// Index of the currently selected model
     pub model_selected: usize,
-    // === Provider 选择器相关状态 ===
-    /// 是否显示 provider 选择器
+    // === Provider picker state ===
+    /// Whether to show the provider picker
     pub show_provider_picker: bool,
-    /// 可选的 provider 列表
+    /// Available provider options
     pub provider_options: Vec<String>,
-    /// 当前选中的 provider 索引
+    /// Index of the currently selected provider
     pub provider_selected: usize,
-    // === Session 选择器相关状态 ===
-    /// 是否显示 session 选择器
+    // === Session picker state ===
+    /// Whether to show the session picker
     pub show_session_picker: bool,
-    /// 可选的 session 列表
+    /// Available session options
     pub session_options: Vec<crate::core::session::SessionInfo>,
-    /// 当前选中的 session 索引
+    /// Index of the currently selected session
     pub session_selected: usize,
     pub init_rx: Option<mpsc::Receiver<InitResult>>,
     /// Receiver for confirmation requests from tools
     pub confirmation_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ConfirmationRequest>>,
-    /// 是否处于 Shell 模式（所有输入作为 shell 命令执行）
+    /// Whether Shell mode is active (all input is executed as shell commands)
     pub shell_mode: bool,
-    /// 消息队列：当模型正在输出时，用户输入的消息会进入此队列
+    /// Message queue: messages entered by the user while the model is still streaming are queued here
     pub message_queue: Vec<String>,
 }
 
@@ -162,7 +162,7 @@ impl App {
             reasoning_auto_scroll: true,
             show_banner,
             marquee_frame: 0,
-            // 补全菜单初始化
+            // Completion menu initialization
             show_completion: false,
             completion_items: Vec::new(),
             completion_selected: 0,
@@ -170,20 +170,20 @@ impl App {
             completion_query: String::new(),
             completion_trigger_pos: 0,
             chat_area_height: 0,
-            // 确认弹窗
+            // Confirmation dialog
             pending_confirmation: None,
-            // 模型选择器初始化
+            // Model picker initialization
             show_model_picker: false,
             model_options: get_model_options_for_provider(&config.llm.provider),
             model_selected: 0,
-            // Provider 选择器初始化
+            // Provider picker initialization
             show_provider_picker: false,
             provider_options: vec!["deepseek".to_string(), "openrouter".to_string()],
             provider_selected: {
                 let p = config.llm.provider.as_str();
                 if p == "openrouter" { 1 } else { 0 }
             },
-            // Session 选择器初始化
+            // Session picker initialization
             show_session_picker: false,
             session_options: Vec::new(),
             session_selected: 0,
@@ -195,18 +195,18 @@ impl App {
     }
 }
 
-/// 根据 provider 返回对应的模型选项列表
+/// Return the list of model options for the given provider
 pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
     match provider {
         "deepseek" => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
         "openrouter" => vec![
-            // OpenRouter 免费模型
+            // OpenRouter free models
             "nvidia/nemotron-3-super-120b-a12b:free".to_string(),
             "tencent/hy3-preview:free".to_string(),
-            // Poolside 免费模型
+            // Poolside free models
             "poolside/laguna-m.1:free".to_string(),
             "poolside/laguna-xs.2:free".to_string(),
-            // OpenRouter 特有模型
+            // OpenRouter-specific models
             "openrouter/owl-alpha".to_string(),
         ],
         _ => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],

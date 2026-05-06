@@ -20,28 +20,28 @@ use std::sync::Arc;
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {
-    // 如果确认弹窗正在显示，优先处理确认相关按键
+    // If the confirmation dialog is showing, handle confirmation-related keys first
     if app.pending_confirmation.is_some() {
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-                // 确认操作
+                // Confirm the action
                 if let Some(pending) = app.pending_confirmation.take() {
                     let _ = pending.response_tx.send(true);
                 }
                 return;
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                // 拒绝操作
+                // Deny the action
                 if let Some(pending) = app.pending_confirmation.take() {
                     let _ = pending.response_tx.send(false);
                 }
                 return;
             }
-            _ => return, // 只接受 y/n/Enter/Esc
+            _ => return, // Only accept y/n/Enter/Esc
         }
     }
 
-    // 如果 provider 选择器正在显示，优先处理 provider 选择相关按键
+    // If the provider picker is showing, handle provider selection keys first
     if app.show_provider_picker {
         match key.code {
             KeyCode::Down | KeyCode::Tab => {
@@ -62,21 +62,21 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 return;
             }
             KeyCode::Enter => {
-                // 确认 provider 选择
+                // Confirm provider selection
                 if !app.provider_options.is_empty() {
                     let selected_provider = app.provider_options[app.provider_selected].clone();
                     app.config.llm.provider = selected_provider.clone();
-                    // 更新 api_key_env 为对应 provider 的默认值
+                    // Update api_key_env to the default value for the selected provider
                     app.config.llm.api_key_env = match selected_provider.as_str() {
                         "deepseek" => "DEEPSEEK_API_KEY".to_string(),
                         "openrouter" => "OPENROUTER_API_KEY".to_string(),
                         _ => String::new(),
                     };
-                    // 更新模型列表为对应 provider 的模型
+                    // Update model list to the models for the selected provider
                     app.model_options =
                         crate::app::get_model_options_for_provider(&selected_provider);
                     app.model_selected = 0;
-                    // 如果当前模型不在新列表中，重置为 None
+                    // If the current model is not in the new list, reset to None
                     app.config.llm.model = app.model_options.first().cloned();
 
                     app.chat_history.push((
@@ -84,7 +84,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                         format!("/connect {}", selected_provider),
                     ));
 
-                    // 尝试重建 agent
+                    // Attempt to rebuild the agent
                     if let Ok(new_agent) = rebuild_agent(&app.config) {
                         app.agent = Arc::new(new_agent);
                         app.chat_history.push((
@@ -107,13 +107,13 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 app.show_provider_picker = false;
                 app.show_banner = false;
                 app.auto_scroll = true;
-                // 清除思考内容，避免切换到非思考模型时仍显示思考区域
+                // Clear reasoning content to avoid showing the reasoning area when switching to a non-reasoning model
                 app.last_reasoning.clear();
                 app.streaming_reasoning.clear();
                 return;
             }
             KeyCode::Esc => {
-                // 取消 provider 选择
+                // Cancel provider selection
                 app.show_provider_picker = false;
                 return;
             }
@@ -122,7 +122,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         return;
     }
 
-    // 如果 session 选择器正在显示，优先处理 session 选择相关按键
+    // If the session picker is showing, handle session selection keys first
     if app.show_session_picker {
         match key.code {
             KeyCode::Down | KeyCode::Tab => {
@@ -142,15 +142,15 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 return;
             }
             KeyCode::Enter => {
-                // 确认 session 选择
+                // Confirm session selection
                 if !app.session_options.is_empty() {
                     let selected_session = &app.session_options[app.session_selected];
                     let session_name = selected_session.name.clone();
 
-                    // 加载选中的 session
+                    // Load the selected session
                     match crate::core::session::SessionData::load_by_name(&session_name) {
                         Some(Ok(session_data)) => {
-                            // 恢复 session 数据
+                            // Restore session data
                             app.chat_history = session_data
                                 .chat_history
                                 .into_iter()
@@ -203,7 +203,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 return;
             }
             KeyCode::Esc => {
-                // 取消 session 选择
+                // Cancel session selection
                 app.show_session_picker = false;
                 return;
             }
@@ -212,7 +212,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         return;
     }
 
-    // 如果模型选择器正在显示，优先处理模型选择相关按键
+    // If the model picker is showing, handle model selection keys first
     if app.show_model_picker {
         match key.code {
             KeyCode::Down | KeyCode::Tab => {
@@ -232,14 +232,14 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 return;
             }
             KeyCode::Enter => {
-                // 确认模型选择
+                // Confirm model selection
                 if !app.model_options.is_empty() {
                     let selected_model = app.model_options[app.model_selected].clone();
                     app.config.llm.model = Some(selected_model.clone());
                     app.chat_history
                         .push(("user".to_string(), format!("/model {}", selected_model)));
 
-                    // 尝试重建 agent
+                    // Attempt to rebuild the agent
                     if let Ok(new_agent) = rebuild_agent(&app.config) {
                         app.agent = Arc::new(new_agent);
                         app.chat_history.push((
@@ -256,13 +256,13 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 app.show_model_picker = false;
                 app.show_banner = false;
                 app.auto_scroll = true;
-                // 清除思考内容，避免切换到非思考模型时仍显示思考区域
+                // Clear reasoning content to avoid showing the reasoning area when switching to a non-reasoning model
                 app.last_reasoning.clear();
                 app.streaming_reasoning.clear();
                 return;
             }
             KeyCode::Esc => {
-                // 取消模型选择
+                // Cancel model selection
                 app.show_model_picker = false;
                 return;
             }
@@ -271,11 +271,11 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         return;
     }
 
-    // 如果补全菜单正在显示，优先处理补全相关按键
+    // If the completion menu is showing, handle completion-related keys first
     if app.show_completion {
         match key.code {
             KeyCode::Down | KeyCode::Tab => {
-                // 向下选择补全项
+                // Select next completion item
                 if !app.completion_items.is_empty() {
                     app.completion_selected =
                         (app.completion_selected + 1) % app.completion_items.len();
@@ -283,7 +283,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 return;
             }
             KeyCode::Up | KeyCode::BackTab => {
-                // 向上选择补全项
+                // Select previous completion item
                 if !app.completion_items.is_empty() {
                     app.completion_selected = if app.completion_selected == 0 {
                         app.completion_items.len() - 1
@@ -294,37 +294,37 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 return;
             }
             KeyCode::Enter => {
-                // 确认补全
+                // Confirm completion
                 let is_command_completion = app.completion_type == Some('/');
                 apply_completion(app);
-                // 如果是命令补全，直接执行命令，不需要再按一次 Enter
+                // If it's a command completion, execute the command directly (no need to press Enter again)
                 if is_command_completion {
                     handle_enter_key(app, context_manager);
                 }
                 return;
             }
             KeyCode::Esc => {
-                // 取消补全
+                // Cancel completion
                 hide_completion(app);
                 return;
             }
             KeyCode::Char(c) => {
-                // 输入字符，更新补全查询
+                // Input character, update completion query
                 if c == '/' && app.completion_type != Some('/') {
-                    // 切换到命令补全
+                    // Switch to command completion
                     hide_completion(app);
                     trigger_completion(app, '/');
                     return;
                 } else if c == '@' && app.completion_type != Some('@') {
-                    // 切换到文件补全
+                    // Switch to file completion
                     hide_completion(app);
                     trigger_completion(app, '@');
                     return;
                 }
-                // 其他字符，让输入框处理，然后更新补全
+                // Other characters: let the input box handle it, then update completion
             }
             KeyCode::Backspace => {
-                // 退格键，检查是否需要隐藏补全
+                // Backspace: check if completion should be hidden
             }
             _ => {}
         }
@@ -368,7 +368,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 if app.show_completion {
                     let is_command_completion = app.completion_type == Some('/');
                     apply_completion(app);
-                    // 如果是命令补全，直接执行命令
+                    // If it's a command completion, execute the command directly
                     if is_command_completion {
                         handle_enter_key(app, context_manager);
                     }
@@ -388,7 +388,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         }
         (KeyCode::Up, modifiers) if modifiers.is_empty() => {
             if app.show_completion {
-                // 向上选择补全项
+                // Select previous completion item
                 if !app.completion_items.is_empty() {
                     app.completion_selected = if app.completion_selected == 0 {
                         app.completion_items.len() - 1
@@ -403,7 +403,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         }
         (KeyCode::Down, modifiers) if modifiers.is_empty() => {
             if app.show_completion {
-                // 向下选择补全项
+                // Select next completion item
                 if !app.completion_items.is_empty() {
                     app.completion_selected =
                         (app.completion_selected + 1) % app.completion_items.len();
@@ -417,13 +417,13 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             }
         }
         (KeyCode::Char(c), _) => {
-            // 检查是否触发补全
+            // Check if completion should be triggered
             if c == '/' || c == '@' {
                 app.input.input(key);
                 trigger_completion(app, c);
             } else {
                 app.input.input(key);
-                // 如果补全菜单正在显示，更新过滤
+                // If the completion menu is showing, update the filter
                 if app.show_completion {
                     update_completion_query(app);
                 }
@@ -431,10 +431,10 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         }
         (KeyCode::Backspace, _) => {
             app.input.input(key);
-            // 检查是否需要隐藏或更新补全
+            // Check if completion needs to be hidden or updated
             if app.show_completion {
                 let cursor_pos = get_cursor_position(app);
-                // 如果光标前的字符不是 '/' 或 '@'，或者光标在触发位置之前，隐藏补全
+                // If the character before the cursor is not '/' or '@', or the cursor is before the trigger position, hide completion
                 if cursor_pos == 0 || (cursor_pos <= app.completion_trigger_pos) {
                     hide_completion(app);
                 } else {
@@ -769,12 +769,12 @@ pub fn handle_mouse_event(mouse: event::MouseEvent, app: &mut App) {
         MouseEventKind::ScrollDown => {
             let max_scroll = app.total_lines.saturating_sub(app.chat_area_height);
             app.scroll = (app.scroll + 3).min(max_scroll);
-            // 滚到底部时重新启用 auto_scroll
+            // Re-enable auto_scroll when scrolled to the bottom
             if app.scroll >= max_scroll {
                 app.auto_scroll = true;
             }
         }
-        _ => {} // 其他鼠标事件忽略，不影响文本选中
+        _ => {} // Ignore other mouse events without affecting text selection
     }
 }
 
@@ -796,7 +796,7 @@ pub fn process_streaming_events(app: &mut App) {
                 }
                 Ok(StreamEvent::ReasoningActive(active)) => {
                     if !active {
-                        // 思考结束，保存内容到 last_reasoning
+                        // Reasoning ended, save content to last_reasoning
                         if !app.streaming_reasoning.is_empty() {
                             app.last_reasoning = app.streaming_reasoning.clone();
                             app.streaming_reasoning.clear();
@@ -825,8 +825,8 @@ pub fn check_stream_result(app: &mut App) {
     if let Some(ref mut rx) = app.response_rx {
         match rx.try_recv() {
             Ok(result) => {
-                // 只有仍在 streaming 状态时才处理结果
-                // 若已被 Esc 强制清理（is_streaming=false），丢弃旧结果
+                // Only process results while still in streaming state
+                // If already force-cleaned by Esc (is_streaming=false), discard old results
                 if app.is_streaming {
                     process_stream_result(app, result);
                 }
@@ -958,9 +958,9 @@ pub fn leave_terminal(
     Ok(())
 }
 
-// ========== 补全菜单相关函数 ==========
+// ========== Completion menu utility functions ==========
 
-/// 触发补全菜单
+/// Trigger the completion menu
 fn trigger_completion(app: &mut App, trigger_char: char) {
     app.show_completion = true;
     app.completion_type = Some(trigger_char);
@@ -968,11 +968,11 @@ fn trigger_completion(app: &mut App, trigger_char: char) {
     app.completion_trigger_pos = get_cursor_position(app);
     app.completion_query = String::new();
 
-    // 获取补全项
+    // Fetch completion items
     app.completion_items = get_completion_items(trigger_char);
 }
 
-/// 隐藏补全菜单
+/// Hide the completion menu
 fn hide_completion(app: &mut App) {
     app.show_completion = false;
     app.completion_items.clear();
@@ -982,7 +982,7 @@ fn hide_completion(app: &mut App) {
     app.completion_trigger_pos = 0;
 }
 
-/// 将字符索引转换为字节索引（处理多字节字符）
+/// Convert a character index to a byte index (handles multi-byte characters)
 fn char_idx_to_byte(s: &str, char_idx: usize) -> usize {
     s.char_indices()
         .nth(char_idx)
@@ -990,7 +990,7 @@ fn char_idx_to_byte(s: &str, char_idx: usize) -> usize {
         .unwrap_or(s.len())
 }
 
-/// 应用选中的补全
+/// Apply the selected completion
 fn apply_completion(app: &mut App) {
     if app.completion_items.is_empty() {
         hide_completion(app);
@@ -1006,21 +1006,21 @@ fn apply_completion(app: &mut App) {
         }
     };
 
-    // 获取当前输入文本
+    // Get the current input text
     let mut lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
     let cursor = app.input.cursor();
 
-    // 找到当前行
+    // Find the current line
     if cursor.0 < lines.len() {
         let line = &mut lines[cursor.0];
         let pos = char_idx_to_byte(line, cursor.1);
 
-        // 找到触发字符的位置（从光标位置向前找）
+        // Find the position of the trigger character (search backwards from the cursor position)
         let trigger_pos = line[..pos]
             .rfind(trigger_char)
             .unwrap_or(pos.saturating_sub(1));
 
-        // 替换从触发位置到光标位置的内容
+        // Replace content from the trigger position to the cursor position
         let new_line = format!("{}{}{}", &line[..trigger_pos], selected, &line[pos..]);
         lines[cursor.0] = new_line;
     }
@@ -1035,7 +1035,7 @@ fn apply_completion(app: &mut App) {
     new_input.set_cursor_line_style(ratatui::style::Style::default());
     app.input = new_input;
 
-    // 设置光标位置到补全项末尾
+    // Set cursor position to the end of the completion
     let completion_len = selected.len();
     let cursor = app.input.cursor();
     let new_cursor_col = app.completion_trigger_pos + completion_len;
@@ -1047,7 +1047,7 @@ fn apply_completion(app: &mut App) {
     hide_completion(app);
 }
 
-/// 更新补全查询字符串（用于过滤）
+/// Update the completion query string (used for filtering)
 fn update_completion_query(app: &mut App) {
     let cursor_pos = get_cursor_position(app);
     if cursor_pos <= app.completion_trigger_pos {
@@ -1055,7 +1055,7 @@ fn update_completion_query(app: &mut App) {
         return;
     }
 
-    // 获取触发位置到光标位置的文本作为查询字符串
+    // Get text from trigger position to cursor position as the query string
     let lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
     let cursor = app.input.cursor();
 
@@ -1068,7 +1068,7 @@ fn update_completion_query(app: &mut App) {
         }
     }
 
-    // 过滤补全项
+    // Filter completion items
     if let Some(trigger_char) = app.completion_type {
         let all_items = get_completion_items(trigger_char);
         if app.completion_query.is_empty() {
@@ -1086,17 +1086,17 @@ fn update_completion_query(app: &mut App) {
     }
 }
 
-/// 获取当前光标位置（字符偏移量）
+/// Get the current cursor position (character offset)
 fn get_cursor_position(app: &App) -> usize {
     let cursor = app.input.cursor();
     cursor.1
 }
 
-/// 获取补全项列表
+/// Get the list of completion items
 fn get_completion_items(trigger_char: char) -> Vec<String> {
     match trigger_char {
         '/' => {
-            // 命令补全
+            // Command completion
             vec![
                 "/help".to_string(),
                 "/quit".to_string(),
@@ -1115,15 +1115,15 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
             ]
         }
         '@' => {
-            // 文件补全 - 使用 glob 获取当前目录下的文件
+            // File completion - use glob to get files in the current directory
             use glob::glob;
             let mut files = Vec::new();
 
-            // 获取当前目录下的所有文件（递归深度2）
+            // Get all files in the current directory (recursive depth 2)
             if let Ok(entries) = glob("**/*") {
                 for entry in entries.flatten() {
                     if let Some(path_str) = entry.to_str() {
-                        // 跳过隐藏文件和目录
+                        // Skip hidden files and directories
                         if !path_str.starts_with('.') && !path_str.contains("/.") {
                             files.push(format!("@{}", path_str));
                         }
@@ -1131,7 +1131,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 }
             }
 
-            // 如果没有找到文件，添加一些示例
+            // If no files found, add some examples
             if files.is_empty() {
                 files.push("@src/main.rs".to_string());
                 files.push("@src/lib.rs".to_string());
@@ -1147,8 +1147,8 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
     }
 }
 
-/// 处理命令（以 / 开头的输入）
-/// 返回 true 表示命令已处理，false 表示需要发送给 LLM
+/// Handle commands (input starting with /)
+/// Returns true if the command was handled, false if it should be sent to the LLM
 fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {
     let command = input.trim().to_lowercase();
 
@@ -1173,7 +1173,7 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             app.show_banner = true;
             app.auto_scroll = true;
             app.scroll = 0;
-            // 删除会话文件
+            // Delete session file
             if app.config.session.enabled {
                 if let Some(save_file) = &app.config.session.save_file {
                     let _ = std::fs::remove_file(save_file);
@@ -1239,7 +1239,7 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             true
         }
         "/load" => {
-            // 获取可用的 session 列表
+            // Get the list of available sessions
             let sessions = crate::core::session::SessionData::list_sessions();
             if sessions.is_empty() {
                 app.chat_history
@@ -1251,7 +1251,7 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
                 app.show_banner = false;
                 app.auto_scroll = true;
             } else {
-                // 显示 session 选择器
+                // Show session picker
                 app.session_options = sessions;
                 app.session_selected = 0;
                 app.show_session_picker = true;
@@ -1287,9 +1287,9 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             true
         }
         "/connect" => {
-            // 打开 provider 选择器
+            // Open provider picker
             app.show_provider_picker = true;
-            // 找到当前 provider 在选项中的位置
+            // Find the position of the current provider in the options
             if let Some(pos) = app
                 .provider_options
                 .iter()
@@ -1316,11 +1316,11 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
             true
         }
         "/model" => {
-            // 打开模型选择器，确保模型列表对应当前 provider
+            // Open model picker, ensuring the model list corresponds to the current provider
             app.model_options =
                 crate::app::get_model_options_for_provider(&app.config.llm.provider);
             app.show_model_picker = true;
-            // 找到当前模型在选项中的位置
+            // Find the position of the current model in the options
             if let Some(current_model) = &app.config.llm.model {
                 if let Some(pos) = app.model_options.iter().position(|m| m == current_model) {
                     app.model_selected = pos;
@@ -1475,7 +1475,7 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
         }
         cmd if cmd.starts_with("/plan") => handle_plan_command(app, input, context_manager),
         _ => {
-            // 未知命令，发送给 LLM 处理
+            // Unknown command, send to the LLM for handling
             false
         }
     }
@@ -1547,7 +1547,7 @@ Structure your plan as follows:
     true
 }
 
-/// 生成帮助文本
+/// Generate help text
 fn generate_help_text() -> String {
     let help = r#"# My Code Agent - Command Help
 
@@ -1599,7 +1599,7 @@ fn generate_help_text() -> String {
     help.to_string()
 }
 
-/// 重建 agent（用于模型切换）
+/// Rebuild the agent (used for model switching)
 /// Build the LLM prompt for `/init` command
 fn build_init_prompt(is_update: bool) -> String {
     if is_update {

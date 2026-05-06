@@ -57,13 +57,13 @@ impl ContextManager {
             return vec![];
         }
 
-        // 保留前缀消息以维持缓存命中率
-        // 前缀消息（前 4 条）保持不变，从中间裁剪
+        // Preserve prefix messages to maintain cache hit rate
+        // Prefix messages (first 4) stay unchanged, trim from the middle
         let min_prefix = 4.min(messages.len());
         let mut kept: Vec<Message> = messages[..min_prefix].to_vec();
         let mut token_count: u64 = kept.iter().map(|m| self.estimate_message_tokens(m)).sum();
 
-        // 从末尾向前保留消息
+        // Keep messages from the end, working backwards
         let mut tail_messages = Vec::new();
         for msg in messages[min_prefix..].iter().rev() {
             let msg_tokens = self.estimate_message_tokens(msg);
@@ -76,7 +76,7 @@ impl ContextManager {
             tail_messages.insert(0, msg.clone());
         }
 
-        // 合并前缀和尾部消息
+        // Merge prefix and tail messages
         kept.extend(tail_messages);
 
         if kept.is_empty() && !messages.is_empty() {

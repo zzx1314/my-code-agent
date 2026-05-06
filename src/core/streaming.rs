@@ -240,8 +240,8 @@ where
                         send_event(StreamEvent::PlanProgress(progress));
                     }
                 }
-                // 工具调用仅通过 StreamEvent::ToolCall 在流式阶段实时显示（render_chat_area 中的 current_tool_call）
-                // 不再追加到 full_response，避免对话历史被大量工具调用标记污染
+                // Tool calls are only displayed in real-time during streaming via StreamEvent::ToolCall (current_tool_call in render_chat_area)
+                // No longer appended to full_response to avoid polluting conversation history with tool call markers
                 send_event(StreamEvent::ToolCall(tool_call.function.name.clone()));
                 after_tool_call = true;
             }

@@ -75,11 +75,11 @@ pub const BANNER_ART: &str = r#"
         |___/                     
 "#;
 
-/// 返回启动 banner 的 ratatui Text（可直接传给 Paragraph）
+/// Return startup banner as ratatui Text (can be passed directly to Paragraph)
 pub fn make_startup_text() -> Text<'static> {
     let mut lines: Vec<Line> = Vec::new();
 
-    // ASCII art，用青色显示
+    // ASCII art, displayed in cyan
     for l in BANNER_ART.lines() {
         lines.push(Line::from(Span::styled(
             l.to_string(),
@@ -91,7 +91,7 @@ pub fn make_startup_text() -> Text<'static> {
 
     lines.push(Line::from(""));
 
-    // 标题行
+    // Title line
     lines.push(Line::from(Span::styled(
         "My Code Agent",
         Style::default()
@@ -99,7 +99,7 @@ pub fn make_startup_text() -> Text<'static> {
             .add_modifier(Modifier::BOLD),
     )));
 
-    // 副标题
+    // Subtitle
     lines.push(Line::from(Span::styled(
         "  Interactive AI Coding Assistant",
         Style::default()

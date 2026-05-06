@@ -19,11 +19,11 @@ pub struct FileCache {
     max_age: Duration,
 }
 
-/// 全局文件缓存单例，供工具使用
-/// 使用 Mutex 实现线程安全的内部可变性
+/// Global file cache singleton for tool use
+/// Uses Mutex for thread-safe interior mutability
 static GLOBAL_FILE_CACHE: OnceLock<Arc<Mutex<FileCache>>> = OnceLock::new();
 
-/// 获取全局文件缓存实例
+/// Get the global file cache instance
 pub fn get_global_file_cache() -> Arc<Mutex<FileCache>> {
     GLOBAL_FILE_CACHE
         .get_or_init(|| Arc::new(Mutex::new(FileCache::new(100, 300))))

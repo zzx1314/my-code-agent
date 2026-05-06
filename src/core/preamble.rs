@@ -89,8 +89,8 @@ pub const KNOWLEDGE_FILE: &str = "knowledge.md";
 
 pub type OpenRouterAgent = rig::agent::Agent<openrouter::CompletionModel>;
 
-/// 缓存 knowledge.md 内容，确保整个会话内 preamble 保持一致
-/// 这样可以最大化利用 LLM API 的前缀缓存（如 DeepSeek KV Cache）
+/// Cache knowledge.md content so the preamble stays consistent throughout the session
+/// This maximizes use of the LLM API's prefix caching (e.g., DeepSeek KV Cache)
 static KNOWLEDGE_CACHE: OnceLock<String> = OnceLock::new();
 
 fn load_knowledge() -> &'static str {
@@ -322,7 +322,7 @@ fn create_openai_client(
     max_turns: usize,
     timeout_secs: u64,
 ) -> Agent {
-    // 返回你的 Agent 枚举
+    // Return your Agent enum
     let api_key = std::env::var(api_key_env).unwrap_or_default();
 
     // Start building the client
@@ -342,7 +342,7 @@ fn create_openai_client(
     let client = builder.build().expect("Failed to create OpenAI client");
 
     Agent::OpenAI(
-        // ← 包装进枚举
+        // ← wrap into enum
         client
             .agent(model)
             .preamble(preamble)
