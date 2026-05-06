@@ -133,6 +133,7 @@ where
     let mut plan_detected = false;
     let mut plan_text = String::new();
     let mut status_messages: Vec<String> = Vec::new();
+    let mut after_tool_call = false;
 
     let display_mode = agent_config.thinking_display.as_str();
 
@@ -184,8 +185,17 @@ where
                     send_event(StreamEvent::ReasoningActive(false));
                 }
 
+                let text_to_send = if after_tool_call {
+                    after_tool_call = false;
+                    let mut text = String::from("\n");
+                    text.push_str(&text_content.text);
+                    text
+                } else {
+                    text_content.text.clone()
+                };
+
                 // Send text delta for live display (plain text during streaming)
-                send_event(StreamEvent::Text(text_content.text.clone()));
+                send_event(StreamEvent::Text(text_to_send.clone()));
 
                 if !plan_detected && detect_task_plan(&text_content.text) {
                     plan_detected = true;
@@ -198,7 +208,7 @@ where
                     plan_text.push_str(&text_content.text);
                 }
 
-                full_response.push_str(&text_content.text);
+                full_response.push_str(&text_to_send);
             }
 
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
@@ -226,11 +236,10 @@ where
                         send_event(StreamEvent::PlanProgress(progress));
                     }
                 }
-                let tool_call_marker = "\n\n";
-                full_response.push_str(&tool_call_marker);
                 // 工具调用仅通过 StreamEvent::ToolCall 在流式阶段实时显示（render_chat_area 中的 current_tool_call）
                 // 不再追加到 full_response，避免对话历史被大量工具调用标记污染
                 send_event(StreamEvent::ToolCall(tool_call.function.name.clone()));
+                after_tool_call = true;
             }
 
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Reasoning(

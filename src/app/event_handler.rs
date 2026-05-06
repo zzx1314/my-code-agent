@@ -410,7 +410,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
         // Check if it's a command (starts with /)
         if input_text.starts_with('/') {
             // Handle commands locally without sending to LLM
-            if handle_command(app, &input_text) {
+            if handle_command(app, &input_text, context_manager) {
                 // Clear input after command is handled
                 let title = if app.shell_mode {
                     " Input 🐚 Shell Mode (Enter to exec, !exit to leave, /shell to toggle) "
@@ -1041,7 +1041,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
 
 /// 处理命令（以 / 开头的输入）
 /// 返回 true 表示命令已处理，false 表示需要发送给 LLM
-fn handle_command(app: &mut App, input: &str) -> bool {
+fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {
     let command = input.trim().to_lowercase();
     
     match command.as_str() {
@@ -1353,6 +1353,108 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
             app.auto_scroll = true;
             true
         }
+        cmd if cmd.starts_with("/plan") => {
+            let task = cmd.strip_prefix("/plan").unwrap_or("").trim();
+            app.chat_history.push(("user".to_string(), input.to_string()));
+            app.show_banner = false;
+
+            if task.is_empty() {
+                app.chat_history.push(("assistant".to_string(), 
+                    "📋 **Plan Mode**\n\n\
+                    Usage: `/plan <task description>`\n\n\
+                    Example: `/plan Add user authentication with JWT tokens`\n\n\
+                    In plan mode, I will analyze your task and create a detailed plan \
+                    without executing any actions. You can review the plan before proceeding.".to_string()));
+                app.auto_scroll = true;
+                return true;
+            }
+
+            let planning_prompt = format!(
+                r#"You are in PLAN-ONLY mode. Your task is to analyze the following request and create a comprehensive, actionable plan.
+
+## Rules for Plan Mode:
+- Do NOT execute any tools (no file reads, writes, shell commands, etc.)
+- Focus ONLY on planning and analysis
+- Create a detailed, step-by-step implementation plan
+- Identify potential risks, dependencies, and prerequisites
+- Estimate complexity for each step
+- Suggest a logical execution order
+
+## Output Format:
+Structure your plan as follows:
+
+### 🎯 Objective
+[Clear summary of what needs to be accomplished]
+
+### 📋 Prerequisites
+[Any setup, dependencies, or information needed before starting]
+
+### 📝 Implementation Plan
+1. **Step 1: [Action]**
+   - Details: [What exactly to do]
+   - Files affected: [Which files to create/modify]
+   - Complexity: [Low/Medium/High]
+   
+2. **Step 2: [Action]**
+   ...
+
+### ⚠️ Risks & Considerations
+[Potential issues, edge cases, or things to watch out for]
+
+### ✅ Success Criteria
+[How to verify the task is complete]
+
+---
+**Task:** {task}"#
+            );
+
+            // Set up streaming to send the planning prompt
+            app.is_streaming = true;
+            app.auto_scroll = true;
+            app.reasoning_auto_scroll = true;
+            app.reasoning_scroll = 0;
+            app.streaming_text.clear();
+            app.streaming_reasoning.clear();
+            app.current_tool_call = None;
+            app.current_response.clear();
+            app.status_messages.clear();
+            app.streaming_status_messages.clear();
+            app.turn_usage_line = None;
+
+            let expanded = crate::core::context::expand_file_refs(&planning_prompt, &app.config);
+            
+            let mut rig_chat_history = convert_app_to_rig(&app.chat_history);
+            let agent_clone = app.agent.clone();
+            let config_clone = app.config.clone();
+            let mut token_usage_clone = app.token_usage.clone();
+            let interrupt_rx = app.interrupt_tx.subscribe();
+            let (response_tx, response_rx) = mpsc::channel::<crate::core::streaming::StreamResult>(1);
+            let (event_tx, event_rx) = mpsc::unbounded_channel::<crate::core::streaming::StreamEvent>();
+
+            let mut ctx_mgr = context_manager.clone();
+
+            app.response_rx = Some(response_rx);
+            app.streaming_events_rx = Some(event_rx);
+
+            tokio::spawn(async move {
+                let mut interrupt_rx = interrupt_rx;
+
+                let result = crate::core::streaming::stream_response(
+                    &agent_clone,
+                    &expanded.expanded,
+                    &mut rig_chat_history,
+                    &mut token_usage_clone,
+                    &mut interrupt_rx,
+                    &mut ctx_mgr,
+                    &config_clone.agent,
+                    Some(event_tx),
+                ).await;
+
+                response_tx.send(result).await.ok();
+            });
+
+            true
+        }
         _ => {
             // 未知命令，发送给 LLM 处理
             false
@@ -1380,6 +1482,7 @@ fn generate_help_text() -> String {
 | `/think` | Show last reasoning/thinking content |
 | `/init` | Initialize or update project knowledge file |
 | `/undo` | Undo all file changes made in this session (restore to session start) |
+| `/plan <task>` | Enter plan mode — analyze and create an implementation plan without executing |
 | `/shell` | Toggle shell mode (all input executed as shell commands) |
 
 ## Input Features
