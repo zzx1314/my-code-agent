@@ -208,6 +208,10 @@ pub struct SessionConfig {
     /// Set to `""` or omit to use the default.
     #[serde(default)]
     pub save_file: Option<String>,
+    /// Whether to clean up undo history entries for the current session on exit.
+    /// Default: `false` (undo history is preserved across sessions).
+    #[serde(default)]
+    pub cleanup_undo_history: bool,
 }
 
 fn default_session_enabled() -> bool {
@@ -219,6 +223,7 @@ impl Default for SessionConfig {
         Self {
             enabled: false,
             save_file: None,
+            cleanup_undo_history: false,
         }
     }
 }

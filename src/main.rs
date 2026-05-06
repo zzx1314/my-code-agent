@@ -32,6 +32,14 @@ async fn main() -> Result<()> {
 
     let config = Config::load();
 
+    // Generate a unique session ID for undo history tracking
+    let session_id = format!("session_{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos());
+    my_code_agent::tools::undo_history::set_session_id(session_id.clone());
+    tracing::info!(session_id = %session_id, "Initialized session ID for undo tracking");
+
     let mut app_chat_history: Vec<(String, String)> = Vec::new();
     let mut token_usage = TokenUsage::with_config(&config);
     let mut last_reasoning = String::new();
@@ -137,7 +145,49 @@ async fn main() -> Result<()> {
     // Leave alternate screen
     app::event_handler::leave_terminal(&mut terminal)?;
 
-    // Save session if enabled
+    // Clean up undo history for current session if configured
+    if app.config.session.cleanup_undo_history {
+        match my_code_agent::tools::undo_history::clear_current_session_entries() {
+            Ok(cleared) if cleared > 0 => {
+                tracing::info!(cleared, "Cleaned up undo history for current session on exit");
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to clean up undo history on exit");
+            }
+        }
+    }
+
+    // Auto-save a timestamped session to .sessions/ on exit (always, regardless of session.enabled)
+    if !app.chat_history.is_empty() {
+        use my_code_agent::core::session::SessionData;
+
+        let rig_history: Vec<_> = app.chat_history.iter()
+            .map(|(r, c)| match r.as_str() {
+                "user" => rig::completion::Message::user(c.clone()),
+                "assistant" => rig::completion::Message::assistant(c.clone()),
+                _ => rig::completion::Message::user(c.clone()),
+            })
+            .collect();
+
+        let name = my_code_agent::core::session::generate_session_name();
+        let data = SessionData::with_name(
+            rig_history,
+            app.token_usage.clone(),
+            app.last_reasoning.clone(),
+            name.clone(),
+        );
+        match data.save_with_name(&name) {
+            Ok(()) => {
+                tracing::info!(name = %name, "Auto-saved session on exit");
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to auto-save session on exit");
+            }
+        }
+    }
+
+    // Save to default session file if session.enabled (for auto-resume)
     if app.config.session.enabled && !app.chat_history.is_empty() {
         use my_code_agent::core::session::SessionData;
         

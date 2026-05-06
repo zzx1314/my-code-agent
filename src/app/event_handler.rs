@@ -140,6 +140,13 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                             app.token_usage = session_data.token_usage;
                             app.last_reasoning = session_data.last_reasoning;
                             
+                            // Update session ID so the loaded session has its own undo context
+                            let new_session_id = format!("session_{}", std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_nanos());
+                            crate::tools::undo_history::set_session_id(new_session_id);
+                            
                             app.chat_history.push(("user".to_string(), format!("/load {}", session_name)));
                             app.chat_history.push(("assistant".to_string(), format!("Session '{}' loaded ({} turns, {} tokens)", 
                                 session_name, selected_session.turns, selected_session.tokens)));
@@ -839,6 +846,16 @@ fn handle_command(app: &mut App, input: &str) -> bool {
                     let _ = std::fs::remove_file(save_file);
                 }
             }
+            // Clear undo history for current session
+            if let Err(e) = crate::tools::undo_history::clear_current_session_entries() {
+                tracing::warn!(error = %e, "Failed to clear undo history on /clear");
+            }
+            // Generate a new session ID so the cleared session's history is separate
+            let new_session_id = format!("session_{}", std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos());
+            crate::tools::undo_history::set_session_id(new_session_id);
             true
         }
         "/save" => {
@@ -1054,20 +1071,20 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
             true
         }
         "/undo" => {
-            use crate::tools::undo_history::{pop_last_entries, history_len};
+            use crate::tools::undo_history::{pop_current_session_entries, current_session_history_len};
             use crate::tools::file_undo;
 
             app.chat_history.push(("user".to_string(), "/undo".to_string()));
             app.show_banner = false;
             app.auto_scroll = true;
 
-            let available = history_len().unwrap_or(0);
+            let available = current_session_history_len().unwrap_or(0);
             if available == 0 {
-                app.chat_history.push(("assistant".to_string(), "No undo history available. Undo history is recorded when AI tools modify files.".to_string()));
+                app.chat_history.push(("assistant".to_string(), "No undo history for current session. Undo history is recorded when AI tools modify files during this session.".to_string()));
             } else {
-                match pop_last_entries(available) {
+                match pop_current_session_entries() {
                     Ok(entries) if entries.is_empty() => {
-                        app.chat_history.push(("assistant".to_string(), "No undo history available.".to_string()));
+                        app.chat_history.push(("assistant".to_string(), "No undo history for current session.".to_string()));
                     }
                     Ok(entries) => {
                         let mut details = Vec::new();
@@ -1077,7 +1094,7 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
                                 errors.push(e.to_string());
                             }
                         }
-                        let mut msg = format!("↩️ Undid {} change(s):\n", details.len());
+                        let mut msg = format!("↩️ Undid {} change(s) for current session:\n", details.len());
                         for d in &details {
                             msg.push_str(&format!("  • `{}`: {} ({})\n", d.file_path, d.action, d.operation));
                         }
