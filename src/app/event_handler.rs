@@ -1065,7 +1065,7 @@ Respond ONLY with the updated Markdown content, no explanation needed."#,
             if available == 0 {
                 app.chat_history.push(("assistant".to_string(), "No undo history available. Undo history is recorded when AI tools modify files.".to_string()));
             } else {
-                match pop_last_entries(1) {
+                match pop_last_entries(available) {
                     Ok(entries) if entries.is_empty() => {
                         app.chat_history.push(("assistant".to_string(), "No undo history available.".to_string()));
                     }
@@ -1122,7 +1122,7 @@ fn generate_help_text() -> String {
 | `/model` | Select model from dropdown menu |
 | `/think` | Show last reasoning/thinking content |
 | `/init` | Initialize or update project knowledge file |
-| `/undo` | Undo last file change made by AI tools |
+| `/undo` | Undo all file changes made in this session (restore to session start) |
 
 ## Input Features
 
