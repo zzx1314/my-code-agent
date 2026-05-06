@@ -205,12 +205,13 @@ fn render_reasoning_area(f: &mut Frame, app: &mut App, area: Rect) {
         "⏳ Thinking...".to_string()
     };
 
-    let lines: Vec<ratatui::text::Line> = reasoning_text
-        .lines()
-        .map(|l| ratatui::text::Line::from(l.to_string()))
-        .collect();
+    // Calculate inner width accounting for borders (Borders::ALL = 2 chars)
+    let inner_width = area.width.saturating_sub(2);
 
-    app.reasoning_total_lines = lines.len() as u16;
+    // Use Paragraph::line_count to get actual visual lines after wrapping
+    let temp_paragraph = Paragraph::new(reasoning_text.clone())
+        .wrap(Wrap { trim: true });
+    app.reasoning_total_lines = temp_paragraph.line_count(inner_width) as u16;
 
     if app.reasoning_auto_scroll || app.is_streaming {
         let visible_lines = app.config.agent.thinking_display_height.saturating_sub(2);
