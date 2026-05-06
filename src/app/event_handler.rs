@@ -11,7 +11,7 @@ use toml;
 
 use crate::app::App;
 use crate::app::InitResult;
-use crate::app::conversion::convert_app_to_rig;
+use crate::app::conversion::{convert_app_to_rig, convert_rig_to_app};
 use crate::core::context::expand_file_refs;
 use crate::core::context_manager::ContextManager;
 use crate::core::streaming::{stream_response, StreamResult, StreamEvent};
@@ -134,19 +134,9 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                     match crate::core::session::SessionData::load_by_name(&session_name) {
                         Some(Ok(session_data)) => {
                             // 恢复 session 数据
-                            app.chat_history = session_data.chat_history.iter().map(|msg| {
-                                match msg {
-                                    rig::completion::Message::User { content, .. } => {
-                                        ("user".to_string(), format!("{:?}", content))
-                                    }
-                                    rig::completion::Message::Assistant { content, .. } => {
-                                        ("assistant".to_string(), format!("{:?}", content))
-                                    }
-                                    rig::completion::Message::System { content, .. } => {
-                                        ("system".to_string(), format!("{:?}", content))
-                                    }
-                                }
-                            }).collect();
+                            app.chat_history = session_data.chat_history.into_iter()
+                                .map(convert_rig_to_app)
+                                .collect();
                             app.token_usage = session_data.token_usage;
                             app.last_reasoning = session_data.last_reasoning;
                             
