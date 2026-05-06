@@ -184,4 +184,5 @@ All fields are optional — sensible defaults are used when omitted.
 - **Undo support**: `file_undo` tool can revert recent `file_write`, `file_update`, or `file_delete` operations (uses `undo_history.rs`)
 - **File outline**: Uses tree-sitter for structured code parsing (currently supports Rust via `tree-sitter-rust`)
 - **Tool safety**: Destructive shell commands and file deletions trigger a user confirmation prompt via `confirmation.rs`
+- **Test files**: All test cases should be written in the `tests/` directory as integration tests
 - **Rust edition**: Project uses Rust edition 2024
