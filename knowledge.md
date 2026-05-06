@@ -148,7 +148,7 @@ attach_max_lines = 500          # max lines per @filepath attachment
 attach_max_bytes = 51200        # max bytes (50 KB) per @filepath attachment
 
 [context]
-window_size = 131072            # 128K tokens
+window_size = 1048576           # 1M tokens
 warn_threshold_percent = 75
 critical_threshold_percent = 90
 

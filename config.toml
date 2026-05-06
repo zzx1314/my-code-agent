@@ -33,7 +33,7 @@ timeout_secs = 300
 # ── Context Window / Token Usage Settings ──
 [context]
 # Model context window size in tokens.
-# Default: 131072 (128K for DeepSeek V3/R1)
+# Default: 1048576 (1M tokens)
 # Set to 262144 for 256K context window
 window_size = 262144
 

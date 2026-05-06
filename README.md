@@ -316,7 +316,7 @@ api_key_env = "DEEPSEEK_API_KEY"
 base_url = "http://localhost:8080/v1"  # custom endpoint
 
 [context]
-window_size = 131072            # 128K tokens
+window_size = 1048576           # 1M tokens
 warn_threshold_percent = 75
 critical_threshold_percent = 90
 

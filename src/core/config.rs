@@ -14,7 +14,7 @@ fn default_attach_max_bytes() -> usize {
     50 * 1024
 }
 fn default_window_size() -> u64 {
-    131_072 // 128K tokens for DeepSeek V3/R1
+    1_048_576 // 1M tokens
 }
 fn default_warn_threshold_percent() -> u64 {
     75
@@ -100,7 +100,7 @@ pub struct FileConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ContextConfig {
     /// Model context window size in tokens.
-    /// Default: 131072 (128K).
+    /// Default: 1048576 (1M).
     #[serde(default = "default_window_size")]
     pub window_size: u64,
     /// Percentage at which to warn about context usage.
@@ -241,7 +241,7 @@ impl Default for FileConfig {
 impl Default for ContextConfig {
     fn default() -> Self {
         Self {
-            window_size: 131_072, // 128K tokens
+            window_size: 1_048_576, // 1M tokens
             warn_threshold_percent: 75,
             critical_threshold_percent: 90,
         }
