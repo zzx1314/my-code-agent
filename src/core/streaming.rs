@@ -226,6 +226,8 @@ where
                         send_event(StreamEvent::PlanProgress(progress));
                     }
                 }
+                let tool_call_marker = "\n\n";
+                full_response.push_str(&tool_call_marker);
                 // 工具调用仅通过 StreamEvent::ToolCall 在流式阶段实时显示（render_chat_area 中的 current_tool_call）
                 // 不再追加到 full_response，避免对话历史被大量工具调用标记污染
                 send_event(StreamEvent::ToolCall(tool_call.function.name.clone()));

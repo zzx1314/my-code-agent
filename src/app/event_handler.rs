@@ -702,18 +702,13 @@ pub fn process_streaming_events(app: &mut App) {
         loop {
             match rx.try_recv() {
                 Ok(StreamEvent::Text(delta)) => {
+                    if app.current_tool_call.is_some() {
+                        app.streaming_text.push('\n');
+                    }
                     app.streaming_text.push_str(&delta);
                     app.current_tool_call = None;
                 }
                 Ok(StreamEvent::ToolCall(name)) => {
-                    // When a tool call starts, append it to streaming_text so it persists
-                    // after the tool completes (current_tool_call is ephemeral and only
-                    // shows during execution)
-                    if !app.streaming_text.is_empty() {
-                        app.streaming_text.push_str("\n\n");
-                    }
-                    app.streaming_text.push_str(&format!("**⟳ Tool Call: `{}`**\n\n", name));
-                    // Also set current_tool_call for the live indicator
                     app.current_tool_call = Some(name);
                 }
                 Ok(StreamEvent::ReasoningActive(active)) => {
