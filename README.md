@@ -79,7 +79,15 @@ The tool returns search results with titles, URLs, and snippets from the web.
 
 ### Installation
 
-#### Option 1: Build from Source
+#### Option 1: `cargo install` (recommended)
+
+```bash
+cargo install --path .
+```
+
+This builds a release binary and installs it to `~/.cargo/bin/`, so you can run `my-code-agent` from anywhere (make sure `~/.cargo/bin` is in your `PATH`).
+
+#### Option 2: Build from Source
 
 ```bash
 git clone <your-repo-url>
@@ -87,7 +95,9 @@ cd my-code-agent
 cargo build --release
 ```
 
-#### Option 2: Download Pre-built Binary
+The binary will be at `target/release/my-code-agent`.
+
+#### Option 3: Download Pre-built Binary
 
 1. Download the pre-built binary from the [Releases](../../releases) page
 2. Extract the archive and move the binary to your PATH:
