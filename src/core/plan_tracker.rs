@@ -15,6 +15,10 @@ pub struct PlanTracker {
     active: bool,
     /// Accumulated status messages for the UI to display
     messages: Vec<String>,
+    /// Byte length of the plan text at the time `parse_plan` was called.
+    /// Used by `update_from_text` to only scan newly-added text for ✓ markers,
+    /// ignoring any pre-existing markers in the initial plan output.
+    initial_text_len: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +49,7 @@ impl PlanTracker {
             current_step: 0,
             active: false,
             messages: Vec::new(),
+            initial_text_len: 0,
         }
     }
 
@@ -55,6 +60,7 @@ impl PlanTracker {
         self.active = true;
         self.confirmed = false;
         self.current_step = 0;
+        self.initial_text_len = text.len();
 
         // Extract numbered steps from text
         for line in text.lines() {
@@ -82,26 +88,26 @@ impl PlanTracker {
 
     /// Update step statuses from accumulated plan text.
     ///
-    /// Detects ✓ markers appended at the end of step lines:
-    /// ```text
-    /// 1. Step description ✓    <- marks step 1 as completed
-    /// 2. Step description      <- still pending
-    /// 3. Step description ✓    <- marks step 3 as completed
-    /// ```
+    /// Only scans **new** text added after `parse_plan` was called (i.e., text
+    /// beyond `initial_text_len`). This prevents ✓ markers that the model
+    /// included in its initial plan output from being treated as completion
+    /// signals — only markers appended *after* the plan was parsed count.
     ///
-    /// The model is responsible for deciding when a step is done and
-    /// appending the ✓ marker. No automatic tool-call-based tracking.
+    /// Also only allows forward transitions: a step that is already Completed
+    /// stays Completed, and only steps >= current_step can be marked.
     pub fn update_from_text(&mut self, text: &str) {
         if !self.has_active_plan() {
             return;
         }
 
-        // Reset all steps to pending
-        for status in self.step_status.values_mut() {
-            *status = PlanStepStatus::Pending;
-        }
+        // Only look at newly-added text after the initial plan output
+        let new_text = if text.len() > self.initial_text_len {
+            &text[self.initial_text_len..]
+        } else {
+            return; // No new text to scan
+        };
 
-        for line in text.lines() {
+        for line in new_text.lines() {
             let trimmed = line.trim();
 
             // Check if this line is a numbered step (1. or 1))
@@ -118,9 +124,14 @@ impl PlanTracker {
                             .trim_end_matches(|c: char| c.is_whitespace())
                             .to_string();
 
-                        if !step_text.is_empty() {
+                        if !step_text.is_empty() && has_marker {
                             if let Some(idx) = self.steps.iter().position(|s| s == &step_text) {
-                                if has_marker && idx < self.steps.len() {
+                                // Only mark as completed if this step hasn't been completed yet
+                                // and is at or beyond the current_step (forward-only progression)
+                                let status = self.step_status.get(&step_text);
+                                let already_completed =
+                                    status == Some(&PlanStepStatus::Completed);
+                                if !already_completed && idx >= self.current_step {
                                     let step = &self.steps[idx];
                                     self.step_status
                                         .insert(step.clone(), PlanStepStatus::Completed);

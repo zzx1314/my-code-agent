@@ -779,6 +779,12 @@ fn test_progress_display_consistency_with_completion() {
 
 // ============================================================================
 // update_from_text — ✓-marker completion tracking (model self-reports)
+//
+// The streaming flow is:
+// 1. Model streams the initial plan → plan_text accumulates
+// 2. parse_plan(&plan_text) is called → initial_text_len is recorded
+// 3. Model continues streaming, appending new text (including ✓ markers)
+// 4. update_from_text(&plan_text) is called → only NEW text (after initial_text_len) is scanned
 // ============================================================================
 
 #[test]
@@ -792,11 +798,13 @@ fn test_update_from_text_no_plan() {
 #[test]
 fn test_update_from_text_basic_checkmark_marker() {
     let mut tracker = PlanTracker::new();
-    tracker.parse_plan("1. First step\n2. Second step\n3. Third step");
+    let plan_text = "1. First step\n2. Second step\n3. Third step";
+    tracker.parse_plan(plan_text);
     tracker.confirm();
 
-    // First step has ✓ marker at end of line
-    tracker.update_from_text("1. First step ✓\n2. Second step\n3. Third step");
+    // Simulate the model appending new text with ✓ marker after executing step 1
+    let accumulated = format!("{}\n1. First step ✓", plan_text);
+    tracker.update_from_text(&accumulated);
     // current_step_index should advance to 2 (first step completed)
     assert_eq!(tracker.current_step_index(), 2);
     assert!(!tracker.is_completed());
@@ -805,11 +813,14 @@ fn test_update_from_text_basic_checkmark_marker() {
 #[test]
 fn test_update_from_text_no_marker_stays_pending() {
     let mut tracker = PlanTracker::new();
-    tracker.parse_plan("1. First step\n2. Second step");
+    let plan_text = "1. First step\n2. Second step";
+    tracker.parse_plan(plan_text);
     tracker.confirm();
 
-    // No ✓ marker — step should remain pending
-    tracker.update_from_text("1. First step\n2. Second step");
+    // No ✓ marker in the NEW text — step should remain pending
+    // (the original plan text contains no ✓ so scanning only new portion finds nothing)
+    let accumulated = format!("{}\nStill working...", plan_text);
+    tracker.update_from_text(&accumulated);
     assert_eq!(tracker.current_step_index(), 1);
     assert!(!tracker.is_completed());
 }
@@ -817,10 +828,13 @@ fn test_update_from_text_no_marker_stays_pending() {
 #[test]
 fn test_update_from_text_multiple_completed() {
     let mut tracker = PlanTracker::new();
-    tracker.parse_plan("1. First\n2. Second\n3. Third");
+    let plan_text = "1. First\n2. Second\n3. Third";
+    tracker.parse_plan(plan_text);
     tracker.confirm();
 
-    tracker.update_from_text("1. First ✓\n2. Second ✓\n3. Third");
+    // Simulate step 1 completed, then step 2 completed (new text after plan)
+    let accumulated = format!("{}\n1. First ✓\n2. Second ✓", plan_text);
+    tracker.update_from_text(&accumulated);
     assert_eq!(tracker.current_step_index(), 3);
     assert!(!tracker.is_completed());
 }
@@ -828,34 +842,42 @@ fn test_update_from_text_multiple_completed() {
 #[test]
 fn test_update_from_text_all_completed() {
     let mut tracker = PlanTracker::new();
-    tracker.parse_plan("1. A\n2. B\n3. C");
+    let plan_text = "1. A\n2. B\n3. C";
+    tracker.parse_plan(plan_text);
     tracker.confirm();
 
-    tracker.update_from_text("1. A ✓\n2. B ✓\n3. C ✓");
+    let accumulated = format!("{}\n1. A ✓\n2. B ✓\n3. C ✓", plan_text);
+    tracker.update_from_text(&accumulated);
     assert!(tracker.is_completed());
 }
 
 #[test]
 fn test_update_from_text_with_header() {
     let mut tracker = PlanTracker::new();
-    tracker.parse_plan("## Task Plan\n1. Read file\n2. Analyze code\n3. Fix issue");
+    let plan_text = "## Task Plan\n1. Read file\n2. Analyze code\n3. Fix issue";
+    tracker.parse_plan(plan_text);
     tracker.confirm();
 
-    tracker.update_from_text("## Task Plan\n1. Read file ✓\n2. Analyze code\n3. Fix issue");
+    // New text appended with step 1 marked ✓
+    let accumulated = format!("{}\n1. Read file ✓", plan_text);
+    tracker.update_from_text(&accumulated);
     assert_eq!(tracker.current_step_index(), 2);
     assert!(!tracker.is_completed());
 }
 
 #[test]
 fn test_update_from_text_non_contiguous_completion() {
-    // Model can mark step 1 and 3 as done while leaving step 2 pending
+    // Model marks step 1 and 3 as done while leaving step 2 pending
     let mut tracker = PlanTracker::new();
-    tracker.parse_plan("1. First\n2. Second\n3. Third");
+    let plan_text = "1. First\n2. Second\n3. Third";
+    tracker.parse_plan(plan_text);
     tracker.confirm();
 
-    tracker.update_from_text("1. First ✓\n2. Second\n3. Third ✓");
-    // current_step should advance past step 1 and 3
-    // step 2 is still pending, current_step = max(1, 3) = 3 (step index 2 + 1)
+    let accumulated = format!("{}\n1. First ✓\n3. Third ✓", plan_text);
+    tracker.update_from_text(&accumulated);
+    // Step 1 completed: current_step -> 1 (idx 0)
+    // Step 3 completed: current_step -> 3 (idx 2)
+    // Step 2 is still pending
     assert_eq!(tracker.current_step_index(), 4);
     assert!(tracker.is_completed());
 }
@@ -863,13 +885,130 @@ fn test_update_from_text_non_contiguous_completion() {
 #[test]
 fn test_update_from_text_resets_on_new_parse() {
     let mut tracker = PlanTracker::new();
-    tracker.parse_plan("1. First\n2. Second");
+    let plan_text = "1. First\n2. Second";
+    tracker.parse_plan(plan_text);
     tracker.confirm();
-    tracker.update_from_text("1. First ✓\n2. Second");
+
+    let accumulated = format!("{}\n1. First ✓", plan_text);
+    tracker.update_from_text(&accumulated);
     assert_eq!(tracker.current_step_index(), 2);
 
     // Re-parse resets everything
     tracker.parse_plan("1. New A\n2. New B\n3. New C");
     assert_eq!(tracker.current_step_index(), 1);
     assert!(!tracker.is_completed());
+}
+
+// ============================================================================
+// update_from_text — prem ✓ marker bug fix tests
+// These tests verify that ✓ markers present in the INITIAL plan output
+// (before any steps were actually executed) are NOT treated as completions.
+// ============================================================================
+
+#[test]
+fn test_update_from_text_ignores_checkmarks_in_initial_plan() {
+    // Bug scenario: model outputs plan with premature ✓ markers
+    let mut tracker = PlanTracker::new();
+    let plan_text = "1. Read the file ✓\n2. Analyze the code ✓\n3. Write the fix";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // All steps should still be Pending — the ✓ markers are in the initial text
+    assert_eq!(tracker.current_step_index(), 1);
+    assert!(!tracker.is_completed());
+
+    // Update with no new text — nothing should change
+    tracker.update_from_text(plan_text);
+    assert_eq!(tracker.current_step_index(), 1);
+    assert!(!tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_ignores_checkmarks_in_initial_plan_with_header() {
+    let mut tracker = PlanTracker::new();
+    let plan_text = "## Task Plan\n1. Step A ✓\n2. Step B ✓\n3. Step C ✓";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // No new text appended, so no completions
+    assert_eq!(tracker.current_step_index(), 1);
+    assert!(!tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_only_scans_new_content() {
+    // Initial plan has no ✓, but new text adds ✓ for step 1
+    let mut tracker = PlanTracker::new();
+    let plan_text = "1. Read file\n2. Fix bug\n3. Write tests";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // Simulate: model executed step 1, then streamed step 1 with ✓
+    let accumulated = format!("{}\nDone with step 1\n1. Read file ✓", plan_text);
+    tracker.update_from_text(&accumulated);
+
+    assert_eq!(tracker.current_step_index(), 2);
+    assert!(!tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_incremental_updates() {
+    // Simulate multiple incremental updates like in real streaming
+    let mut tracker = PlanTracker::new();
+    let plan_text = "1. Step A\n2. Step B\n3. Step C";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // First update: step 1 completed
+    let text_after_step1 = format!("{}\n1. Step A ✓", plan_text);
+    tracker.update_from_text(&text_after_step1);
+    assert_eq!(tracker.current_step_index(), 2);
+
+    // Second update: step 2 completed (appended to previous)
+    let text_after_step2 = format!("{}\n1. Step A ✓\n2. Step B ✓", plan_text);
+    tracker.update_from_text(&text_after_step2);
+    assert_eq!(tracker.current_step_index(), 3);
+
+    // Third update: step 3 completed
+    let text_after_step3 = format!("{}\n1. Step A ✓\n2. Step B ✓\n3. Step C ✓", plan_text);
+    tracker.update_from_text(&text_after_step3);
+    assert!(tracker.is_completed());
+}
+
+#[test]
+fn test_update_from_text_completed_step_not_duplicated() {
+    // Ensure a step already marked Completed doesn't get reprocessed
+    let mut tracker = PlanTracker::new();
+    let plan_text = "1. First\n2. Second";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // Mark step 1 via new text
+    let accumulated = format!("{}\n1. First ✓", plan_text);
+    tracker.update_from_text(&accumulated);
+    assert_eq!(tracker.current_step_index(), 2);
+
+    // Call update again with same accumulated text — should not regress
+    tracker.update_from_text(&accumulated);
+    assert_eq!(tracker.current_step_index(), 2);
+}
+
+#[test]
+fn test_update_from_text_backward_step_ignored() {
+    // If the model somehow reports a lower-index step as ✓ after a higher one,
+    // it should not regress current_step
+    let mut tracker = PlanTracker::new();
+    let plan_text = "1. First\n2. Second\n3. Third";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // Mark step 3 first (non-contiguous)
+    let acc1 = format!("{}\n3. Third ✓", plan_text);
+    tracker.update_from_text(&acc1);
+    assert_eq!(tracker.current_step_index(), 4); // advanced past 3
+
+    // Now try to mark step 1 — should not regress
+    let acc2 = format!("{}\n3. Third ✓\n1. First ✓", plan_text);
+    tracker.update_from_text(&acc2);
+    assert_eq!(tracker.current_step_index(), 4); // still at 4
 }
