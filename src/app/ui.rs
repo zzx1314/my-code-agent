@@ -201,9 +201,6 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Render chat history with correct reasoning placement
     let has_reasoning = app.config.agent.thinking_display != "hidden" && !app.last_reasoning.is_empty();
-    let reasoning_during_streaming = app.config.agent.thinking_display != "hidden"
-        && app.is_streaming
-        && (!app.streaming_reasoning.is_empty() || !app.last_reasoning.is_empty());
 
     if !app.is_streaming && has_reasoning && app.show_inline_reasoning {
         // Non-streaming with reasoning: render reasoning BEFORE the last assistant message
@@ -288,7 +285,10 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
 
         // Show reasoning during streaming with blockquote style
-        if reasoning_during_streaming {
+        let show_reasoning_anywhere = app.config.agent.thinking_display != "hidden"
+            && app.is_streaming
+            && (!app.streaming_reasoning.is_empty() || !app.last_reasoning.is_empty());
+        if show_reasoning_anywhere {
             let reasoning_text = if !app.streaming_reasoning.is_empty() {
                 Some(app.streaming_reasoning.as_str())
             } else {
