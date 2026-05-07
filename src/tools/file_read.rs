@@ -39,6 +39,10 @@ pub struct FileReadOutput {
     pub content: String,
     /// Total lines in the file (not just the lines returned).
     pub lines: usize,
+    /// Start line index (0-indexed) of the returned content.
+    pub start: usize,
+    /// End line index (exclusive, 0-indexed) of the returned content.
+    pub end: usize,
     /// Whether the output was truncated because the file exceeds the requested/default limit.
     pub truncated: bool,
 }
@@ -78,8 +82,13 @@ impl Tool for FileRead {
             description: "Read the contents of a file from the local filesystem. \
                 Returns the file content with line numbers. By default, only the first \
                 200 lines are returned (set `limit` to read more, or use `offset` to skip ahead). \
-                The output includes the total line count and whether it was truncated, \
-                so you can paginate through large files efficiently."
+                The output includes the file path, total line count, the exact line range read \
+                (`start` and `end`), and whether it was truncated. \
+                IMPORTANT: Always check conversation history before calling this tool — \
+                if the file content is already present, do NOT re-read it. \
+                Use `file_outline` first to identify function boundaries, then use `offset`/`limit` \
+                to read the exact range needed. Ensure function/method boundaries are complete — \
+                never read a partial function that cuts off mid-body."
                 .to_string(),
             parameters: json!({
                 "type": "object",
@@ -149,13 +158,27 @@ impl Tool for FileRead {
             (end, None)
         };
 
+        let mut output = if adjusted_end > start {
+            format!(
+                "[{}: lines {}-{} of {}]",
+                args.path,
+                start + 1,
+                adjusted_end,
+                total_lines
+            )
+        } else {
+            String::new()
+        };
+        if adjusted_end > start {
+            output.push('\n');
+        }
         let selected_lines: Vec<String> = lines[start..adjusted_end]
             .iter()
             .enumerate()
             .map(|(i, line)| format!("{:>6} | {}", start + i + 1, line))
             .collect();
 
-        let mut output = selected_lines.join("\n");
+        output.push_str(&selected_lines.join("\n"));
         if let Some(note) = structure_note {
             output.push_str(&format!("\n{}", note));
         }
@@ -171,6 +194,8 @@ impl Tool for FileRead {
             path: args.path,
             content: output,
             lines: total_lines,
+            start,
+            end: adjusted_end,
             truncated: adjusted_end < total_lines,
         })
     }
