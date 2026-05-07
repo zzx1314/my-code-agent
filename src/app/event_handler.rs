@@ -681,6 +681,7 @@ fn reset_streaming_state(app: &mut App) {
     app.reasoning_scroll = 0;
     app.streaming_text.clear();
     app.streaming_reasoning.clear();
+    app.last_reasoning.clear();
     app.current_tool_call = None;
     app.current_response.clear();
     app.status_messages.clear();

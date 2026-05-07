@@ -225,14 +225,31 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    if app.is_streaming && app.config.agent.thinking_display != "hidden" && !app.streaming_reasoning.is_empty() {
-        for line in app.streaming_reasoning.lines() {
-            lines.push(Line::from(format!("> {}", line)));
+    // During streaming: show reasoning content from both live buffer and completed reasoning
+    if app.is_streaming && app.config.agent.thinking_display != "hidden" {
+        let reasoning_text = if !app.streaming_reasoning.is_empty() {
+            Some(app.streaming_reasoning.as_str())
+        } else if !app.last_reasoning.is_empty() {
+            Some(app.last_reasoning.as_str())
+        } else {
+            None
+        };
+        if let Some(text) = reasoning_text {
+            lines.push(Line::from(Span::styled(
+                "💭 Thinking:",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for line in text.lines() {
+                lines.push(Line::from(format!("  {}", line)));
+            }
+            lines.push(Line::default());
         }
-        lines.push(Line::default());
     }
 
     if app.is_streaming {
+        // Always show "Assistant:" label when there's content or tool calls
         if !app.streaming_text.is_empty() || app.current_tool_call.is_some() {
             lines.push(Line::from(vec![Span::styled(
                 "Assistant: ",
