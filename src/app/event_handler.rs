@@ -893,7 +893,13 @@ pub fn check_init_result(app: &mut App) {
 fn process_stream_result(app: &mut App, result: StreamResult) {
     app.is_streaming = false;
     app.streaming_text.clear();
-    app.streaming_reasoning.clear();
+    // Save any remaining reasoning that wasn't already moved to last_reasoning
+    // (ReasoningActive(false) may not have been sent before stream ended)
+    if app.last_reasoning.is_empty() && !app.streaming_reasoning.is_empty() {
+        app.last_reasoning = std::mem::take(&mut app.streaming_reasoning);
+    } else {
+        app.streaming_reasoning.clear();
+    }
     app.current_tool_call = None;
     app.streaming_events_rx = None;
     app.streaming_status_messages.clear();

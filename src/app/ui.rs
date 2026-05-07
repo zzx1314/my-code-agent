@@ -199,52 +199,116 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
 
-    for (role, content) in &app.chat_history {
-        match role.as_str() {
-            "user" => {
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        "You: ",
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(content.clone()),
-                ]));
-                lines.push(Line::default());
-            }
-            "assistant" => {
-                let md = from_str(content);
-                lines.extend(md.lines);
-                lines.push(Line::default());
-            }
-            _ => {
-                lines.push(Line::from(format!("{}: {}", role, content)));
-                lines.push(Line::default());
+    // Render chat history with correct reasoning placement
+    let has_reasoning = app.config.agent.thinking_display != "hidden" && !app.last_reasoning.is_empty();
+    let reasoning_during_streaming = app.config.agent.thinking_display != "hidden"
+        && app.is_streaming
+        && (!app.streaming_reasoning.is_empty() || !app.last_reasoning.is_empty());
+
+    if !app.is_streaming && has_reasoning {
+        // Non-streaming with reasoning: render reasoning BEFORE the last assistant message
+        let last_assistant_idx = app.chat_history.iter().rposition(|(role, _)| role == "assistant");
+        let split_idx = last_assistant_idx.unwrap_or(app.chat_history.len());
+
+        // Render messages before the last assistant message
+        for (role, content) in &app.chat_history[..split_idx] {
+            match role.as_str() {
+                "user" => {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "You: ",
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw(content.clone()),
+                    ]));
+                    lines.push(Line::default());
+                }
+                "assistant" => {
+                    let md = from_str(content);
+                    lines.extend(md.lines);
+                    lines.push(Line::default());
+                }
+                _ => {
+                    lines.push(Line::from(format!("{}: {}", role, content)));
+                    lines.push(Line::default());
+                }
             }
         }
-    }
 
-    // During streaming: show reasoning content from both live buffer and completed reasoning
-    if app.is_streaming && app.config.agent.thinking_display != "hidden" {
-        let reasoning_text = if !app.streaming_reasoning.is_empty() {
-            Some(app.streaming_reasoning.as_str())
-        } else if !app.last_reasoning.is_empty() {
-            Some(app.last_reasoning.as_str())
-        } else {
-            None
-        };
-        if let Some(text) = reasoning_text {
-            lines.push(Line::from(Span::styled(
-                "💭 Thinking:",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            for line in text.lines() {
-                lines.push(Line::from(format!("  {}", line)));
-            }
+        // Render reasoning with blockquote style
+        lines.push(Line::from(Span::styled(
+            "💭 Thinking:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )));
+        for line in app.last_reasoning.lines() {
+            lines.push(Line::from(vec![
+                Span::styled("│ ", Style::default().fg(Color::DarkGray)),
+                Span::styled(line, Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+        lines.push(Line::default());
+
+        // Render the last assistant message (if any)
+        if let Some(idx) = last_assistant_idx {
+            let (_role, content) = &app.chat_history[idx];
+            let md = from_str(content);
+            lines.extend(md.lines);
             lines.push(Line::default());
+        }
+    } else {
+        // Streaming or no reasoning: render all messages as before
+        for (role, content) in &app.chat_history {
+            match role.as_str() {
+                "user" => {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "You: ",
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw(content.clone()),
+                    ]));
+                    lines.push(Line::default());
+                }
+                "assistant" => {
+                    let md = from_str(content);
+                    lines.extend(md.lines);
+                    lines.push(Line::default());
+                }
+                _ => {
+                    lines.push(Line::from(format!("{}: {}", role, content)));
+                    lines.push(Line::default());
+                }
+            }
+        }
+
+        // Show reasoning during streaming with blockquote style
+        if reasoning_during_streaming {
+            let reasoning_text = if !app.streaming_reasoning.is_empty() {
+                Some(app.streaming_reasoning.as_str())
+            } else {
+                Some(app.last_reasoning.as_str())
+            };
+            if let Some(text) = reasoning_text {
+                lines.push(Line::from(Span::styled(
+                    "💭 Thinking:",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                for line in text.lines() {
+                    lines.push(Line::from(vec![
+                        Span::styled("│ ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(line, Style::default().fg(Color::DarkGray)),
+                    ]));
+                }
+                lines.push(Line::default());
+            }
         }
     }
 
