@@ -145,37 +145,18 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     let input_height = calculate_input_height(app, area.width);
 
-    let has_reasoning = app.show_reasoning
-        && (!app.last_reasoning.is_empty() || !app.streaming_reasoning.is_empty());
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(input_height),
+            Constraint::Length(1),
+        ])
+        .split(area);
 
-    let chunks = if has_reasoning {
-        Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(app.config.agent.thinking_display_height),
-                Constraint::Min(1),
-                Constraint::Length(input_height),
-                Constraint::Length(1),
-            ])
-            .split(area)
-    } else {
-        Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),
-                Constraint::Length(input_height),
-                Constraint::Length(1),
-            ])
-            .split(area)
-    };
-
-    if has_reasoning {
-        render_reasoning_area(f, app, chunks[0]);
-    }
-
-    let chat_chunk_index = if has_reasoning { 1 } else { 0 };
-    let input_chunk_index = if has_reasoning { 2 } else { 1 };
-    let status_chunk_index = if has_reasoning { 3 } else { 2 };
+    let chat_chunk_index = 0;
+    let input_chunk_index = 1;
+    let status_chunk_index = 2;
 
     render_chat_area(f, app, chunks[chat_chunk_index]);
 
@@ -202,45 +183,6 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     }
 
     render_status_bar(f, app, chunks[status_chunk_index]);
-}
-
-fn render_reasoning_area(f: &mut Frame, app: &mut App, area: Rect) {
-    let reasoning_text = if app.is_streaming && !app.streaming_reasoning.is_empty() {
-        format!("⏳ Thinking...\n\n{}", app.streaming_reasoning)
-    } else if !app.last_reasoning.is_empty() {
-        format!("✓ Thinking complete\n\n{}", app.last_reasoning)
-    } else {
-        "⏳ Thinking...".to_string()
-    };
-
-    // Calculate inner width accounting for borders (Borders::ALL = 2 chars)
-    let inner_width = area.width.saturating_sub(2);
-
-    // Use Paragraph::line_count to get actual visual lines after wrapping
-    let temp_paragraph = Paragraph::new(reasoning_text.clone()).wrap(Wrap { trim: true });
-    app.reasoning_total_lines = temp_paragraph.line_count(inner_width) as u16;
-
-    if app.reasoning_auto_scroll || app.is_streaming {
-        let visible_lines = app.config.agent.thinking_display_height.saturating_sub(2);
-        if app.reasoning_total_lines > visible_lines {
-            app.reasoning_scroll = app.reasoning_total_lines - visible_lines;
-        } else {
-            app.reasoning_scroll = 0;
-        }
-    }
-
-    let reasoning_paragraph = Paragraph::new(reasoning_text)
-        .scroll((app.reasoning_scroll, 0))
-        .wrap(Wrap { trim: true })
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" 🤔 Reasoning ")
-                .border_style(Style::default().fg(Color::Yellow)),
-        )
-        .style(Style::default().fg(Color::DarkGray));
-
-    f.render_widget(reasoning_paragraph, area);
 }
 
 fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
@@ -282,6 +224,13 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
+    if app.is_streaming && app.config.agent.thinking_display != "hidden" && !app.streaming_reasoning.is_empty() {
+        for line in app.streaming_reasoning.lines() {
+            lines.push(Line::from(format!("> {}", line)));
+        }
+        lines.push(Line::default());
+    }
+
     if app.is_streaming {
         if !app.streaming_text.is_empty() || app.current_tool_call.is_some() {
             lines.push(Line::from(vec![Span::styled(
@@ -294,15 +243,13 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
                 let md = from_str(&app.streaming_text);
                 lines.extend(md.lines);
             }
-            // Show running indicator only when a tool is actively executing
-            // (the tool call name is already rendered in streaming_text above)
             if let Some(ref tool_name) = app.current_tool_call {
                 lines.push(Line::from(vec![Span::styled(
                     format!("  ⏳ {}...", tool_name),
                     Style::default().fg(Color::DarkGray),
                 )]));
             }
-        } else if app.streaming_reasoning.is_empty() && app.last_reasoning.is_empty() {
+        } else if app.streaming_reasoning.is_empty() {
             lines.push(Line::from(Span::styled(
                 "⏳ Generating response...",
                 Style::default().fg(Color::Yellow),
