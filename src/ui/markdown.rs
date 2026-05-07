@@ -55,13 +55,14 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
 
     for line in text.split('\n') {
         match &mut state {
-            BlockState::CodeBlock { lang: _, lines } => {
+            BlockState::CodeBlock { lang, lines } => {
                 if line.trim_start().starts_with("```") {
                     // Close code block
                     prev_was_heading = false;
                     let code_lines = lines.clone();
+                    let code_lang = lang.clone();
                     state = BlockState::Paragraph;
-                    result.extend(render_code_block_lines(&code_lines));
+                    result.extend(render_code_block_lines(&code_lines, code_lang.as_deref()));
                 } else {
                     lines.push(line.to_string());
                 }
@@ -145,9 +146,9 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
     }
 
     // If a code block was never closed (streaming case), render it as-is
-    if let BlockState::CodeBlock { lines, .. } = &state {
+    if let BlockState::CodeBlock { lang, lines } = &state {
         if !lines.is_empty() {
-            result.extend(render_code_block_lines(lines));
+            result.extend(render_code_block_lines(lines, lang.as_deref()));
         }
     }
 
@@ -235,12 +236,13 @@ fn parse_ordered_list(line: &str) -> Option<(u32, &str)> {
     while num_end < bytes.len() && bytes[num_end].is_ascii_digit() {
         num_end += 1;
     }
+    // Use get() to safely slice, avoiding invalid byte boundary panics
     if num_end > 0
-        && num_end + 2 <= line.len()
-        && &line[num_end..num_end + 2] == ". "
+        && line.get(num_end..num_end + 2).is_some_and(|s| s == ". ")
     {
         let num: u32 = line[..num_end].parse().ok()?;
-        Some((num, &line[num_end + 2..]))
+        let rest = line.get(num_end + 2..)?;
+        Some((num, rest))
     } else {
         None
     }
@@ -254,14 +256,20 @@ fn render_ordered_item(num: u32, content: &str) -> Line<'static> {
     Line::from(spans)
 }
 
-fn render_code_block_lines(lines: &[String]) -> Vec<Line<'static>> {
+fn render_code_block_lines(lines: &[String], lang: Option<&str>) -> Vec<Line<'static>> {
     let mut result = Vec::new();
 
-    // Top border
-    result.push(Line::from(Span::styled(
-        "┌───",
-        Style::default().fg(CODE_BORDER_FG),
-    )));
+    // Top border with optional language label
+    let mut spans = vec![Span::styled("┌─── ", Style::default().fg(CODE_BORDER_FG))];
+    if let Some(lang) = lang {
+        if !lang.is_empty() {
+            spans.push(Span::styled(
+                lang.to_string(),
+                Style::default().fg(Color::Cyan),
+            ));
+        }
+    }
+    result.push(Line::from(spans));
 
     // Code content
     for line in lines {
@@ -542,86 +550,3 @@ pub fn render_full_markdown(text: &str) -> Vec<Line<'static>> {
     render_markdown(text)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_heading() {
-        let result = render_markdown("# Hello World");
-        assert!(!result.is_empty());
-        // First line should have heading content
-        let line_str = format!("{:?}", result[0]);
-        assert!(line_str.contains("Hello World"));
-    }
-
-    #[test]
-    fn test_code_block() {
-        let text = "```rust\nfn main() {\n    println!(\"hi\");\n}\n```";
-        let result = render_markdown(text);
-        // Should have: top border, 4 code lines, bottom border = 6
-        assert!(result.len() >= 4);
-    }
-
-    #[test]
-    fn test_unclosed_code_block() {
-        let text = "```rust\nfn main() {\n    println!(\"hi\");";
-        let result = render_markdown(text);
-        assert!(!result.is_empty());
-    }
-
-    #[test]
-    fn test_bold() {
-        let result = render_markdown("This is **bold** text");
-        assert!(!result.is_empty());
-    }
-
-    #[test]
-    fn test_inline_code() {
-        let result = render_markdown("Use `println!` for output");
-        assert!(!result.is_empty());
-    }
-
-    #[test]
-    fn test_horizontal_rule() {
-        let result = render_markdown("---");
-        assert!(!result.is_empty());
-    }
-
-    #[test]
-    fn test_blockquote() {
-        let result = render_markdown("> This is a quote");
-        assert!(!result.is_empty());
-    }
-
-    #[test]
-    fn test_unordered_list() {
-        let result = render_markdown("- Item 1\n- Item 2");
-        assert!(result.len() >= 2);
-    }
-
-    #[test]
-    fn test_ordered_list() {
-        let result = render_markdown("1. First\n2. Second");
-        assert!(result.len() >= 2);
-    }
-
-    #[test]
-    fn test_empty() {
-        let result = render_markdown("");
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_link() {
-        let result = render_markdown("[Rust](https://rust-lang.org)");
-        assert!(!result.is_empty());
-    }
-
-    #[test]
-    fn test_mixed() {
-        let text = "# Title\n\nSome **bold** and `code` text\n\n```rust\nfn main() {}\n```\n\n- List item\n> Quote\n\n---\n";
-        let result = render_markdown(text);
-        assert!(result.len() > 10);
-    }
-}

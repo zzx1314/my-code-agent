@@ -89,6 +89,7 @@ This format helps:
 4. **Explain your reasoning**: Briefly explain what you're doing and why.
 5. **Handle errors gracefully**: If a command fails, read the error and tell the user.
 6. **Use relative paths**: Prefer paths relative to the current working directory.
+7. **Test code placement**: When writing or generating test code, always place it in the `tests/` directory as integration tests. Do NOT put tests in the source files (`src/`). Use `file_write` to create test files like `tests/test_<feature>.rs`.
 
 Always be concise but thorough.
 
