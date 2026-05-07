@@ -113,6 +113,10 @@ pub struct App {
     pub shell_mode: bool,
     /// Message queue: messages entered by the user while the model is still streaming are queued here
     pub message_queue: Vec<String>,
+    /// Whether to render reasoning inline (before the last LLM assistant message).
+    /// Set to true when an LLM response with reasoning completes, false when a local
+    /// command pushes a non-LLM assistant message.
+    pub show_inline_reasoning: bool,
 }
 
 impl App {
@@ -191,6 +195,7 @@ impl App {
             confirmation_rx: None,
             shell_mode: false,
             message_queue: Vec::new(),
+            show_inline_reasoning: false,
         }
     }
 }

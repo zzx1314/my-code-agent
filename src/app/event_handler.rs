@@ -472,6 +472,9 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
                     ta.set_cursor_line_style(ratatui::style::Style::default());
                     ta
                 };
+                // Local commands produce non-LLM assistant messages;
+                // suppress inline reasoning so it doesn't appear mispositioned
+                app.show_inline_reasoning = false;
                 return; // Command was handled, don't send to LLM
             }
         }
@@ -644,6 +647,7 @@ fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
             };
             app.show_banner = false;
             app.auto_scroll = true;
+            app.show_inline_reasoning = false;
             return;
         }
 
@@ -906,6 +910,8 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
 
     if !result.full_response.is_empty() {
         app.chat_history.push(("assistant".to_string(), result.full_response.clone()));
+        // Mark that reasoning should be rendered inline with this LLM response
+        app.show_inline_reasoning = !app.last_reasoning.is_empty();
     }
 
     app.token_usage = result.session_usage;

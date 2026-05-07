@@ -205,7 +205,7 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         && app.is_streaming
         && (!app.streaming_reasoning.is_empty() || !app.last_reasoning.is_empty());
 
-    if !app.is_streaming && has_reasoning {
+    if !app.is_streaming && has_reasoning && app.show_inline_reasoning {
         // Non-streaming with reasoning: render reasoning BEFORE the last assistant message
         let last_assistant_idx = app.chat_history.iter().rposition(|(role, _)| role == "assistant");
         let split_idx = last_assistant_idx.unwrap_or(app.chat_history.len());
