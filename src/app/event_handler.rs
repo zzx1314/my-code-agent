@@ -898,18 +898,9 @@ fn process_stream_result(app: &mut App, result: StreamResult) {
     app.streaming_events_rx = None;
     app.streaming_status_messages.clear();
 
-    if !result.full_response.is_empty() || (!result.last_reasoning.is_empty() && app.config.agent.thinking_display != "hidden") {
-        let mut combined = String::new();
-
-        if app.config.agent.thinking_display != "hidden" && !result.last_reasoning.is_empty() {
-            let reasoning_block = format!("> {}", result.last_reasoning.replace('\n', "\n> "));
-            combined.push_str(&reasoning_block);
-            combined.push_str("\n\n");
+        if !result.full_response.is_empty() {
+            app.chat_history.push(("assistant".to_string(), result.full_response.clone()));
         }
-
-        combined.push_str(&result.full_response);
-        app.chat_history.push(("assistant".to_string(), combined));
-    }
 
     app.token_usage = result.session_usage;
     app.status_messages = result.status_messages;
