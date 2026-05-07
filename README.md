@@ -371,7 +371,7 @@ cargo test -- --nocapture
 | [crossterm](https://crates.io/crates/crossterm) | Cross-platform terminal features |
 | [ratatui](https://crates.io/crates/ratatui) | Terminal UI rendering |
 | [tui-textarea](https://crates.io/crates/tui-textarea) | Text input area widget |
-| [tui-markdown](https://crates.io/crates/tui-markdown) | Markdown rendering in terminal |
+| Custom markdown renderer (`src/ui/markdown.rs`) | Custom markdown rendering for terminal (headings, code blocks, bold, lists, etc.) |
 | [async-process](https://crates.io/crates/async-process) | Process spawning for MCP servers |
 | [async-trait](https://crates.io/crates/async-trait) | Async trait support |
 | [tracing](https://crates.io/crates/tracing) | Application-level tracing |

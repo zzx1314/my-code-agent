@@ -2,12 +2,11 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
-use tui_markdown::from_str;
 use tui_textarea::TextArea;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
-use crate::ui::render::render_streaming_markdown;
+use crate::ui::render::{render_streaming_markdown, render_full};
 use crate::ui::terminal;
 
 const MIN_INPUT_HEIGHT: u16 = 4;
@@ -223,8 +222,8 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
                     lines.push(Line::default());
                 }
                 "assistant" => {
-                    let md = from_str(content);
-                    lines.extend(md.lines);
+                    let md = render_full(content);
+                    lines.extend(md);
                     lines.push(Line::default());
                 }
                 _ => {
@@ -252,8 +251,8 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         // Render the last assistant message (if any)
         if let Some(idx) = last_assistant_idx {
             let (_role, content) = &app.chat_history[idx];
-            let md = from_str(content);
-            lines.extend(md.lines);
+            let md = render_full(content);
+            lines.extend(md);
             lines.push(Line::default());
         }
     } else {
@@ -273,8 +272,8 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
                     lines.push(Line::default());
                 }
                 "assistant" => {
-                    let md = from_str(content);
-                    lines.extend(md.lines);
+                    let md = render_full(content);
+                    lines.extend(md);
                     lines.push(Line::default());
                 }
                 _ => {

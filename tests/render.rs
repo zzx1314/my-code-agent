@@ -1,5 +1,5 @@
 use my_code_agent::ui::render::{MarkdownRenderer, ReasoningTracker};
-use my_code_agent::ui::render::{find_unclosed_code_fence, render_streaming_markdown};
+use my_code_agent::ui::render::{render_streaming_markdown, render_full};
 
 // ── MarkdownRenderer state tests ──
 
@@ -146,74 +146,7 @@ fn test_tracker_reasoning_state_transitions() {
     assert!(!t.is_reasoning());
 }
 
-// ── find_unclosed_code_fence ──
-
-#[test]
-fn test_no_fences() {
-    assert!(find_unclosed_code_fence("hello world").is_none());
-}
-
-#[test]
-fn test_closed_fence() {
-    let text = "intro\n```rust\nfn main() {}\n```\noutro";
-    assert!(find_unclosed_code_fence(text).is_none());
-}
-
-#[test]
-fn test_unclosed_fence_at_start() {
-    let text = "```rust\nfn main() {";
-    let info = find_unclosed_code_fence(text).unwrap();
-    assert_eq!(info.open_pos, 0);
-    assert_eq!(info.lang.as_deref(), Some("rust"));
-}
-
-#[test]
-fn test_unclosed_fence_after_text() {
-    let text = "Some text here\n```python\nprint(";
-    let info = find_unclosed_code_fence(text).unwrap();
-    assert_eq!(info.open_pos, 15); // "Some text here\n" = 14 + 1 = 15
-    assert_eq!(info.lang.as_deref(), Some("python"));
-}
-
-#[test]
-fn test_unclosed_fence_no_lang() {
-    let text = "```\nhello";
-    let info = find_unclosed_code_fence(text).unwrap();
-    assert_eq!(info.open_pos, 0);
-    assert!(info.lang.is_none());
-}
-
-#[test]
-fn test_two_closed_fences() {
-    let text = "```rust\na\n```\n```python\nb\n```";
-    assert!(find_unclosed_code_fence(text).is_none());
-}
-
-#[test]
-fn test_two_fences_second_unclosed() {
-    let text = "```rust\na\n```\n```python\nb";
-    let info = find_unclosed_code_fence(text).unwrap();
-    assert_eq!(info.open_pos, 14); // "```rust\na\n```\n" = 14
-    assert_eq!(info.lang.as_deref(), Some("python"));
-}
-
-#[test]
-fn test_fence_with_spaces_indent() {
-    let text = "   ```rust\nfn main() {}";
-    let info = find_unclosed_code_fence(text).unwrap();
-    assert_eq!(info.open_pos, 0);
-    assert_eq!(info.lang.as_deref(), Some("rust"));
-}
-
-#[test]
-fn test_just_opening_fence() {
-    let text = "```";
-    let info = find_unclosed_code_fence(text).unwrap();
-    assert_eq!(info.open_pos, 0);
-    assert!(info.lang.is_none());
-}
-
-// ── render_streaming_markdown ──
+// ── render_streaming_markdown (custom renderer) ──
 
 #[test]
 fn test_render_empty() {
@@ -271,4 +204,71 @@ fn test_render_second_fence_unclosed() {
     let text = "```rust\na\n```\n```python\nb";
     let lines = render_streaming_markdown(text);
     assert!(!lines.is_empty());
+}
+
+// ── render_full (same renderer, non-streaming alias) ──
+
+#[test]
+fn test_render_full_same_as_streaming() {
+    let text = "# Title\n\nSome **bold** text\n\n```rust\nfn main() {}\n```";
+    let streaming = render_streaming_markdown(text);
+    let full = render_full(text);
+    assert_eq!(streaming.len(), full.len());
+}
+
+#[test]
+fn test_render_full_heading() {
+    let lines = render_full("# Hello World");
+    assert!(!lines.is_empty());
+    let line_str = format!("{:?}", lines[0]);
+    assert!(line_str.contains("Hello World"));
+}
+
+#[test]
+fn test_render_full_bold() {
+    let lines = render_full("This is **bold** text");
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn test_render_full_inline_code() {
+    let lines = render_full("Use `println!` for output");
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn test_render_full_horizontal_rule() {
+    let lines = render_full("---");
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn test_render_full_blockquote() {
+    let lines = render_full("> This is a quote");
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn test_render_full_unordered_list() {
+    let lines = render_full("- Item 1\n- Item 2");
+    assert!(lines.len() >= 2);
+}
+
+#[test]
+fn test_render_full_ordered_list() {
+    let lines = render_full("1. First\n2. Second");
+    assert!(lines.len() >= 2);
+}
+
+#[test]
+fn test_render_full_link() {
+    let lines = render_full("[Rust](https://rust-lang.org)");
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn test_render_full_mixed() {
+    let text = "# Title\n\nSome **bold** and `code` text\n\n```rust\nfn main() {}\n```\n\n- List item\n> Quote\n\n---\n";
+    let lines = render_full(text);
+    assert!(lines.len() > 10);
 }

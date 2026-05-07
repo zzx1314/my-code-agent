@@ -120,7 +120,7 @@ tests/                    # Integration tests (25 test files)
 | [crossterm](https://crates.io/crates/crossterm) | 0.28 | Cross-platform terminal features |
 | [ratatui](https://crates.io/crates/ratatui) | 0.28.1 | Terminal UI rendering (with unstable-rendered-line-info feature) |
 | [tui-textarea](https://crates.io/crates/tui-textarea) | 0.6 | Text input area widget |
-| [tui-markdown](https://crates.io/crates/tui-markdown) | 0.2 | Markdown rendering in terminal |
+| Custom markdown renderer (`src/ui/markdown.rs`) | — | Custom markdown rendering for terminal (headings, code blocks, bold, lists, etc.) |
 | [async-process](https://crates.io/crates/async-process) | 2 | Process spawning for MCP servers |
 | [async-trait](https://crates.io/crates/async-trait) | 0.1 | Async trait support |
 | [tracing](https://crates.io/crates/tracing) | 0.1 | Application-level tracing |
