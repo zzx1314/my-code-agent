@@ -1,4 +1,5 @@
 use my_code_agent::ui::render::{MarkdownRenderer, ReasoningTracker};
+use my_code_agent::ui::render::{find_unclosed_code_fence, render_streaming_markdown};
 
 // ── MarkdownRenderer state tests ──
 
@@ -143,4 +144,131 @@ fn test_tracker_reasoning_state_transitions() {
     assert!(t.is_reasoning());
     t.end_segment();
     assert!(!t.is_reasoning());
+}
+
+// ── find_unclosed_code_fence ──
+
+#[test]
+fn test_no_fences() {
+    assert!(find_unclosed_code_fence("hello world").is_none());
+}
+
+#[test]
+fn test_closed_fence() {
+    let text = "intro\n```rust\nfn main() {}\n```\noutro";
+    assert!(find_unclosed_code_fence(text).is_none());
+}
+
+#[test]
+fn test_unclosed_fence_at_start() {
+    let text = "```rust\nfn main() {";
+    let info = find_unclosed_code_fence(text).unwrap();
+    assert_eq!(info.open_pos, 0);
+    assert_eq!(info.lang.as_deref(), Some("rust"));
+}
+
+#[test]
+fn test_unclosed_fence_after_text() {
+    let text = "Some text here\n```python\nprint(";
+    let info = find_unclosed_code_fence(text).unwrap();
+    assert_eq!(info.open_pos, 15); // "Some text here\n" = 14 + 1 = 15
+    assert_eq!(info.lang.as_deref(), Some("python"));
+}
+
+#[test]
+fn test_unclosed_fence_no_lang() {
+    let text = "```\nhello";
+    let info = find_unclosed_code_fence(text).unwrap();
+    assert_eq!(info.open_pos, 0);
+    assert!(info.lang.is_none());
+}
+
+#[test]
+fn test_two_closed_fences() {
+    let text = "```rust\na\n```\n```python\nb\n```";
+    assert!(find_unclosed_code_fence(text).is_none());
+}
+
+#[test]
+fn test_two_fences_second_unclosed() {
+    let text = "```rust\na\n```\n```python\nb";
+    let info = find_unclosed_code_fence(text).unwrap();
+    assert_eq!(info.open_pos, 14); // "```rust\na\n```\n" = 14
+    assert_eq!(info.lang.as_deref(), Some("python"));
+}
+
+#[test]
+fn test_fence_with_spaces_indent() {
+    let text = "   ```rust\nfn main() {}";
+    let info = find_unclosed_code_fence(text).unwrap();
+    assert_eq!(info.open_pos, 0);
+    assert_eq!(info.lang.as_deref(), Some("rust"));
+}
+
+#[test]
+fn test_just_opening_fence() {
+    let text = "```";
+    let info = find_unclosed_code_fence(text).unwrap();
+    assert_eq!(info.open_pos, 0);
+    assert!(info.lang.is_none());
+}
+
+// ── render_streaming_markdown ──
+
+#[test]
+fn test_render_empty() {
+    let lines = render_streaming_markdown("");
+    assert!(lines.is_empty());
+}
+
+#[test]
+fn test_render_plain_text() {
+    let lines = render_streaming_markdown("hello world");
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn test_render_closed_code_block() {
+    let text = "```rust\nfn main() {}\n```";
+    let lines = render_streaming_markdown(text);
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn test_render_unclosed_code_block_produces_lines() {
+    let text = "Here is code:\n```rust\nfn main() {\n    println!(\"hi\");";
+    let lines = render_streaming_markdown(text);
+    assert!(!lines.is_empty());
+    let plain_lines = render_streaming_markdown("Here is code:");
+    assert!(lines.len() > plain_lines.len());
+}
+
+#[test]
+fn test_render_unclosed_fence_at_start() {
+    let text = "```rust\nfn main() {";
+    let lines = render_streaming_markdown(text);
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn test_render_text_then_unclosed_fence() {
+    let text = "intro text\n```python\nprint(";
+    let lines = render_streaming_markdown(text);
+    assert!(!lines.is_empty());
+    let intro_only = render_streaming_markdown("intro text");
+    assert!(lines.len() > intro_only.len());
+}
+
+#[test]
+fn test_render_two_closed_fences() {
+    let text = "```rust\na\n```\n```python\nb\n```";
+    let lines = render_streaming_markdown(text);
+    assert!(!lines.is_empty());
+}
+
+#[test]
+fn test_render_second_fence_unclosed() {
+    let text = "```rust\na\n```\n```python\nb";
+    let lines = render_streaming_markdown(text);
+    assert!(!lines.is_empty());
 }

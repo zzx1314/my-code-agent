@@ -7,6 +7,7 @@ use tui_textarea::TextArea;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
+use crate::ui::render::render_streaming_markdown;
 use crate::ui::terminal;
 
 const MIN_INPUT_HEIGHT: u16 = 4;
@@ -240,8 +241,8 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             )]));
             if !app.streaming_text.is_empty() {
-                let md = from_str(&app.streaming_text);
-                lines.extend(md.lines);
+                let md_lines = render_streaming_markdown(&app.streaming_text);
+                lines.extend(md_lines);
             }
             if let Some(ref tool_name) = app.current_tool_call {
                 lines.push(Line::from(vec![Span::styled(
