@@ -228,9 +228,9 @@ where
                         "✓ Plan confirmed, proceeding...".to_string(),
                     ));
                 }
-                // Update step statuses based on ✓ markers in accumulated plan text
+                // Update step statuses based on ✓ markers or auto-advance on tool call
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
-                    plan_tracker.update_from_text(&plan_text);
+                    plan_tracker.update_and_ensure_progress(&plan_text);
                     // Refresh the plan display in status_messages with updated ✓ markers
                     let updated_display = plan_tracker.format_with_confirmation();
                     if let Some(plan_msg) = status_messages.iter_mut().find(|m| m.contains("📋 Task Plan")) {

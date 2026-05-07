@@ -188,6 +188,30 @@ impl PlanTracker {
         self.current_step + 1
     }
 
+    /// After a tool call, ensure at least one step is marked as completed.
+    ///
+    /// First tries `update_from_text` (model self-reporting with ✓ markers).
+    /// If no new step was completed by markers, auto-completes the current
+    /// pending step since the tool call itself indicates progress.
+    pub fn update_and_ensure_progress(&mut self, text: &str) {
+        if !self.has_active_plan() || !self.is_confirmed() {
+            return;
+        }
+        let step_before = self.current_step;
+        self.update_from_text(text);
+        // If no progress was made and current step is still pending, auto-complete
+        if self.current_step == step_before
+            && self.current_step < self.steps.len()
+            && self.step_status.get(&self.steps[self.current_step])
+                == Some(&PlanStepStatus::Pending)
+        {
+            let step = self.steps[self.current_step].clone();
+            self.step_status
+                .insert(step, PlanStepStatus::Completed);
+            self.current_step += 1;
+        }
+    }
+
     /// Mark current step as completed and move to next.
     ///
     /// This is a manual API for testing or external callers.

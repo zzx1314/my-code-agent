@@ -1012,3 +1012,162 @@ fn test_update_from_text_backward_step_ignored() {
     tracker.update_from_text(&acc2);
     assert_eq!(tracker.current_step_index(), 4); // still at 4
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// update_and_ensure_progress - auto-advance when model doesn't self-report ✓
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_update_and_ensure_progress_auto_completes_pending_step() {
+    // Model outputs a plan but doesn't append checkmark markers — tool call should
+    // trigger auto-advance of the current pending step.
+    let mut tracker = PlanTracker::new();
+    let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // All steps start pending
+    assert_eq!(tracker.current_step_index(), 1);
+
+    // Simulate a tool call (no checkmark markers added by model)
+    let accumulated = format!("{}\nI'm reading the file now...", plan_text);
+    tracker.update_and_ensure_progress(&accumulated);
+
+    // Step 1 should be auto-completed
+    assert_eq!(tracker.current_step_index(), 2);
+}
+
+#[test]
+fn test_update_and_ensure_progress_respects_model_checkmarks() {
+    // When model DOES self-report checkmark, update_from_text handles it — no double-advance.
+    let mut tracker = PlanTracker::new();
+    let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // Model outputs step 1 with checkmark marker
+    let accumulated = format!("{}\n1. Read the file \u{2713}", plan_text);
+    tracker.update_and_ensure_progress(&accumulated);
+
+    // Step 1 completed via marker, current_step advanced to 2
+    assert_eq!(tracker.current_step_index(), 2);
+}
+
+#[test]
+fn test_update_and_ensure_progress_multiple_tool_calls() {
+    // Simulate multiple tool call rounds — each should advance one step.
+    let mut tracker = PlanTracker::new();
+    let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // Tool call 1: no checkmark markers
+    let acc1 = format!("{}\nReading file...", plan_text);
+    tracker.update_and_ensure_progress(&acc1);
+    assert_eq!(tracker.current_step_index(), 2);
+
+    // Tool call 2: no checkmark markers
+    let acc2 = format!("{}\nReading file...\nAnalyzing...", acc1);
+    tracker.update_and_ensure_progress(&acc2);
+    assert_eq!(tracker.current_step_index(), 3);
+
+    // Tool call 3: no checkmark markers
+    let acc3 = format!("{}\nReading file...\nAnalyzing...\nWriting fix...", acc2);
+    tracker.update_and_ensure_progress(&acc3);
+    assert_eq!(tracker.current_step_index(), 4);
+
+    // All steps done
+    assert!(tracker.is_completed());
+}
+
+#[test]
+fn test_update_and_ensure_progress_after_all_done() {
+    // When all steps are already completed, it should be a no-op.
+    let mut tracker = PlanTracker::new();
+    let plan_text = "## Task Plan\n1. Step A\n2. Step B";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    let acc1 = format!("{}\n1. Step A \u{2713}\n2. Step B \u{2713}", plan_text);
+    tracker.update_and_ensure_progress(&acc1);
+    assert_eq!(tracker.current_step_index(), 3);
+    assert!(tracker.is_completed());
+
+    // Call again — should remain unchanged
+    let acc2 = format!("{}\n1. Step A \u{2713}\n2. Step B \u{2713}\nDone!", acc1);
+    tracker.update_and_ensure_progress(&acc2);
+    assert_eq!(tracker.current_step_index(), 3);
+    assert!(tracker.is_completed());
+}
+
+#[test]
+fn test_update_and_ensure_progress_shows_checkmarks_in_display() {
+    // After auto-advance, format_with_confirmation should show checkmark for completed steps.
+    let mut tracker = PlanTracker::new();
+    let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // Auto-complete step 1
+    let acc1 = format!("{}\nReading...", plan_text);
+    tracker.update_and_ensure_progress(&acc1);
+
+    let display = tracker.format_with_confirmation();
+    assert!(display.contains("1. Read the file \u{2713}"), "Step 1 should show checkmark, got: {}", display);
+    assert!(display.contains("2. Analyze the code\n"), "Step 2 should NOT show checkmark, got: {}", display);
+
+    // Auto-complete step 2
+    let acc2 = format!("{}\nReading...\nAnalyzing...", acc1);
+    tracker.update_and_ensure_progress(&acc2);
+
+    let display2 = tracker.format_with_confirmation();
+    assert!(display2.contains("1. Read the file \u{2713}"), "Step 1 should show checkmark");
+    assert!(display2.contains("2. Analyze the code \u{2713}"), "Step 2 should show checkmark");
+    assert!(display2.contains("3. Write the fix\n"), "Step 3 should NOT show checkmark");
+}
+
+#[test]
+fn test_update_and_ensure_progress_mixed_marker_and_auto() {
+    // First step has checkmark marker (model self-reported), second step needs auto-advance.
+    let mut tracker = PlanTracker::new();
+    let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
+    tracker.parse_plan(plan_text);
+    tracker.confirm();
+
+    // Model self-reports step 1 with checkmark
+    let acc1 = format!("{}\n1. Read the file \u{2713}", plan_text);
+    tracker.update_and_ensure_progress(&acc1);
+    assert_eq!(tracker.current_step_index(), 2);
+
+    // Model does NOT report step 2 with checkmark — should auto-advance
+    let acc2 = format!("{}\n1. Read the file \u{2713}\nLet me analyze...", acc1);
+    tracker.update_and_ensure_progress(&acc2);
+    assert_eq!(tracker.current_step_index(), 3);
+
+    // Model self-reports step 3 with checkmark
+    let acc3 = format!("{}\n1. Read the file \u{2713}\nLet me analyze...\n3. Write the fix \u{2713}", acc2);
+    tracker.update_and_ensure_progress(&acc3);
+    assert_eq!(tracker.current_step_index(), 4);
+    assert!(tracker.is_completed());
+}
+
+#[test]
+fn test_update_and_ensure_progress_no_plan() {
+    // Should be a no-op when no plan is active.
+    let mut tracker = PlanTracker::new();
+    tracker.update_and_ensure_progress("1. Not a plan \u{2713}");
+    assert!(!tracker.has_active_plan());
+}
+
+#[test]
+fn test_update_and_ensure_progress_not_confirmed() {
+    // Should be a no-op when plan is not confirmed.
+    let mut tracker = PlanTracker::new();
+    let plan_text = "## Task Plan\n1. Step A\n2. Step B";
+    tracker.parse_plan(plan_text);
+    // NOT confirmed
+
+    let acc = format!("{}\nDoing stuff...", plan_text);
+    tracker.update_and_ensure_progress(&acc);
+    assert_eq!(tracker.current_step_index(), 1); // no change
+}
