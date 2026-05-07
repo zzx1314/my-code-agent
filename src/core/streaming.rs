@@ -231,6 +231,11 @@ where
                 // Update step statuses based on ✓ markers in accumulated plan text
                 if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
                     plan_tracker.update_from_text(&plan_text);
+                    // Refresh the plan display in status_messages with updated ✓ markers
+                    let updated_display = plan_tracker.format_with_confirmation();
+                    if let Some(plan_msg) = status_messages.iter_mut().find(|m| m.contains("📋 Task Plan")) {
+                        *plan_msg = updated_display;
+                    }
                 }
                 // Tool calls are only displayed in real-time during streaming via StreamEvent::ToolCall (current_tool_call in render_chat_area)
                 // No longer appended to full_response to avoid polluting conversation history with tool call markers
@@ -276,6 +281,11 @@ where
                 if plan_tracker.has_active_plan() {
                     // Final update: re-parse markers one last time
                     plan_tracker.update_from_text(&plan_text);
+                    // Refresh the plan display with final ✓ markers
+                    let updated_display = plan_tracker.format_with_confirmation();
+                    if let Some(plan_msg) = status_messages.iter_mut().find(|m| m.contains("📋 Task Plan")) {
+                        *plan_msg = updated_display;
+                    }
                 }
 
                 if let Some(history) = final_res.history() {

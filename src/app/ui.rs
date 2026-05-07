@@ -344,7 +344,9 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(Color::DarkGray),
         )));
         for msg in &app.status_messages {
-            lines.push(Line::from(msg.as_str()));
+            for line in msg.lines() {
+                lines.push(Line::from(line));
+            }
         }
     }
 
@@ -354,7 +356,9 @@ fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(Color::DarkGray),
         )));
         for msg in &app.streaming_status_messages {
-            lines.push(Line::from(msg.as_str()));
+            for line in msg.lines() {
+                lines.push(Line::from(line));
+            }
         }
     }
 
