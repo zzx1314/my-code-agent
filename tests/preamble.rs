@@ -82,3 +82,19 @@ fn test_preamble_has_knowledge_placeholder() {
         "Preamble should have {{knowledge}} placeholder for project knowledge injection"
     );
 }
+
+#[test]
+fn test_preamble_requires_plan_checkmark() {
+    assert!(
+        PREAMBLE_TEMPLATE.contains("Plan progress tracking"),
+        "Preamble should have a 'Plan progress tracking' rule"
+    );
+    assert!(
+        PREAMBLE_TEMPLATE.contains("MUST append a checkmark (✓)"),
+        "Preamble should instruct the model to use ✓ marker as mandatory plan progress signal"
+    );
+    assert!(
+        PREAMBLE_TEMPLATE.contains("The ✓ marker is MANDATORY"),
+        "Preamble should emphasize that the ✓ marker is mandatory for plan tracking"
+    );
+}

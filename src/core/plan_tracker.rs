@@ -135,10 +135,13 @@ impl PlanTracker {
                                     let step = &self.steps[idx];
                                     self.step_status
                                         .insert(step.clone(), PlanStepStatus::Completed);
-                                    // Update current_step to point to next uncompleted step
-                                    if idx >= self.current_step {
-                                        self.current_step = idx + 1;
-                                    }
+                                    // Update current_step to the first non-completed step
+                                    self.current_step = (0..self.steps.len())
+                                        .find(|&i| {
+                                            self.step_status.get(&self.steps[i])
+                                                != Some(&PlanStepStatus::Completed)
+                                        })
+                                        .unwrap_or(self.steps.len());
                                 }
                             }
                         }
@@ -188,28 +191,17 @@ impl PlanTracker {
         self.current_step + 1
     }
 
-    /// After a tool call, ensure at least one step is marked as completed.
+    /// Update plan progress from agent text.
     ///
-    /// First tries `update_from_text` (model self-reporting with ✓ markers).
-    /// If no new step was completed by markers, auto-completes the current
-    /// pending step since the tool call itself indicates progress.
+    /// Only scans new text for explicit ✓ markers (e.g. "1. Read file ✓") to detect completed steps.
+    /// Does NOT auto-mark steps after each tool call — one step may require multiple tool calls,
+    /// so only the model's explicit ✓ markers indicate true completion.
     pub fn update_and_ensure_progress(&mut self, text: &str) {
         if !self.has_active_plan() || !self.is_confirmed() {
             return;
         }
-        let step_before = self.current_step;
+        // Only rely on explicit ✓ markers from the model
         self.update_from_text(text);
-        // If no progress was made and current step is still pending, auto-complete
-        if self.current_step == step_before
-            && self.current_step < self.steps.len()
-            && self.step_status.get(&self.steps[self.current_step])
-                == Some(&PlanStepStatus::Pending)
-        {
-            let step = self.steps[self.current_step].clone();
-            self.step_status
-                .insert(step, PlanStepStatus::Completed);
-            self.current_step += 1;
-        }
     }
 
     /// Mark current step as completed and move to next.

@@ -875,11 +875,10 @@ fn test_update_from_text_non_contiguous_completion() {
 
     let accumulated = format!("{}\n1. First ✓\n3. Third ✓", plan_text);
     tracker.update_from_text(&accumulated);
-    // Step 1 completed: current_step -> 1 (idx 0)
-    // Step 3 completed: current_step -> 3 (idx 2)
-    // Step 2 is still pending
-    assert_eq!(tracker.current_step_index(), 4);
-    assert!(tracker.is_completed());
+    // Step 1 completed, step 3 completed, but step 2 is still pending
+    // current_step points to first non-completed step = step 2 (index 1)
+    assert_eq!(tracker.current_step_index(), 2);
+    assert!(!tracker.is_completed());
 }
 
 #[test]
@@ -995,8 +994,9 @@ fn test_update_from_text_completed_step_not_duplicated() {
 
 #[test]
 fn test_update_from_text_backward_step_ignored() {
-    // If the model somehow reports a lower-index step as ✓ after a higher one,
-    // it should not regress current_step
+    // If the model reports a lower-index step as ✓ after a higher one was already marked,
+    // it should still be accepted (since the step wasn't completed yet).
+    // current_step always points to the first non-completed step.
     let mut tracker = PlanTracker::new();
     let plan_text = "1. First\n2. Second\n3. Third";
     tracker.parse_plan(plan_text);
@@ -1005,22 +1005,26 @@ fn test_update_from_text_backward_step_ignored() {
     // Mark step 3 first (non-contiguous)
     let acc1 = format!("{}\n3. Third ✓", plan_text);
     tracker.update_from_text(&acc1);
-    assert_eq!(tracker.current_step_index(), 4); // advanced past 3
+    // Step 3 completed, but steps 1 and 2 still pending
+    // current_step -> first non-completed = step 1 (index 0)
+    assert_eq!(tracker.current_step_index(), 1);
 
-    // Now try to mark step 1 — should not regress
+    // Now mark step 1 — this should succeed (idx=0 >= current_step=0)
     let acc2 = format!("{}\n3. Third ✓\n1. First ✓", plan_text);
     tracker.update_from_text(&acc2);
-    assert_eq!(tracker.current_step_index(), 4); // still at 4
+    // Steps 1 and 3 completed, step 2 still pending
+    // current_step -> first non-completed = step 2 (index 1)
+    assert_eq!(tracker.current_step_index(), 2);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// update_and_ensure_progress - auto-advance when model doesn't self-report ✓
+// update_and_ensure_progress - explicit ✓ markers only (no auto-advance)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_update_and_ensure_progress_auto_completes_pending_step() {
-    // Model outputs a plan but doesn't append checkmark markers — tool call should
-    // trigger auto-advance of the current pending step.
+fn test_update_and_ensure_progress_no_auto_advance_without_marker() {
+    // Model outputs a plan but doesn't append checkmark markers — step should stay pending.
+    // One step may require multiple tool calls, so we only advance on explicit ✓ markers.
     let mut tracker = PlanTracker::new();
     let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
     tracker.parse_plan(plan_text);
@@ -1033,13 +1037,13 @@ fn test_update_and_ensure_progress_auto_completes_pending_step() {
     let accumulated = format!("{}\nI'm reading the file now...", plan_text);
     tracker.update_and_ensure_progress(&accumulated);
 
-    // Step 1 should be auto-completed
-    assert_eq!(tracker.current_step_index(), 2);
+    // Step 1 should NOT be auto-completed (no ✓ marker)
+    assert_eq!(tracker.current_step_index(), 1);
 }
 
 #[test]
 fn test_update_and_ensure_progress_respects_model_checkmarks() {
-    // When model DOES self-report checkmark, update_from_text handles it — no double-advance.
+    // When model DOES self-report checkmark, it advances. Without checkmark, it stays.
     let mut tracker = PlanTracker::new();
     let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
     tracker.parse_plan(plan_text);
@@ -1054,8 +1058,8 @@ fn test_update_and_ensure_progress_respects_model_checkmarks() {
 }
 
 #[test]
-fn test_update_and_ensure_progress_multiple_tool_calls() {
-    // Simulate multiple tool call rounds — each should advance one step.
+fn test_update_and_ensure_progress_multiple_tool_calls_same_step() {
+    // A single step may need multiple tool calls — should not advance until ✓ marker.
     let mut tracker = PlanTracker::new();
     let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
     tracker.parse_plan(plan_text);
@@ -1064,16 +1068,26 @@ fn test_update_and_ensure_progress_multiple_tool_calls() {
     // Tool call 1: no checkmark markers
     let acc1 = format!("{}\nReading file...", plan_text);
     tracker.update_and_ensure_progress(&acc1);
-    assert_eq!(tracker.current_step_index(), 2);
+    assert_eq!(tracker.current_step_index(), 1); // still on step 1
 
-    // Tool call 2: no checkmark markers
-    let acc2 = format!("{}\nReading file...\nAnalyzing...", acc1);
+    // Tool call 2: still no checkmark
+    let acc2 = format!("{}\nReading file...\nReading more...", acc1);
     tracker.update_and_ensure_progress(&acc2);
+    assert_eq!(tracker.current_step_index(), 1); // still on step 1
+
+    // Tool call 3: model marks step 1 done
+    let acc3 = format!("{}\nReading file...\nReading more...\n1. Read the file \u{2713}", acc2);
+    tracker.update_and_ensure_progress(&acc3);
+    assert_eq!(tracker.current_step_index(), 2); // now advances
+
+    // Tool call 4: model marks step 2 done
+    let acc4 = format!("{}\n2. Analyze the code \u{2713}", acc3);
+    tracker.update_and_ensure_progress(&acc4);
     assert_eq!(tracker.current_step_index(), 3);
 
-    // Tool call 3: no checkmark markers
-    let acc3 = format!("{}\nReading file...\nAnalyzing...\nWriting fix...", acc2);
-    tracker.update_and_ensure_progress(&acc3);
+    // Tool call 5: model marks step 3 done
+    let acc5 = format!("{}\n3. Write the fix \u{2713}", acc4);
+    tracker.update_and_ensure_progress(&acc5);
     assert_eq!(tracker.current_step_index(), 4);
 
     // All steps done
@@ -1102,22 +1116,22 @@ fn test_update_and_ensure_progress_after_all_done() {
 
 #[test]
 fn test_update_and_ensure_progress_shows_checkmarks_in_display() {
-    // After auto-advance, format_with_confirmation should show checkmark for completed steps.
+    // After explicit ✓ markers, format_with_confirmation should show checkmark for completed steps.
     let mut tracker = PlanTracker::new();
     let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
     tracker.parse_plan(plan_text);
     tracker.confirm();
 
-    // Auto-complete step 1
-    let acc1 = format!("{}\nReading...", plan_text);
+    // Mark step 1 via explicit checkmark
+    let acc1 = format!("{}\n1. Read the file \u{2713}", plan_text);
     tracker.update_and_ensure_progress(&acc1);
 
     let display = tracker.format_with_confirmation();
     assert!(display.contains("1. Read the file \u{2713}"), "Step 1 should show checkmark, got: {}", display);
     assert!(display.contains("2. Analyze the code\n"), "Step 2 should NOT show checkmark, got: {}", display);
 
-    // Auto-complete step 2
-    let acc2 = format!("{}\nReading...\nAnalyzing...", acc1);
+    // Mark step 2 via explicit checkmark
+    let acc2 = format!("{}\n2. Analyze the code \u{2713}", acc1);
     tracker.update_and_ensure_progress(&acc2);
 
     let display2 = tracker.format_with_confirmation();
@@ -1127,8 +1141,8 @@ fn test_update_and_ensure_progress_shows_checkmarks_in_display() {
 }
 
 #[test]
-fn test_update_and_ensure_progress_mixed_marker_and_auto() {
-    // First step has checkmark marker (model self-reported), second step needs auto-advance.
+fn test_update_and_ensure_progress_mixed_marker_and_no_marker() {
+    // Only steps with explicit ✓ markers should advance; others stay pending.
     let mut tracker = PlanTracker::new();
     let plan_text = "## Task Plan\n1. Read the file\n2. Analyze the code\n3. Write the fix";
     tracker.parse_plan(plan_text);
@@ -1139,16 +1153,19 @@ fn test_update_and_ensure_progress_mixed_marker_and_auto() {
     tracker.update_and_ensure_progress(&acc1);
     assert_eq!(tracker.current_step_index(), 2);
 
-    // Model does NOT report step 2 with checkmark — should auto-advance
+    // Model does NOT report step 2 with checkmark — stays on step 2
     let acc2 = format!("{}\n1. Read the file \u{2713}\nLet me analyze...", acc1);
     tracker.update_and_ensure_progress(&acc2);
-    assert_eq!(tracker.current_step_index(), 3);
+    assert_eq!(tracker.current_step_index(), 2); // no change without marker
 
-    // Model self-reports step 3 with checkmark
+    // Model self-reports step 3 with checkmark (skipping step 2 marker - forward only)
     let acc3 = format!("{}\n1. Read the file \u{2713}\nLet me analyze...\n3. Write the fix \u{2713}", acc2);
     tracker.update_and_ensure_progress(&acc3);
-    assert_eq!(tracker.current_step_index(), 4);
-    assert!(tracker.is_completed());
+    // Step 3 gets marked, but step 2 is still incomplete.
+    // current_step now points to first non-completed step = step 2 (index 1)
+    assert_eq!(tracker.current_step_index(), 2);
+    // Not all steps completed (step 2 still pending)
+    assert!(!tracker.is_completed());
 }
 
 #[test]
