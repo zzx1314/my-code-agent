@@ -18,22 +18,25 @@ const MAX_INPUT_HEIGHT: u16 = 14;
 /// - **Streaming**: dark gray (dimmed) borders, no cursor highlight
 /// - **Shell mode**: magenta borders to indicate command mode
 fn update_input_style(app: &mut App) {
+    let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let (border_color, title_text, cursor_style) = if app.is_streaming {
+        let frame = spinner_frames
+            [(app.marquee_frame as usize / 2) % spinner_frames.len()];
         (
             Color::DarkGray,
-            " ⏳ Processing... ",
+            format!(" {} Processing... ", frame),
             Style::default(), // dimmed
         )
     } else if app.shell_mode {
         (
             Color::Magenta,
-            " ⚡ Shell Mode ",
+            " ⚡ Shell Mode ".to_string(),
             Style::default().bg(Color::Rgb(40, 0, 60)),
         )
     } else {
         (
             Color::Cyan,
-            " ✎  Input (Enter: send, Alt+Enter: ↵, Esc: interrupt) ",
+            " ✎  Input (Enter: send, Alt+Enter: ↵, Esc: interrupt) ".to_string(),
             Style::default().bg(Color::Rgb(20, 40, 50)),
         )
     };
