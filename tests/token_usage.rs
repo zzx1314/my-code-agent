@@ -124,27 +124,36 @@ fn test_context_usage_percent_zero() {
 fn test_context_usage_percent_low() {
     let mut tu = TokenUsage::with_context_window(1000);
     tu.add(make_usage(100, 50, 150));
-    assert_eq!(tu.context_usage_percent(), 10); // 100/1000 * 100 (input_tokens only)
+    assert_eq!(tu.context_usage_percent(), 10); // last_turn_input 100/1000 * 100
 }
 
 #[test]
 fn test_context_usage_percent_half() {
     let mut tu = TokenUsage::with_context_window(1000);
     tu.add(make_usage(500, 100, 600));
-    assert_eq!(tu.context_usage_percent(), 50); // 500/1000 (input_tokens only)
+    assert_eq!(tu.context_usage_percent(), 50); // last_turn_input 500/1000
+}
+
+#[test]
+fn test_context_usage_percent_uses_last_turn_not_accumulated() {
+    let mut tu = TokenUsage::with_context_window(1000);
+    tu.add(make_usage(100, 50, 150));  // turn 1: 100 input tokens
+    tu.add(make_usage(200, 80, 280));  // turn 2: 200 input tokens (full prompt)
+    // Should use last turn's 200, not accumulated 300
+    assert_eq!(tu.context_usage_percent(), 20);
 }
 
 #[test]
 fn test_context_warning_none_below_threshold() {
     let mut tu = TokenUsage::with_context_window(1000);
-    tu.add(make_usage(700, 200, 900)); // 70% input usage
+    tu.add(make_usage(700, 200, 900)); // 70% last turn input usage
     assert!(tu.context_warning().is_none());
 }
 
 #[test]
 fn test_context_warning_approaching_at_75() {
     let mut tu = TokenUsage::with_context_window(1000);
-    tu.add(make_usage(750, 150, 900)); // 75% input usage
+    tu.add(make_usage(750, 150, 900)); // 75% last turn input usage
     let warning = tu.context_warning().unwrap();
     assert_eq!(warning, ContextWarning::Approaching);
     assert_eq!(warning.threshold_percent(), 75);
@@ -153,7 +162,7 @@ fn test_context_warning_approaching_at_75() {
 #[test]
 fn test_context_warning_approaching_at_89() {
     let mut tu = TokenUsage::with_context_window(1000);
-    tu.add(make_usage(890, 50, 940)); // 89% input usage
+    tu.add(make_usage(890, 50, 940)); // 89% last turn input usage
     let warning = tu.context_warning().unwrap();
     assert_eq!(warning, ContextWarning::Approaching);
 }
@@ -161,7 +170,7 @@ fn test_context_warning_approaching_at_89() {
 #[test]
 fn test_context_warning_critical_at_90() {
     let mut tu = TokenUsage::with_context_window(1000);
-    tu.add(make_usage(900, 100, 1000)); // 90% input usage
+    tu.add(make_usage(900, 100, 1000)); // 90% last turn input usage
     let warning = tu.context_warning().unwrap();
     assert_eq!(warning, ContextWarning::Critical);
     assert_eq!(warning.threshold_percent(), 90);
@@ -170,7 +179,7 @@ fn test_context_warning_critical_at_90() {
 #[test]
 fn test_context_warning_critical_at_100() {
     let mut tu = TokenUsage::with_context_window(1000);
-    tu.add(make_usage(1000, 200, 1200)); // 100% input usage
+    tu.add(make_usage(1000, 200, 1200)); // 100% last turn input usage
     let warning = tu.context_warning().unwrap();
     assert_eq!(warning, ContextWarning::Critical);
 }

@@ -18,6 +18,11 @@ pub struct TokenUsage {
     usage: Usage,
     /// The model's context window size in tokens.
     context_window: u64,
+    /// The `input_tokens` from the most recent API turn.  This represents the
+    /// actual context-window consumption (each API call reports the full prompt
+    /// length including history) and is the correct metric for
+    /// `context_usage_percent`.
+    last_turn_input_tokens: u64,
 }
 
 impl TokenUsage {
@@ -25,6 +30,7 @@ impl TokenUsage {
         Self {
             usage: Usage::default(),
             context_window: CONTEXT_WINDOW_SIZE,
+            last_turn_input_tokens: 0,
         }
     }
 
@@ -33,6 +39,7 @@ impl TokenUsage {
         Self {
             usage: Usage::default(),
             context_window: config.context.window_size,
+            last_turn_input_tokens: 0,
         }
     }
 
@@ -41,11 +48,15 @@ impl TokenUsage {
         Self {
             usage: Usage::default(),
             context_window,
+            last_turn_input_tokens: 0,
         }
     }
 
     /// Accumulate usage from a single turn's response.
     pub fn add(&mut self, turn_usage: Usage) {
+        // Track the latest turn's input_tokens — this is the actual context-window
+        // consumption since each API call reports the full prompt length.
+        self.last_turn_input_tokens = turn_usage.input_tokens;
         self.usage += turn_usage;
     }
 
@@ -69,15 +80,27 @@ impl TokenUsage {
         self.usage.total_tokens
     }
 
-    /// Returns the percentage of the context window that has been used
-    /// based on input tokens consumed (output tokens don't consume context window space).
+    /// Returns the percentage of the context window that has been used.
+    ///
+    /// Uses the **last turn's** `input_tokens` because each API response reports
+    /// the full prompt length (including all history).  The accumulated
+    /// `usage.input_tokens` would over-count since the same history appears in
+    /// every turn's reported `input_tokens`.
+    ///
     /// Uses ceiling division so that e.g. 49,151/65,536 ≈ 75.0% rounds up to 75%
     /// rather than truncating to 74%, ensuring warnings fire at the correct boundary.
     pub fn context_usage_percent(&self) -> u64 {
         if self.context_window == 0 {
             return 0;
         }
-        (self.usage.input_tokens * 100).div_ceil(self.context_window)
+        (self.last_turn_input_tokens * 100).div_ceil(self.context_window)
+    }
+
+    /// Returns the `input_tokens` reported by the most recent API turn.
+    /// This represents the actual context-window consumption and is the correct
+    /// metric for display alongside the context bar.
+    pub fn last_turn_input_tokens(&self) -> u64 {
+        self.last_turn_input_tokens
     }
 
     /// Return the cache hit rate (0.0 - 1.0)
@@ -131,7 +154,7 @@ impl TokenUsage {
 
         // Context window usage bar
         let pct = self.context_usage_percent();
-        let remaining = self.context_window.saturating_sub(self.usage.input_tokens);
+        let remaining = self.context_window.saturating_sub(self.last_turn_input_tokens);
         let bar_width = 20;
         let filled = ((pct as usize) * bar_width / 100).min(bar_width);
         let empty = bar_width - filled;
@@ -147,7 +170,7 @@ impl TokenUsage {
             bar_fill.repeat(filled),
             "░".repeat(empty),
             pct,
-            self.usage.input_tokens,
+            self.last_turn_input_tokens,
             self.context_window,
             remaining,
         ));

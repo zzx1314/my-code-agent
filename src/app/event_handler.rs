@@ -1375,7 +1375,7 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
 
             tokio::spawn(async move {
                 let mut chat_history = Vec::new();
-                let mut token_usage = crate::core::token_usage::TokenUsage::new();
+                let mut token_usage = crate::core::token_usage::TokenUsage::with_config(&config_clone);
                 let mut interrupt_rx = interrupt_rx;
                 let mut ctx_mgr = crate::core::context_manager::ContextManager::new(&config_clone);
 
@@ -1400,11 +1400,12 @@ fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManag
                 } else {
                     let raw = result.full_response.trim();
                     let stripped = strip_code_fences(raw);
+                    let cleaned = strip_preamble_before_heading(stripped);
                     tracing::info!(
-                        bytes = stripped.len(),
+                        bytes = cleaned.len(),
                         "Generated knowledge content via LLM"
                     );
-                    stripped.to_string()
+                    cleaned.to_string()
                 };
 
                 let init_result =
@@ -1677,6 +1678,25 @@ fn strip_code_fences(raw: &str) -> &str {
     } else {
         raw
     }
+}
+
+/// Strip any preamble text before the first Markdown heading (#).
+/// LLMs sometimes prepend explanatory text like "Here is the knowledge document:"
+/// before the actual content. This function finds the first line starting with `#`
+/// and removes everything before it.
+fn strip_preamble_before_heading(raw: &str) -> &str {
+    for (i, line) in raw.lines().enumerate() {
+        if line.starts_with('#') {
+            // Found the first heading — return from here
+            let offset: usize = raw.lines().take(i).map(|l| l.len() + 1).sum();
+            return &raw[offset..];
+        }
+        // Keep looking only through non-empty preamble lines;
+        // if we hit a non-empty, non-heading line followed by content, still continue
+        // until we find a heading or exhaust the search
+    }
+    // No heading found — return as-is
+    raw
 }
 
 /// Write knowledge content to disk and rebuild the agent, returning an `InitResult`
