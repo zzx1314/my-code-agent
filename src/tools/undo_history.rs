@@ -3,10 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use crate::core::paths;
+
 /// Maximum number of undo entries to keep in history.
 const MAX_HISTORY: usize = 100;
 
-/// The history file is stored in the current working directory.
+/// The history file is stored in the application base directory.
 const HISTORY_FILE: &str = ".undo_history.json";
 
 /// Global session ID for the current session. Set once at startup.
@@ -47,7 +49,7 @@ pub fn get_current_session_id() -> String {
 
 /// Get the path to the history file.
 fn history_file_path() -> PathBuf {
-    PathBuf::from(HISTORY_FILE)
+    paths::app_file(HISTORY_FILE)
 }
 
 /// Load the undo history from disk.

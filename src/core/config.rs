@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+use super::paths;
+
 // ── Serde default functions ──
 // Each must be a visible fn() -> T matching the field type.
 
@@ -47,7 +49,7 @@ fn default_base_url() -> Option<String> {
     None
 }
 
-/// Configuration file name (looked up in the current directory).
+/// Configuration file name (looked up in the application base directory).
 pub const CONFIG_FILE: &str = "config.toml";
 
 /// Top-level configuration structure.
@@ -280,11 +282,12 @@ impl Default for LLMConfig {
 }
 
 impl Config {
-    /// Loads configuration from `config.toml` in the current directory.
+    /// Loads configuration from `config.toml` in the application base directory.
     /// Returns defaults if the file doesn't exist. Prints a warning and
     /// uses defaults if the file contains invalid TOML.
     pub fn load() -> Self {
-        Self::load_from(CONFIG_FILE)
+        let config_path = paths::app_file(CONFIG_FILE);
+        Self::load_from(&config_path)
     }
 
     /// Loads configuration from a specific path.

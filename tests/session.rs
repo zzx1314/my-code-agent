@@ -1,4 +1,4 @@
-use my_code_agent::core::session::{SESSION_DIR, SessionData, format_timestamp};
+use my_code_agent::core::session::{SessionData, format_timestamp};
 use my_code_agent::core::token_usage::TokenUsage;
 use rig::completion::Message;
 
@@ -139,7 +139,8 @@ fn test_delete_nonexistent_is_ok() {
 
 #[test]
 fn test_prune_old_sessions_keeps_max_count() {
-    std::fs::create_dir_all(SESSION_DIR).unwrap();
+    let session_dir = SessionData::session_dir_path();
+    std::fs::create_dir_all(&session_dir).unwrap();
 
     let mut saved_names = Vec::new();
     let base_ts = std::time::SystemTime::now()
@@ -179,7 +180,8 @@ fn test_prune_old_sessions_keeps_max_count() {
 #[test]
 fn test_prune_old_sessions_no_op_when_under_limit() {
     // Save fewer than 5 sessions and verify prune returns 0
-    std::fs::create_dir_all(SESSION_DIR).unwrap();
+    let session_dir = SessionData::session_dir_path();
+    std::fs::create_dir_all(&session_dir).unwrap();
 
     let base_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -213,19 +215,17 @@ fn test_prune_old_sessions_no_op_when_under_limit() {
 
 #[test]
 fn test_session_dir_path() {
-    assert_eq!(SessionData::session_dir_path(), SESSION_DIR);
+    let dir = SessionData::session_dir_path();
+    // Should end with ".sessions" regardless of base directory
+    assert!(dir.ends_with(".sessions"), "Expected path ending with .sessions, got: {}", dir);
 }
 
 #[test]
 fn test_session_file_path() {
-    assert_eq!(
-        SessionData::session_file_path("my-session"),
-        ".sessions/my-session.json"
-    );
-    assert_eq!(
-        SessionData::session_file_path("bugfix-123"),
-        ".sessions/bugfix-123.json"
-    );
+    let path1 = SessionData::session_file_path("my-session");
+    assert!(path1.ends_with(".sessions/my-session.json"), "Expected path ending with .sessions/my-session.json, got: {}", path1);
+    let path2 = SessionData::session_file_path("bugfix-123");
+    assert!(path2.ends_with(".sessions/bugfix-123.json"), "Expected path ending with .sessions/bugfix-123.json, got: {}", path2);
 }
 
 // ── format_timestamp ──

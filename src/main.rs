@@ -16,9 +16,16 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv::dotenv().ok();
+    // Load .env from the application base directory
+    let env_path = my_code_agent::core::paths::app_file(".env");
+    if env_path.exists() {
+        dotenv::from_path(&env_path).ok();
+    } else {
+        dotenv::dotenv().ok();
+    }
 
-    let log_file = std::fs::File::create(".my-code-agent.log")
+    let log_path = my_code_agent::core::paths::app_file(".my-code-agent.log");
+    let log_file = std::fs::File::create(&log_path)
         .unwrap_or_else(|_| std::fs::File::create("/tmp/my-code-agent.log").unwrap());
 
     tracing_subscriber::fmt()

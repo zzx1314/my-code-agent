@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::paths;
 use super::token_usage::TokenUsage;
 
 pub const SESSION_DIR: &str = ".sessions";
@@ -48,11 +49,13 @@ impl SessionData {
     }
 
     pub fn session_file_path(name: &str) -> String {
-        format!("{}/{}.json", SESSION_DIR, name)
+        paths::app_file(&format!("{}/{}.json", SESSION_DIR, name))
+            .to_string_lossy()
+            .to_string()
     }
 
     pub fn session_dir_path() -> String {
-        SESSION_DIR.to_string()
+        paths::app_file(SESSION_DIR).to_string_lossy().to_string()
     }
 
     pub fn save_to_file(&self, path: &str) -> Result<(), String> {
@@ -99,8 +102,12 @@ impl SessionData {
     pub fn default_session_file_path(save_file: Option<&str>) -> String {
         save_file
             .filter(|s| !s.is_empty())
-            .unwrap_or(DEFAULT_SESSION_FILE)
-            .to_string()
+            .map(|s| paths::app_file(s).to_string_lossy().to_string())
+            .unwrap_or_else(|| {
+                paths::app_file(DEFAULT_SESSION_FILE)
+                    .to_string_lossy()
+                    .to_string()
+            })
     }
 
     /// Save to the default session file (for auto-save/auto-resume).
@@ -128,7 +135,7 @@ impl SessionData {
     pub fn list_sessions() -> Vec<SessionInfo> {
         let mut sessions = Vec::new();
 
-        let dir_path = std::path::Path::new(SESSION_DIR);
+        let dir_path = paths::app_file(SESSION_DIR);
         if !dir_path.is_dir() {
             return sessions;
         }
