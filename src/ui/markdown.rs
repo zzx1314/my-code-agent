@@ -51,12 +51,14 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
 
     let mut result = Vec::new();
     let mut state = BlockState::Paragraph;
+    let mut prev_was_heading = false;
 
     for line in text.split('\n') {
         match &mut state {
             BlockState::CodeBlock { lang: _, lines } => {
                 if line.trim_start().starts_with("```") {
                     // Close code block
+                    prev_was_heading = false;
                     let code_lines = lines.clone();
                     state = BlockState::Paragraph;
                     result.extend(render_code_block_lines(&code_lines));
@@ -69,6 +71,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
 
                 // Fenced code block open
                 if trimmed.starts_with("```") {
+                    prev_was_heading = false;
                     let lang_part = trimmed[3..].trim();
                     let lang = if lang_part.is_empty() {
                         None
@@ -88,12 +91,13 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                     // Strip trailing # marks
                     let content = content.trim_end_matches('#').trim();
                     result.push(render_heading(level, content));
-                    result.push(Line::default());
+                    prev_was_heading = true;
                     continue;
                 }
 
                 // Horizontal rule (---, ***, ___)
                 if is_horizontal_rule(trimmed) {
+                    prev_was_heading = false;
                     result.push(render_horizontal_rule());
                     result.push(Line::default());
                     continue;
@@ -101,6 +105,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
 
                 // Blockquote
                 if trimmed.starts_with('>') {
+                    prev_was_heading = false;
                     let quote_content = trimmed.strip_prefix('>').unwrap_or(trimmed);
                     let quote_content = quote_content.strip_prefix(' ').unwrap_or(quote_content);
                     result.push(render_blockquote(quote_content));
@@ -109,23 +114,31 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
 
                 // Unordered list (- or * followed by space)
                 if let Some(item) = parse_unordered_list(trimmed) {
+                    prev_was_heading = false;
                     result.push(render_unordered_item(item));
                     continue;
                 }
 
                 // Ordered list (1. 2. etc.)
                 if let Some((num, item)) = parse_ordered_list(trimmed) {
+                    prev_was_heading = false;
                     result.push(render_ordered_item(num, item));
                     continue;
                 }
 
                 // Empty line = paragraph break
                 if trimmed.is_empty() {
-                    result.push(Line::default());
+                    if prev_was_heading {
+                        // Skip blank line right after a heading to avoid double spacing
+                        prev_was_heading = false;
+                    } else {
+                        result.push(Line::default());
+                    }
                     continue;
                 }
 
                 // Regular paragraph text with inline formatting
+                prev_was_heading = false;
                 result.push(render_inline(line));
             }
         }
