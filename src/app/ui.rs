@@ -12,6 +12,47 @@ use crate::ui::terminal;
 const MIN_INPUT_HEIGHT: u16 = 4;
 const MAX_INPUT_HEIGHT: u16 = 14;
 
+/// Update the input textarea's visual style based on the current app state.
+///
+/// - **Idle**: cyan borders, subtle cursor line highlight
+/// - **Streaming**: dark gray (dimmed) borders, no cursor highlight
+/// - **Shell mode**: magenta borders to indicate command mode
+fn update_input_style(app: &mut App) {
+    let (border_color, title_text, cursor_style) = if app.is_streaming {
+        (
+            Color::DarkGray,
+            " ⏳ Processing... ",
+            Style::default(), // dimmed
+        )
+    } else if app.shell_mode {
+        (
+            Color::Magenta,
+            " ⚡ Shell Mode ",
+            Style::default().bg(Color::Rgb(40, 0, 60)),
+        )
+    } else {
+        (
+            Color::Cyan,
+            " ✎  Input (Enter: send, Alt+Enter: ↵, Esc: interrupt) ",
+            Style::default().bg(Color::Rgb(20, 40, 50)),
+        )
+    };
+
+    app.input.set_block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .title(Span::styled(
+                title_text,
+                Style::default()
+                    .fg(border_color)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .border_type(ratatui::widgets::BorderType::Double),
+    );
+    app.input.set_cursor_line_style(cursor_style);
+}
+
 fn wrap_line(line: &str, text_width: usize, cursor_char_idx: usize) -> (Vec<String>, usize, usize) {
     let mut result: Vec<String> = Vec::new();
     let mut curr = String::new();
@@ -160,6 +201,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     render_chat_area(f, app, chunks[chat_chunk_index]);
 
+    update_input_style(app);
     f.render_widget(&app.input, chunks[input_chunk_index]);
 
     if app.show_completion {

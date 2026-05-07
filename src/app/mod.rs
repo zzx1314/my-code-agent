@@ -131,10 +131,11 @@ impl App {
     ) -> Self {
         let show_banner = chat_history.is_empty();
         let mut input_area = TextArea::default();
+        // Initial block is a placeholder; update_input_style() in ui() sets the real style.
         input_area.set_block(
             ratatui::widgets::Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
-                .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "),
+                .border_type(ratatui::widgets::BorderType::Double)
         );
         input_area.set_cursor_line_style(ratatui::style::Style::default());
 
