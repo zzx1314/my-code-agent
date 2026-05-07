@@ -290,7 +290,7 @@ where
 
                 status_messages.extend(format_context_warning(session_usage));
 
-                let input_tokens = session_usage.input_tokens();
+                let input_tokens = session_usage.last_turn_input_tokens();
                 if context_manager.should_compact(input_tokens) {
                     status_messages
                         .push("📝 Context window full - pruning old messages...".to_string());
