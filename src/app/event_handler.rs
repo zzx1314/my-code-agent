@@ -1,9 +1,11 @@
-use crossterm::{
-    event::{self, KeyCode, KeyModifiers, MouseEventKind},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+use ratatui::{
+    Terminal, backend::CrosstermBackend,
+    crossterm::{
+        event::{self, KeyCode, KeyModifiers, MouseEventKind},
+        execute,
+        terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    },
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::Write as _;
 use tokio::sync::mpsc;
 use toml;
@@ -1128,14 +1130,27 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
             use glob::glob;
             let mut files = Vec::new();
 
+            // Directories to skip in file completion
+            let skip_dirs = ["target", "node_modules", "dist", "build", ".git"];
+
             // Get all files in the current directory (recursive depth 2)
             if let Ok(entries) = glob("**/*") {
                 for entry in entries.flatten() {
                     if let Some(path_str) = entry.to_str() {
                         // Skip hidden files and directories
-                        if !path_str.starts_with('.') && !path_str.contains("/.") {
-                            files.push(format!("@{}", path_str));
+                        if path_str.starts_with('.') || path_str.contains("/.") {
+                            continue;
                         }
+                        // Skip common build/dependency directories
+                        let should_skip = skip_dirs.iter().any(|dir| {
+                            path_str == *dir
+                                || path_str.starts_with(&format!("{}/", dir))
+                                || path_str.contains(&format!("/{}/", dir))
+                        });
+                        if should_skip {
+                            continue;
+                        }
+                        files.push(format!("@{}", path_str));
                     }
                 }
             }

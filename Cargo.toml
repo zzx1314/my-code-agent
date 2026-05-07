@@ -17,9 +17,8 @@ thiserror = "2"
 futures = "0.3"
 glob = "0.3.3"
 toml = "1.1.2"
-ratatui = { version = "0.28.1", features = ["unstable-rendered-line-info"] }
-tui-textarea = "0.6"
-crossterm = "0.28"
+ratatui = { version = "0.30.0", features = ["unstable-rendered-line-info"] }
+tui-textarea = { package = "tui-textarea-2", version = "0.10" }
 tracing = "0.1"
 unicode-width = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

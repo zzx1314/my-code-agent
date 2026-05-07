@@ -136,15 +136,15 @@ async fn main() -> Result<()> {
             }
         }
 
-        if crossterm::event::poll(Duration::from_millis(100))? {
-            match crossterm::event::read()? {
-                crossterm::event::Event::Key(key) => {
+        if ratatui::crossterm::event::poll(Duration::from_millis(100))? {
+            match ratatui::crossterm::event::read()? {
+                ratatui::crossterm::event::Event::Key(key) => {
                     app::event_handler::handle_key_event(key, &mut app, &mut context_manager);
                 }
-                crossterm::event::Event::Mouse(mouse) => {
+                ratatui::crossterm::event::Event::Mouse(mouse) => {
                     app::event_handler::handle_mouse_event(mouse, &mut app);
                 }
-                crossterm::event::Event::Paste(text) => {
+                ratatui::crossterm::event::Event::Paste(text) => {
                     app::event_handler::handle_paste_event(&text, &mut app);
                 }
                 _ => {}
