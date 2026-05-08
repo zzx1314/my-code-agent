@@ -6,8 +6,6 @@ use tokio::sync::mpsc;
 
 use crate::core::config::AgentConfig;
 use crate::core::context_manager::ContextManager;
-use crate::core::plan::detect::detect_task_plan;
-use crate::core::plan::tracker::PlanTracker;
 use crate::core::preamble::Agent;
 use crate::core::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::ui::render::ReasoningTracker;
@@ -22,7 +20,6 @@ pub struct StreamResult {
     pub interrupted: bool,
     pub should_exit: bool,
     pub last_reasoning: String,
-    pub plan_tracker: PlanTracker,
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
     pub session_usage: TokenUsage,
@@ -39,8 +36,6 @@ pub enum StreamEvent {
     ReasoningActive(bool),
     /// Reasoning content delta.
     ReasoningDelta(String),
-    /// Plan progress message (e.g., step status, completion).
-    PlanProgress(String),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,9 +106,6 @@ where
     let mut full_response = String::new();
     let mut interrupted = false;
     let mut reasoning = ReasoningTracker::new_with_config(&agent_config.thinking_display);
-    let mut plan_tracker = PlanTracker::new();
-    let mut plan_detected = false;
-    let mut plan_text = String::new();
     let mut status_messages: Vec<String> = Vec::new();
     let mut after_tool_call = false;
 
@@ -141,7 +133,6 @@ where
                         interrupted: true,
                         should_exit: true,
                         last_reasoning: reasoning.into_total_reasoning(),
-                        plan_tracker,
                         status_messages,
                         turn_usage_line: None,
                         session_usage: session_usage.clone(),
@@ -176,31 +167,8 @@ where
                     text_content.text.clone()
                 };
 
-                // Check plan BEFORE sending to UI so we can suppress raw plan text
-                if !plan_detected && detect_task_plan(&text_content.text) {
-                    plan_detected = true;
-                    plan_text.clear();
-                    plan_text.push_str(&text_content.text);
-                    continue;
-                }
-
-                // Suppress raw plan text from streaming display before plan is parsed (first tool call).
-                // Plan is shown via PlanProgress instead, avoiding confusing ✓ in the initial output.
-                if plan_detected && !plan_tracker.has_active_plan() {
-                    plan_text.push_str(&text_content.text);
-                    continue;
-                }
-
-                if plan_detected {
-                    plan_text.push_str(&text_content.text);
-                }
-
                 send_event(StreamEvent::Text(text_to_send.clone()));
                 full_response.push_str(&text_to_send);
-
-                if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
-                    plan_tracker.update_and_ensure_progress(&plan_text);
-                }
             }
 
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
@@ -209,30 +177,6 @@ where
             })) => {
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
-                }
-                // If plan was detected but not yet parsed, parse it now and auto-confirm
-                if plan_detected && !plan_tracker.has_active_plan() {
-                    plan_tracker.parse_plan(&plan_text);
-                    let plan_display = plan_tracker.format_with_confirmation();
-                    status_messages.push(plan_display.clone());
-                    send_event(StreamEvent::PlanProgress(plan_display));
-                    plan_tracker.confirm();
-                    send_event(StreamEvent::PlanProgress(
-                        "✓ Plan confirmed, proceeding...".to_string(),
-                    ));
-                }
-                // Update step statuses based on ✓ markers or auto-advance on tool call
-                if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
-                    plan_tracker.update_and_ensure_progress(&plan_text);
-                    // Refresh the plan display in status_messages with updated ✓ markers
-                    let updated_display = plan_tracker.format_with_confirmation();
-                    if let Some(plan_msg) = status_messages
-                        .iter_mut()
-                        .find(|m| m.contains("📋 Task Plan"))
-                    {
-                        *plan_msg = updated_display.clone();
-                    }
-                    send_event(StreamEvent::PlanProgress(updated_display));
                 }
                 // Tool calls are only displayed in real-time during streaming via StreamEvent::ToolCall (current_tool_call in render_chat_area)
                 // No longer appended to full_response to avoid polluting conversation history with tool call markers
@@ -263,29 +207,8 @@ where
             }
 
             Ok(MultiTurnStreamItem::FinalResponse(final_res)) => {
-                // Fallback: 如果 plan 被检测到但没有 tool call 触发 parse，在这里补上
-                if plan_detected && !plan_tracker.has_active_plan() {
-                    plan_tracker.parse_plan(&plan_text);
-                    let plan_display = plan_tracker.format_with_confirmation();
-                    status_messages.push(plan_display.clone());
-                    send_event(StreamEvent::PlanProgress(plan_display));
-                }
-
                 if reasoning.is_reasoning() && display_mode != "hidden" {
                     reasoning.end_segment();
-                }
-
-                if plan_tracker.has_active_plan() {
-                    // Final update: re-parse markers one last time
-                    plan_tracker.update_from_text(&plan_text);
-                    // Refresh the plan display with final ✓ markers
-                    let updated_display = plan_tracker.format_with_confirmation();
-                    if let Some(plan_msg) = status_messages
-                        .iter_mut()
-                        .find(|m| m.contains("📋 Task Plan"))
-                    {
-                        *plan_msg = updated_display;
-                    }
                 }
 
                 if let Some(history) = final_res.history() {
@@ -321,7 +244,6 @@ where
                     interrupted,
                     should_exit: false,
                     last_reasoning: reasoning.into_total_reasoning(),
-                    plan_tracker,
                     status_messages,
                     turn_usage_line,
                     session_usage: session_usage.clone(),
@@ -358,7 +280,6 @@ where
         interrupted,
         should_exit: false,
         last_reasoning: reasoning.into_total_reasoning(),
-        plan_tracker,
         status_messages,
         turn_usage_line: None,
         session_usage: session_usage.clone(),

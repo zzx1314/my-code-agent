@@ -14,7 +14,6 @@ An interactive AI coding assistant powered by configurable LLM providers with to
 - **🎨 Colored Output** — Rich terminal UI with syntax-highlighted tool calls and usage stats
 - **💭 Collapsible Reasoning** — Model reasoning (thinking) is collapsed into a one-line summary; use `think` to expand
 - **🛡️ Tool Safety** — Built-in checks for dangerous file deletions and shell commands
-- **📋 Task Planning** — Interactive plan confirmation with step tracking and timeout support
 - **🔄 Undo Support** — Revert recent file operations with persistent undo history
 - **🔍 Context Management** — Context window tracking with warning thresholds and caching
 - **✅ Tab Completion** — Input completion for commands and `@filepath` references
@@ -57,7 +56,6 @@ src/
 │   ├── context_manager.rs# Context window management (ContextManager)
 │   ├── file_cache.rs     # File content caching (FileCache, FileCacheEntry)
 │   ├── parser.rs         # General parsing utilities (StructureInfo, SmartReadResult, ParsedFile)
-│   ├── plan_tracker.rs   # Task planning and tracking (PlanTracker, PlanStepStatus, PlanConfirmationResult)
 │   ├── preamble.rs       # Agent builder, preamble template, provider setup
 │   ├── session.rs        # Session persistence (save/load/resume, SessionData, SessionInfo, search_sessions)
 │   ├── streaming.rs      # Streaming response handling (StreamResult, StreamEvent)
@@ -166,9 +164,6 @@ thinking_display = "collapsed"  # "streaming" | "collapsed" | "hidden"
 think_command = true            # enable /think command
 thinking_display_height = 5     # terminal lines for reasoning display
 
-[plan]
-timeout_secs = 0                # plan confirmation timeout in seconds (0 = wait indefinitely)
-
 [session]
 enabled = false                 # set to true to enable session persistence
 save_file = ".session.json"     # default
@@ -195,7 +190,6 @@ All fields are optional — sensible defaults are used when omitted.
 - **Tool safety**: Destructive shell commands and file deletions trigger a user confirmation prompt via `confirmation.rs`
 - **Context caching**: The system caches preamble content and file reads for performance (via `context_cache.rs` and `file_cache.rs`)
 - **Connection management**: LLM connection state is tracked with status indicators (connected, disconnected, reconnecting)
-- **Task planning**: The agent supports interactive plan confirmation with configurable timeout and step status tracking
 - **Tab completion**: Input area supports tab completion for commands and `@filepath` references
 - **Test files**: All test cases should be written in the `tests/` directory as integration tests
 - **Rust edition**: Project uses Rust edition 2024

@@ -84,17 +84,13 @@ fn test_preamble_has_knowledge_placeholder() {
 }
 
 #[test]
-fn test_preamble_requires_plan_checkmark() {
+fn test_preamble_has_task_planning_section() {
     assert!(
-        PREAMBLE_TEMPLATE.contains("Plan progress tracking"),
-        "Preamble should have a 'Plan progress tracking' rule"
+        PREAMBLE_TEMPLATE.contains("Task Planning"),
+        "Preamble should have a 'Task Planning' section"
     );
     assert!(
-        PREAMBLE_TEMPLATE.contains("MUST append a checkmark (✓)"),
-        "Preamble should instruct the model to use ✓ marker as mandatory plan progress signal"
-    );
-    assert!(
-        PREAMBLE_TEMPLATE.contains("The ✓ marker is MANDATORY"),
-        "Preamble should emphasize that the ✓ marker is mandatory for plan tracking"
+        PREAMBLE_TEMPLATE.contains("When to create a plan"),
+        "Preamble should guide the model on when to create a plan"
     );
 }

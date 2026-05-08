@@ -112,7 +112,6 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 app.streaming_reasoning.clear();
                 app.current_tool_call = None;
                 app.status_messages.clear();
-                app.streaming_status_messages.clear();
             } else {
                 app.should_exit = true;
             }

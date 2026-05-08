@@ -177,18 +177,6 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    if !app.streaming_status_messages.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "─".repeat(area.width as usize),
-            Style::default().fg(Color::DarkGray),
-        )));
-        for msg in &app.streaming_status_messages {
-            for line in msg.lines() {
-                lines.push(Line::from(line));
-            }
-        }
-    }
-
     let actual_lines = Paragraph::new(lines.clone())
         .wrap(Wrap { trim: false })
         .line_count(area.width) as u16;

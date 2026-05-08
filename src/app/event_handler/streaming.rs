@@ -17,7 +17,6 @@ pub fn reset_streaming_state(app: &mut App) {
     app.current_tool_call = None;
     app.current_response.clear();
     app.status_messages.clear();
-    app.streaming_status_messages.clear();
     app.turn_usage_line = None;
 }
 
@@ -101,9 +100,6 @@ pub fn process_streaming_events(app: &mut App) {
                     app.streaming_reasoning.push_str(&delta);
                     app.current_tool_call = None;
                 }
-                Ok(StreamEvent::PlanProgress(msg)) => {
-                    app.streaming_status_messages.push(msg);
-                }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
                     app.streaming_events_rx = None;
@@ -143,7 +139,6 @@ fn cleanup_stream_state(app: &mut App) {
     app.streaming_reasoning.clear();
     app.current_tool_call = None;
     app.streaming_events_rx = None;
-    app.streaming_status_messages.clear();
     app.auto_scroll = true;
 }
 
@@ -163,7 +158,6 @@ pub fn check_init_result(app: &mut App) {
                 app.streaming_reasoning.clear();
                 app.current_tool_call = None;
                 app.streaming_events_rx = None;
-                app.streaming_status_messages.clear();
                 app.auto_scroll = true;
                 app.scroll = u16::MAX;
             }
@@ -175,7 +169,6 @@ pub fn check_init_result(app: &mut App) {
                 app.streaming_reasoning.clear();
                 app.current_tool_call = None;
                 app.streaming_events_rx = None;
-                app.streaming_status_messages.clear();
                 app.auto_scroll = true;
             }
         }
@@ -195,7 +188,6 @@ fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamRe
     }
     app.current_tool_call = None;
     app.streaming_events_rx = None;
-    app.streaming_status_messages.clear();
 
     if !result.full_response.is_empty() {
         app.chat_history
