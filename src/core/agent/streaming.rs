@@ -6,7 +6,8 @@ use tokio::sync::mpsc;
 
 use crate::core::config::AgentConfig;
 use crate::core::context_manager::ContextManager;
-use crate::core::plan_tracker::PlanTracker;
+use crate::core::plan::detect::detect_task_plan;
+use crate::core::plan::tracker::PlanTracker;
 use crate::core::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::core::preamble::Agent;
 use crate::ui::render::ReasoningTracker;
@@ -40,24 +41,6 @@ pub enum StreamEvent {
     ReasoningDelta(String),
     /// Plan progress message (e.g., step status, completion).
     PlanProgress(String),
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// detect_task_plan
-// ─────────────────────────────────────────────────────────────────────────────
-
-pub fn detect_task_plan(text: &str) -> bool {
-    if text.contains("```") {
-        let first_code = text.find("```").unwrap_or(usize::MAX);
-        let first_header = text.find("##").unwrap_or(usize::MAX);
-        if first_code < first_header {
-            return false;
-        }
-    }
-    text.contains("## 📋 Task Plan")
-        || text.contains("## Task Plan")
-        || text.contains("## Plan")
-        || text.contains("### Plan")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

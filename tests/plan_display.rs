@@ -1,5 +1,5 @@
 use my_code_agent::plan_tracker::PlanTracker;
-use my_code_agent::streaming::detect_task_plan;
+use my_code_agent::detect_task_plan;
 
 // ============================================================================
 // Bug 1: format_with_confirmation should produce multi-line output

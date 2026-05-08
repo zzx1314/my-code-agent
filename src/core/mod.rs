@@ -15,7 +15,7 @@ pub mod parser;
 pub mod session;
 
 // Task planning
-pub mod plan_tracker;
+pub mod plan;
 
 // ── Backward-compatible re-exports ──────────────────────────────────────────
 // These ensure that existing code using `crate::core::config`, `crate::core::context`,
@@ -25,7 +25,10 @@ pub mod plan_tracker;
 // paths is still at crate::core::paths
 // parser is still at crate::core::parser
 // session is still at crate::core::session
-// plan_tracker is still at crate::core::plan_tracker
+
+// plan submodules re-exported at top level
+pub use plan::tracker as plan_tracker;
+pub use plan::detect_task_plan;
 
 // agent submodules re-exported at top level
 pub use agent::connection;

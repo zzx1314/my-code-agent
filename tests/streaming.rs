@@ -1,4 +1,4 @@
-use my_code_agent::core::streaming::detect_task_plan;
+use my_code_agent::core::plan::detect::detect_task_plan;
 
 #[test]
 fn test_detect_task_plan_with_emoji_header() {
