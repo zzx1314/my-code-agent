@@ -197,6 +197,10 @@ where
 
                 send_event(StreamEvent::Text(text_to_send.clone()));
                 full_response.push_str(&text_to_send);
+
+                if plan_tracker.has_active_plan() && plan_tracker.is_confirmed() {
+                    plan_tracker.update_and_ensure_progress(&plan_text);
+                }
             }
 
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
@@ -226,8 +230,9 @@ where
                         .iter_mut()
                         .find(|m| m.contains("📋 Task Plan"))
                     {
-                        *plan_msg = updated_display;
+                        *plan_msg = updated_display.clone();
                     }
+                    send_event(StreamEvent::PlanProgress(updated_display));
                 }
                 // Tool calls are only displayed in real-time during streaming via StreamEvent::ToolCall (current_tool_call in render_chat_area)
                 // No longer appended to full_response to avoid polluting conversation history with tool call markers
