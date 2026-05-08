@@ -9,6 +9,9 @@ use super::token_usage::TokenUsage;
 pub const SESSION_DIR: &str = ".sessions";
 pub const DEFAULT_SESSION_FILE: &str = ".session.json";
 
+// ── Structs ────────────────────────────────────────────────────────────────
+
+/// Core session data: chat history, token usage, reasoning, and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionData {
     pub chat_history: Vec<Message>,
@@ -17,6 +20,33 @@ pub struct SessionData {
     pub saved_at: u64,
     pub name: Option<String>,
 }
+
+/// Lightweight session metadata (name, turn count, timestamp, token count).
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    pub name: String,
+    pub turns: usize,
+    pub saved_at: u64,
+    pub tokens: u64,
+}
+
+/// Result of searching across all sessions for a keyword.
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub session_name: String,
+    pub saved_at: u64,
+    pub matches: Vec<MessageMatch>,
+}
+
+/// A single matching message within a session.
+#[derive(Debug, Clone)]
+pub struct MessageMatch {
+    pub role: String, // "User", "Assistant", or "System"
+    pub content_snippet: String,
+    pub line_number: usize, // position in chat_history
+}
+
+// ── Impl blocks ────────────────────────────────────────────────────────────
 
 impl SessionData {
     pub fn new(
@@ -48,6 +78,8 @@ impl SessionData {
         }
     }
 
+    // ── Path helpers ──────────────────────────────────────────────────────
+
     pub fn session_file_path(name: &str) -> String {
         paths::app_file(&format!("{}/{}.json", SESSION_DIR, name))
             .to_string_lossy()
@@ -56,46 +88,6 @@ impl SessionData {
 
     pub fn session_dir_path() -> String {
         paths::app_file(SESSION_DIR).to_string_lossy().to_string()
-    }
-
-    pub fn save_to_file(&self, path: &str) -> Result<(), String> {
-        if let Some(parent) = std::path::Path::new(path).parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("create dir: {}", e))?;
-        }
-        let json = serde_json::to_string_pretty(self).map_err(|e| format!("serialize: {}", e))?;
-        std::fs::write(path, json).map_err(|e| format!("write {}: {}", path, e))
-    }
-
-    pub fn save_with_name(&self, name: &str) -> Result<(), String> {
-        let path = Self::session_file_path(name);
-        self.save_to_file(&path)
-    }
-
-    pub fn load_from_file(path: &str) -> Option<Result<Self, String>> {
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => return None,
-        };
-        let result = serde_json::from_str(&content).map_err(|e| format!("parse {}: {}", path, e));
-        Some(result)
-    }
-
-    pub fn load_by_name(name: &str) -> Option<Result<Self, String>> {
-        let path = Self::session_file_path(name);
-        Self::load_from_file(&path)
-    }
-
-    pub fn delete_file(path: &str) -> Result<(), String> {
-        match std::fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(format!("delete {}: {}", path, e)),
-        }
-    }
-
-    pub fn delete_by_name(name: &str) -> Result<(), String> {
-        let path = Self::session_file_path(name);
-        Self::delete_file(&path)
     }
 
     /// Get the default session file path from config, or use DEFAULT_SESSION_FILE.
@@ -109,6 +101,52 @@ impl SessionData {
                     .to_string()
             })
     }
+
+    // ── Save / Load / Delete (by file path) ───────────────────────────────
+
+    pub fn save_to_file(&self, path: &str) -> Result<(), String> {
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("create dir: {}", e))?;
+        }
+        let json = serde_json::to_string_pretty(self).map_err(|e| format!("serialize: {}", e))?;
+        std::fs::write(path, json).map_err(|e| format!("write {}: {}", path, e))
+    }
+
+    pub fn load_from_file(path: &str) -> Option<Result<Self, String>> {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return None,
+        };
+        let result = serde_json::from_str(&content).map_err(|e| format!("parse {}: {}", path, e));
+        Some(result)
+    }
+
+    pub fn delete_file(path: &str) -> Result<(), String> {
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("delete {}: {}", path, e)),
+        }
+    }
+
+    // ── Save / Load / Delete (by session name) ─────────────────────────
+
+    pub fn save_with_name(&self, name: &str) -> Result<(), String> {
+        let path = Self::session_file_path(name);
+        self.save_to_file(&path)
+    }
+
+    pub fn load_by_name(name: &str) -> Option<Result<Self, String>> {
+        let path = Self::session_file_path(name);
+        Self::load_from_file(&path)
+    }
+
+    pub fn delete_by_name(name: &str) -> Result<(), String> {
+        let path = Self::session_file_path(name);
+        Self::delete_file(&path)
+    }
+
+    // ── Save / Load / Delete (default) ────────────────────────────────
 
     /// Save to the default session file (for auto-save/auto-resume).
     pub fn save_default(&self, save_file: Option<&str>) -> Result<(), String> {
@@ -131,6 +169,8 @@ impl SessionData {
             Ok(())
         }
     }
+
+    // ── Session listing & pruning ─────────────────────────────────────────
 
     pub fn list_sessions() -> Vec<SessionInfo> {
         let mut sessions = Vec::new();
@@ -189,6 +229,8 @@ impl SessionData {
         Ok(removed)
     }
 
+    // ── Search ────────────────────────────────────────────────────────────
+
     /// Search for keyword in this session's chat history
     pub fn search_in_session(&self, keyword: &str) -> Vec<MessageMatch> {
         let mut matches = Vec::new();
@@ -215,30 +257,9 @@ impl SessionData {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SessionInfo {
-    pub name: String,
-    pub turns: usize,
-    pub saved_at: u64,
-    pub tokens: u64,
-}
+// ── Free functions ────────────────────────────────────────────────────────
 
-/// Search result for a single session
-#[derive(Debug, Clone)]
-pub struct SearchResult {
-    pub session_name: String,
-    pub saved_at: u64,
-    pub matches: Vec<MessageMatch>,
-}
-
-/// A single message match in a session
-#[derive(Debug, Clone)]
-pub struct MessageMatch {
-    pub role: String, // "User", "Assistant", or "System"
-    pub content_snippet: String,
-    pub line_number: usize, // position in chat_history
-}
-
+/// Generate a session file name from the current clock time.
 pub fn generate_session_name() -> String {
     let secs = unix_epoch_secs();
     let timestamp = format_timestamp(secs);
@@ -253,6 +274,7 @@ fn unix_epoch_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Format a unix timestamp into a human-readable date-time string.
 pub fn format_timestamp(secs: u64) -> String {
     let gnu = std::process::Command::new("date")
         .arg(format!("-d@{}", secs))
@@ -275,6 +297,7 @@ pub fn format_timestamp(secs: u64) -> String {
     format!("epoch:{}", secs)
 }
 
+/// Build a saved-confirmation message string.
 pub fn format_saved_confirmation(path: &str, data: &SessionData) -> String {
     let turns = data
         .chat_history
@@ -294,7 +317,7 @@ pub fn print_saved_confirmation(path: &str, data: &SessionData) {
     println!("  {}", format_saved_confirmation(path, data));
 }
 
-/// Search all sessions for a keyword
+/// Search all sessions for a keyword.
 pub fn search_sessions(keyword: &str) -> Vec<SearchResult> {
     let mut results = Vec::new();
     let dir_path = std::path::Path::new(SESSION_DIR);
@@ -332,7 +355,7 @@ pub fn search_sessions(keyword: &str) -> Vec<SearchResult> {
     results
 }
 
-/// Extract a snippet of content around the keyword (up to context_size chars)
+/// Extract a snippet of content around the keyword (up to context_size chars).
 fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String {
     let content_lower = content.to_lowercase();
     let keyword_lower = keyword.to_lowercase();
