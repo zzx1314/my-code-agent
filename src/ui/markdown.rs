@@ -430,13 +430,7 @@ fn parse_column_alignments(line: &str) -> Vec<TableAlignment> {
 /// Compute display width of a string (approximation: 1 per char, 2 for wide chars).
 fn display_width(s: &str) -> usize {
     s.chars()
-        .map(|c| {
-            if unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) > 1 {
-                2
-            } else {
-                1
-            }
-        })
+        .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(1))
         .sum()
 }
 
@@ -506,7 +500,7 @@ fn render_table(
     // Header row: │ content │ content │
     {
         let mut spans = Vec::new();
-        spans.push(Span::styled(format!(" {border_char} "), border_style));
+        spans.push(Span::styled(format!("{border_char} "), border_style));
         for i in 0..col_count {
             let cell = header.get(i).map(|s| s.as_str()).unwrap_or("");
             let align = alignments.get(i).copied().unwrap_or(TableAlignment::Left);
@@ -518,10 +512,17 @@ fn render_table(
                     .bg(TABLE_HEADER_BG)
                     .add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::styled(
-                format!(" {border_char} "),
-                border_style.bg(TABLE_HEADER_BG),
-            ));
+            if i + 1 < col_count {
+                spans.push(Span::styled(
+                    format!(" {border_char} "),
+                    border_style.bg(TABLE_HEADER_BG),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    format!(" {border_char}"),
+                    border_style.bg(TABLE_HEADER_BG),
+                ));
+            }
         }
         result.push(Line::from(spans));
     }
@@ -547,7 +548,7 @@ fn render_table(
             None
         };
 
-        spans.push(Span::styled(format!(" {border_char} "), border_style));
+        spans.push(Span::styled(format!("{border_char} "), border_style));
         for i in 0..col_count {
             let cell = row.get(i).map(|s| s.as_str()).unwrap_or("");
             let align = alignments.get(i).copied().unwrap_or(TableAlignment::Left);
@@ -561,10 +562,17 @@ fn render_table(
             if let Some(bg) = row_bg {
                 border_style_cell = border_style_cell.bg(bg);
             }
-            spans.push(Span::styled(
-                format!(" {border_char} "),
-                border_style_cell,
-            ));
+            if i + 1 < col_count {
+                spans.push(Span::styled(
+                    format!(" {border_char} "),
+                    border_style_cell,
+                ));
+            } else {
+                spans.push(Span::styled(
+                    format!(" {border_char}"),
+                    border_style_cell,
+                ));
+            }
         }
         result.push(Line::from(spans));
     }
