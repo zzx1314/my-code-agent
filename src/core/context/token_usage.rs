@@ -11,6 +11,10 @@ const WARN_THRESHOLD_PERCENT: u64 = 75;
 /// Critical threshold — conversation history may be truncated.
 const CRITICAL_THRESHOLD_PERCENT: u64 = 90;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Type definitions
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Tracks cumulative token usage across an entire session.
 /// Wraps [`rig::completion::Usage`] which implements `AddAssign` for easy accumulation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +27,57 @@ pub struct TokenUsage {
     /// length including history) and is the correct metric for
     /// `context_usage_percent`.
     last_turn_input_tokens: u64,
+}
+
+/// Context window warning level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextWarning {
+    /// Session usage is approaching the context window limit (>= 75%).
+    Approaching,
+    /// Session usage is critical — conversation may be truncated (>= 90%).
+    Critical,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Implementations
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl ContextWarning {
+    /// Format warning messages as lines of text.
+    pub fn format(&self) -> Vec<String> {
+        match self {
+            ContextWarning::Approaching => {
+                vec![format!(
+                    "  ⚠ Approaching limit: Context window getting full. Consider using 'clear' to reset history.",
+                )]
+            }
+            ContextWarning::Critical => {
+                vec![
+                    format!(
+                        "  🔴 Critical: Context window almost full — conversation history may be truncated.",
+                    ),
+                    format!(
+                        "  → Use 'clear' to reset conversation history, or start a new session.",
+                    ),
+                ]
+            }
+        }
+    }
+
+    /// Print warnings (for tests/non-TUI usage).
+    pub fn print(&self) {
+        for line in self.format() {
+            println!("{}", line);
+        }
+    }
+
+    /// Returns the threshold percentage for this warning level.
+    pub fn threshold_percent(&self) -> u64 {
+        match self {
+            ContextWarning::Approaching => WARN_THRESHOLD_PERCENT,
+            ContextWarning::Critical => CRITICAL_THRESHOLD_PERCENT,
+        }
+    }
 }
 
 impl TokenUsage {
@@ -207,52 +262,9 @@ impl Default for TokenUsage {
     }
 }
 
-/// Context window warning level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ContextWarning {
-    /// Session usage is approaching the context window limit (>= 75%).
-    Approaching,
-    /// Session usage is critical — conversation may be truncated (>= 90%).
-    Critical,
-}
-
-impl ContextWarning {
-    /// Format warning messages as lines of text.
-    pub fn format(&self) -> Vec<String> {
-        match self {
-            ContextWarning::Approaching => {
-                vec![format!(
-                    "  ⚠ Approaching limit: Context window getting full. Consider using 'clear' to reset history.",
-                )]
-            }
-            ContextWarning::Critical => {
-                vec![
-                    format!(
-                        "  🔴 Critical: Context window almost full — conversation history may be truncated.",
-                    ),
-                    format!(
-                        "  → Use 'clear' to reset conversation history, or start a new session.",
-                    ),
-                ]
-            }
-        }
-    }
-
-    /// Print warnings (for tests/non-TUI usage).
-    pub fn print(&self) {
-        for line in self.format() {
-            println!("{}", line);
-        }
-    }
-
-    /// Returns the threshold percentage for this warning level.
-    pub fn threshold_percent(&self) -> u64 {
-        match self {
-            ContextWarning::Approaching => WARN_THRESHOLD_PERCENT,
-            ContextWarning::Critical => CRITICAL_THRESHOLD_PERCENT,
-        }
-    }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Free functions
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// Format a brief one-line usage summary for a single turn.
 pub fn format_turn_usage(turn_usage: &Usage) -> String {

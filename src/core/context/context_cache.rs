@@ -67,7 +67,7 @@ pub mod preamble_cache {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Per-turn cache statistics
+// Type definitions
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Cache statistics extracted from a single API response.
@@ -80,6 +80,43 @@ pub struct TurnCacheStats {
     /// Cache creation tokens (first-time prefix processing)
     pub creation_tokens: u64,
 }
+
+/// Aggregated cache metrics across all turns in a session.
+#[derive(Debug, Clone, Default)]
+pub struct CacheMetrics {
+    /// Total cached input tokens this session
+    pub total_cached: u64,
+    /// Total input tokens this session
+    pub total_input: u64,
+    /// Total cache creation tokens this session
+    pub total_creation: u64,
+    /// Estimated USD savings from caching
+    pub savings_usd: f64,
+    /// Number of turns recorded
+    pub turn_count: u64,
+}
+
+/// Central cache state for the application.
+///
+/// Tracks per-turn and session-wide cache metrics from API responses.
+/// Access the singleton via [`global_cache()`].
+///
+/// # Usage
+///
+/// After each streaming turn completes, call [`record_turn`](ContextCache::record_turn)
+/// with the turn's [`Usage`] from the API response. The cache instance will
+/// aggregate metrics and provide formatted reports for the `/tokens` command
+/// and per-turn usage display.
+pub struct ContextCache {
+    /// Session-wide aggregated metrics
+    metrics: Mutex<CacheMetrics>,
+    /// Most recent turn's cache stats (for per-turn display)
+    last_turn: Mutex<Option<TurnCacheStats>>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Implementations
+// ─────────────────────────────────────────────────────────────────────────────
 
 impl TurnCacheStats {
     /// Extract from API usage response.
@@ -104,25 +141,6 @@ impl TurnCacheStats {
     pub fn uncached_tokens(&self) -> u64 {
         self.input_tokens.saturating_sub(self.cached_tokens)
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Session-level cache metrics
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Aggregated cache metrics across all turns in a session.
-#[derive(Debug, Clone, Default)]
-pub struct CacheMetrics {
-    /// Total cached input tokens this session
-    pub total_cached: u64,
-    /// Total input tokens this session
-    pub total_input: u64,
-    /// Total cache creation tokens this session
-    pub total_creation: u64,
-    /// Estimated USD savings from caching
-    pub savings_usd: f64,
-    /// Number of turns recorded
-    pub turn_count: u64,
 }
 
 impl CacheMetrics {
@@ -179,28 +197,6 @@ impl CacheMetrics {
         lines.push("  ──────────────────────────".to_string());
         lines
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ContextCache — global singleton
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Central cache state for the application.
-///
-/// Tracks per-turn and session-wide cache metrics from API responses.
-/// Access the singleton via [`global_cache()`].
-///
-/// # Usage
-///
-/// After each streaming turn completes, call [`record_turn`](ContextCache::record_turn)
-/// with the turn's [`Usage`] from the API response. The cache instance will
-/// aggregate metrics and provide formatted reports for the `/tokens` command
-/// and per-turn usage display.
-pub struct ContextCache {
-    /// Session-wide aggregated metrics
-    metrics: Mutex<CacheMetrics>,
-    /// Most recent turn's cache stats (for per-turn display)
-    last_turn: Mutex<Option<TurnCacheStats>>,
 }
 
 // Manual Debug impl — Mutex<Option<TurnCacheStats>> doesn't auto-derive well
@@ -273,6 +269,10 @@ impl ContextCache {
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global singleton
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// Global context cache singleton.
 ///

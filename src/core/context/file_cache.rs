@@ -3,6 +3,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Type definitions
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct FileCacheEntry {
     pub content: String,
@@ -19,6 +23,16 @@ pub struct FileCache {
     max_age: Duration,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct FileCacheStats {
+    pub entries: usize,
+    pub total_bytes: u64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global singleton
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Global file cache singleton for tool use
 /// Uses Mutex for thread-safe interior mutability
 static GLOBAL_FILE_CACHE: OnceLock<Arc<Mutex<FileCache>>> = OnceLock::new();
@@ -29,6 +43,10 @@ pub fn get_global_file_cache() -> Arc<Mutex<FileCache>> {
         .get_or_init(|| Arc::new(Mutex::new(FileCache::new(100, 300))))
         .clone()
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FileCache implementation
+// ─────────────────────────────────────────────────────────────────────────────
 
 impl FileCache {
     pub fn new(max_entries: usize, max_age_secs: u64) -> Self {
@@ -148,10 +166,4 @@ impl FileCache {
             total_bytes: total_size,
         }
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct FileCacheStats {
-    pub entries: usize,
-    pub total_bytes: u64,
 }
