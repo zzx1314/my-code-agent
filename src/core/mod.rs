@@ -14,6 +14,9 @@ pub mod parser;
 // Session persistence
 pub mod session;
 
+// App initialization
+pub mod init;
+
 // agent submodules re-exported at top level
 pub use agent::connection;
 pub use agent::preamble;

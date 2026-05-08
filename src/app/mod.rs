@@ -25,6 +25,7 @@ pub struct InitResult {
 
 pub mod conversion;
 pub mod event_handler;
+pub mod lifecycle;
 pub mod ui;
 
 /// Application state
