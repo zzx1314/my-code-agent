@@ -10,8 +10,8 @@ use crate::app::App;
 use chat::render_chat_area;
 use input::{apply_input_wrap, calculate_input_height, render_input};
 use overlays::{
-    render_completion_menu, render_confirmation_dialog, render_model_picker, render_provider_picker,
-    render_session_picker,
+    render_completion_menu, render_confirmation_dialog, render_model_picker,
+    render_provider_picker, render_session_picker,
 };
 use status::render_status_bar;
 

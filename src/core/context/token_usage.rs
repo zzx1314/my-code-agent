@@ -154,7 +154,9 @@ impl TokenUsage {
 
         // Context window usage bar
         let pct = self.context_usage_percent();
-        let remaining = self.context_window.saturating_sub(self.last_turn_input_tokens);
+        let remaining = self
+            .context_window
+            .saturating_sub(self.last_turn_input_tokens);
         let bar_width = 20;
         let filled = ((pct as usize) * bar_width / 100).min(bar_width);
         let empty = bar_width - filled;

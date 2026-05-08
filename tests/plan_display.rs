@@ -1,5 +1,5 @@
-use my_code_agent::plan_tracker::PlanTracker;
 use my_code_agent::detect_task_plan;
+use my_code_agent::plan_tracker::PlanTracker;
 
 // ============================================================================
 // Bug 1: format_with_confirmation should produce multi-line output
@@ -358,9 +358,9 @@ fn test_plan_display_lines_split_correctly() {
 
     // Each step should appear as its own line after splitting
     for (i, step_name) in ["Step one", "Step two", "Step three"].iter().enumerate() {
-        let found = split_lines.iter().any(|l| {
-            l.contains(&format!("{}. {}", i + 1, step_name))
-        });
+        let found = split_lines
+            .iter()
+            .any(|l| l.contains(&format!("{}. {}", i + 1, step_name)));
         assert!(
             found,
             "Step {} '{}' should appear on its own line. All lines: {:?}",

@@ -1076,7 +1076,10 @@ fn test_update_and_ensure_progress_multiple_tool_calls_same_step() {
     assert_eq!(tracker.current_step_index(), 1); // still on step 1
 
     // Tool call 3: model marks step 1 done
-    let acc3 = format!("{}\nReading file...\nReading more...\n1. Read the file \u{2713}", acc2);
+    let acc3 = format!(
+        "{}\nReading file...\nReading more...\n1. Read the file \u{2713}",
+        acc2
+    );
     tracker.update_and_ensure_progress(&acc3);
     assert_eq!(tracker.current_step_index(), 2); // now advances
 
@@ -1127,17 +1130,34 @@ fn test_update_and_ensure_progress_shows_checkmarks_in_display() {
     tracker.update_and_ensure_progress(&acc1);
 
     let display = tracker.format_with_confirmation();
-    assert!(display.contains("1. Read the file \u{2713}"), "Step 1 should show checkmark, got: {}", display);
-    assert!(display.contains("2. Analyze the code\n"), "Step 2 should NOT show checkmark, got: {}", display);
+    assert!(
+        display.contains("1. Read the file \u{2713}"),
+        "Step 1 should show checkmark, got: {}",
+        display
+    );
+    assert!(
+        display.contains("2. Analyze the code\n"),
+        "Step 2 should NOT show checkmark, got: {}",
+        display
+    );
 
     // Mark step 2 via explicit checkmark
     let acc2 = format!("{}\n2. Analyze the code \u{2713}", acc1);
     tracker.update_and_ensure_progress(&acc2);
 
     let display2 = tracker.format_with_confirmation();
-    assert!(display2.contains("1. Read the file \u{2713}"), "Step 1 should show checkmark");
-    assert!(display2.contains("2. Analyze the code \u{2713}"), "Step 2 should show checkmark");
-    assert!(display2.contains("3. Write the fix\n"), "Step 3 should NOT show checkmark");
+    assert!(
+        display2.contains("1. Read the file \u{2713}"),
+        "Step 1 should show checkmark"
+    );
+    assert!(
+        display2.contains("2. Analyze the code \u{2713}"),
+        "Step 2 should show checkmark"
+    );
+    assert!(
+        display2.contains("3. Write the fix\n"),
+        "Step 3 should NOT show checkmark"
+    );
 }
 
 #[test]
@@ -1159,7 +1179,10 @@ fn test_update_and_ensure_progress_mixed_marker_and_no_marker() {
     assert_eq!(tracker.current_step_index(), 2); // no change without marker
 
     // Model self-reports step 3 with checkmark (skipping step 2 marker - forward only)
-    let acc3 = format!("{}\n1. Read the file \u{2713}\nLet me analyze...\n3. Write the fix \u{2713}", acc2);
+    let acc3 = format!(
+        "{}\n1. Read the file \u{2713}\nLet me analyze...\n3. Write the fix \u{2713}",
+        acc2
+    );
     tracker.update_and_ensure_progress(&acc3);
     // Step 3 gets marked, but step 2 is still incomplete.
     // current_step now points to first non-completed step = step 2 (index 1)

@@ -1,9 +1,7 @@
 use crate::app::App;
 
 pub(super) fn handle(app: &mut App) -> bool {
-    use crate::core::session::{
-        SessionData, format_saved_confirmation, generate_session_name,
-    };
+    use crate::core::session::{SessionData, format_saved_confirmation, generate_session_name};
 
     let session_name = generate_session_name();
     let rig_history: Vec<_> = app

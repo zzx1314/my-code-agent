@@ -149,7 +149,11 @@ fn test_prune_old_sessions_keeps_max_count() {
         .as_secs();
 
     for i in 0..7u64 {
-        let mut data = SessionData::new(test_messages(), test_token_usage(), format!("prune_test {}", i));
+        let mut data = SessionData::new(
+            test_messages(),
+            test_token_usage(),
+            format!("prune_test {}", i),
+        );
         data.saved_at = base_ts + i * 100; // space out by 100 seconds
         let name = format!("prune_test_{}", i);
         data.save_with_name(&name).unwrap();
@@ -158,8 +162,15 @@ fn test_prune_old_sessions_keeps_max_count() {
 
     // Verify we have at least 7 sessions
     let all_sessions = SessionData::list_sessions();
-    let test_sessions: Vec<_> = all_sessions.iter().filter(|s| s.name.starts_with("prune_test_")).collect();
-    assert!(test_sessions.len() >= 7, "Expected at least 7 test sessions, got {}", test_sessions.len());
+    let test_sessions: Vec<_> = all_sessions
+        .iter()
+        .filter(|s| s.name.starts_with("prune_test_"))
+        .collect();
+    assert!(
+        test_sessions.len() >= 7,
+        "Expected at least 7 test sessions, got {}",
+        test_sessions.len()
+    );
 
     // Prune to keep only 5
     let removed = SessionData::prune_old_sessions(5).unwrap();
@@ -167,9 +178,16 @@ fn test_prune_old_sessions_keeps_max_count() {
 
     // Check that the newest 5 test sessions still exist (by saved_at)
     let remaining = SessionData::list_sessions();
-    let remaining_test: Vec<_> = remaining.iter().filter(|s| s.name.starts_with("prune_test_")).collect();
+    let remaining_test: Vec<_> = remaining
+        .iter()
+        .filter(|s| s.name.starts_with("prune_test_"))
+        .collect();
     // The remaining test sessions should be the ones with highest saved_at
-    assert!(remaining_test.len() <= 5, "Expected at most 5 test sessions remaining, got {}", remaining_test.len());
+    assert!(
+        remaining_test.len() <= 5,
+        "Expected at most 5 test sessions remaining, got {}",
+        remaining_test.len()
+    );
 
     // Clean up test sessions
     for name in &saved_names {
@@ -190,7 +208,11 @@ fn test_prune_old_sessions_no_op_when_under_limit() {
 
     let mut saved_names = Vec::new();
     for i in 0..3u64 {
-        let mut data = SessionData::new(test_messages(), test_token_usage(), format!("no_prune {}", i));
+        let mut data = SessionData::new(
+            test_messages(),
+            test_token_usage(),
+            format!("no_prune {}", i),
+        );
         data.saved_at = base_ts + 2000 + i * 100;
         let name = format!("no_prune_test_{}", i);
         data.save_with_name(&name).unwrap();
@@ -204,7 +226,10 @@ fn test_prune_old_sessions_no_op_when_under_limit() {
     let _removed = SessionData::prune_old_sessions(5).unwrap();
     // removed might be > 0 if other sessions exist, but our 3 should all survive
     let remaining = SessionData::list_sessions();
-    let remaining_test: Vec<_> = remaining.iter().filter(|s| s.name.starts_with("no_prune_test_")).collect();
+    let remaining_test: Vec<_> = remaining
+        .iter()
+        .filter(|s| s.name.starts_with("no_prune_test_"))
+        .collect();
     assert_eq!(remaining_test.len(), 3, "All 3 test sessions should remain");
 
     // Clean up
@@ -217,15 +242,27 @@ fn test_prune_old_sessions_no_op_when_under_limit() {
 fn test_session_dir_path() {
     let dir = SessionData::session_dir_path();
     // Should end with ".sessions" regardless of base directory
-    assert!(dir.ends_with(".sessions"), "Expected path ending with .sessions, got: {}", dir);
+    assert!(
+        dir.ends_with(".sessions"),
+        "Expected path ending with .sessions, got: {}",
+        dir
+    );
 }
 
 #[test]
 fn test_session_file_path() {
     let path1 = SessionData::session_file_path("my-session");
-    assert!(path1.ends_with(".sessions/my-session.json"), "Expected path ending with .sessions/my-session.json, got: {}", path1);
+    assert!(
+        path1.ends_with(".sessions/my-session.json"),
+        "Expected path ending with .sessions/my-session.json, got: {}",
+        path1
+    );
     let path2 = SessionData::session_file_path("bugfix-123");
-    assert!(path2.ends_with(".sessions/bugfix-123.json"), "Expected path ending with .sessions/bugfix-123.json, got: {}", path2);
+    assert!(
+        path2.ends_with(".sessions/bugfix-123.json"),
+        "Expected path ending with .sessions/bugfix-123.json, got: {}",
+        path2
+    );
 }
 
 // ── format_timestamp ──

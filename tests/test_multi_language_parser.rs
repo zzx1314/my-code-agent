@@ -70,14 +70,22 @@ function standalone() {}
     let structures = parsed.get_all_structures();
 
     // Should have: Animal class, constructor method, speak method, standalone function
-    assert!(structures.len() >= 3, "Expected at least 3 structures, got {}", structures.len());
+    assert!(
+        structures.len() >= 3,
+        "Expected at least 3 structures, got {}",
+        structures.len()
+    );
 
     // Find class
-    let class = structures.iter().find(|s| s.kind == "class" && s.name == Some("Animal".to_string()));
+    let class = structures
+        .iter()
+        .find(|s| s.kind == "class" && s.name == Some("Animal".to_string()));
     assert!(class.is_some(), "Should find Animal class");
 
     // Find standalone function
-    let standalone = structures.iter().find(|s| s.kind == "function" && s.name == Some("standalone".to_string()));
+    let standalone = structures
+        .iter()
+        .find(|s| s.kind == "function" && s.name == Some("standalone".to_string()));
     assert!(standalone.is_some(), "Should find standalone function");
 }
 
@@ -95,15 +103,24 @@ const notAFunction = 42;
     let structures = parsed.get_all_structures();
 
     // Should pick up const with arrow functions
-    let greet = structures.iter().find(|s| s.name == Some("greet".to_string()));
+    let greet = structures
+        .iter()
+        .find(|s| s.name == Some("greet".to_string()));
     assert!(greet.is_some(), "Should find greet const");
 
-    let add = structures.iter().find(|s| s.name == Some("add".to_string()));
+    let add = structures
+        .iter()
+        .find(|s| s.name == Some("add".to_string()));
     assert!(add.is_some(), "Should find add const");
 
     // notAFunction should NOT appear (it's a const, not a function)
-    let not_fn = structures.iter().find(|s| s.name == Some("notAFunction".to_string()));
-    assert!(not_fn.is_none(), "Should not find notAFunction as a structure");
+    let not_fn = structures
+        .iter()
+        .find(|s| s.name == Some("notAFunction".to_string()));
+    assert!(
+        not_fn.is_none(),
+        "Should not find notAFunction as a structure"
+    );
 }
 
 #[test]
@@ -158,7 +175,10 @@ fn test_html_parse_elements() {
 
     assert!(!structures.is_empty(), "Should find some HTML elements");
     // Should find at least an element
-    assert!(structures.iter().any(|s| s.kind == "element"), "Should find elements");
+    assert!(
+        structures.iter().any(|s| s.kind == "element"),
+        "Should find elements"
+    );
 }
 
 #[test]
@@ -252,12 +272,19 @@ class ApiClient {
     let structures = parsed.get_all_structures();
 
     // Should find JS structures inside <script> with correct line numbers
-    let helper = structures.iter().find(|s| s.name == Some("helper".to_string()));
+    let helper = structures
+        .iter()
+        .find(|s| s.name == Some("helper".to_string()));
     assert!(helper.is_some(), "Should find helper() inside script block");
     assert_eq!(helper.unwrap().kind, "function");
 
-    let api = structures.iter().find(|s| s.name == Some("ApiClient".to_string()));
-    assert!(api.is_some(), "Should find ApiClient class inside script block");
+    let api = structures
+        .iter()
+        .find(|s| s.name == Some("ApiClient".to_string()));
+    assert!(
+        api.is_some(),
+        "Should find ApiClient class inside script block"
+    );
     assert_eq!(api.unwrap().kind, "class");
 }
 
@@ -316,8 +343,14 @@ fn test_vue_parse_empty_script() {
     assert!(script.is_some());
 
     // No JS structures in empty script
-    let js_structures: Vec<_> = structures.iter().filter(|s| s.kind == "function" || s.kind == "class").collect();
-    assert!(js_structures.is_empty(), "Empty script should not produce JS structures");
+    let js_structures: Vec<_> = structures
+        .iter()
+        .filter(|s| s.kind == "function" || s.kind == "class")
+        .collect();
+    assert!(
+        js_structures.is_empty(),
+        "Empty script should not produce JS structures"
+    );
 }
 
 // =============================================================================
@@ -339,9 +372,13 @@ struct Config {
     let structures = parsed.get_all_structures();
 
     assert!(structures.len() >= 2);
-    let main_fn = structures.iter().find(|s| s.name == Some("main".to_string()));
+    let main_fn = structures
+        .iter()
+        .find(|s| s.name == Some("main".to_string()));
     assert!(main_fn.is_some());
-    let config = structures.iter().find(|s| s.name == Some("Config".to_string()));
+    let config = structures
+        .iter()
+        .find(|s| s.name == Some("Config".to_string()));
     assert!(config.is_some());
 }
 
@@ -395,13 +432,22 @@ export default {
 ";
     let parsed = ParsedFile::parse_with_path(source.to_string(), "App.vue").unwrap();
     let structures = parsed.get_all_structures();
-    
-    println!("\n=== Vue SFC Outline ({} structures) ===", structures.len());
+
+    println!(
+        "\n=== Vue SFC Outline ({} structures) ===",
+        structures.len()
+    );
     for s in &structures {
         let display_name = s.name.as_deref().unwrap_or("(unnamed)");
-        println!("  {:12} {:20} lines {:3}-{:3}", s.kind, display_name, s.start_line + 1, s.end_line + 1);
+        println!(
+            "  {:12} {:20} lines {:3}-{:3}",
+            s.kind,
+            display_name,
+            s.start_line + 1,
+            s.end_line + 1
+        );
     }
     println!("=============================\n");
-    
+
     assert!(structures.len() >= 3, "Should detect Vue SFC blocks");
 }

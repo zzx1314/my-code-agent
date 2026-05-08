@@ -138,4 +138,3 @@ pub fn render_streaming_markdown(text: &str) -> Vec<Line<'static>> {
 pub fn render_full(text: &str) -> Vec<Line<'static>> {
     render_full_markdown(text)
 }
-

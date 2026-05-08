@@ -1,5 +1,6 @@
 use ratatui::{
-    Terminal, backend::CrosstermBackend,
+    Terminal,
+    backend::CrosstermBackend,
     crossterm::{
         execute,
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},

@@ -4,7 +4,7 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::ui::render::{render_streaming_markdown, render_full};
+use crate::ui::render::{render_full, render_streaming_markdown};
 use crate::ui::terminal;
 
 /// Render the chat history area including streaming content and reasoning.
@@ -22,11 +22,15 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
 
     // Render chat history with correct reasoning placement
-    let has_reasoning = app.config.agent.thinking_display != "hidden" && !app.last_reasoning.is_empty();
+    let has_reasoning =
+        app.config.agent.thinking_display != "hidden" && !app.last_reasoning.is_empty();
 
     if !app.is_streaming && has_reasoning && app.show_inline_reasoning {
         // Non-streaming with reasoning: render reasoning BEFORE the last assistant message
-        let last_assistant_idx = app.chat_history.iter().rposition(|(role, _)| role == "assistant");
+        let last_assistant_idx = app
+            .chat_history
+            .iter()
+            .rposition(|(role, _)| role == "assistant");
         let split_idx = last_assistant_idx.unwrap_or(app.chat_history.len());
 
         // Render messages before the last assistant message

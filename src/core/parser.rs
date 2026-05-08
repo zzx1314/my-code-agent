@@ -268,9 +268,7 @@ impl ParsedFile {
     /// Map HTML AST node kinds to structure types
     fn html_node_kind(node: Node) -> Option<&'static str> {
         match node.kind() {
-            "element" | "script_element" | "style_element" => {
-                Some("element")
-            }
+            "element" | "script_element" | "style_element" => Some("element"),
             _ => None,
         }
     }
@@ -301,10 +299,7 @@ impl ParsedFile {
                 let mut c2 = child.walk();
                 for sub in child.children(&mut c2) {
                     if sub.kind() == "tag_name" {
-                        return sub
-                            .utf8_text(source.as_bytes())
-                            .ok()
-                            .map(|s| s.to_string());
+                        return sub.utf8_text(source.as_bytes()).ok().map(|s| s.to_string());
                     }
                 }
             }
@@ -337,11 +332,10 @@ impl ParsedFile {
                 }
                 None
             }
-            Language::Rust | Language::Html => {
-                node.child_by_field_name("name")
-                    .and_then(|n| n.utf8_text(self.source.as_bytes()).ok())
-                    .map(|s| s.to_string())
-            }
+            Language::Rust | Language::Html => node
+                .child_by_field_name("name")
+                .and_then(|n| n.utf8_text(self.source.as_bytes()).ok())
+                .map(|s| s.to_string()),
         }
     }
 
@@ -560,23 +554,28 @@ impl ParsedFile {
                 let value = node.child_by_field_name("value");
 
                 if let (Some(key_node), Some(val_node)) = (key, value) {
-                    let key_text = key_node
-                        .utf8_text(js_source.as_bytes())
-                        .unwrap_or("");
+                    let key_text = key_node.utf8_text(js_source.as_bytes()).unwrap_or("");
 
-                    let vue_option_keys = [
-                        "methods", "computed", "watch",
-                    ];
+                    let vue_option_keys = ["methods", "computed", "watch"];
                     let vue_lifecycle_hooks = [
-                        "data", "setup",
-                        "beforeCreate", "created",
-                        "beforeMount", "mounted",
-                        "beforeUpdate", "updated",
-                        "beforeDestroy", "destroyed",
-                        "beforeUnmount", "unmounted",
-                        "activated", "deactivated",
+                        "data",
+                        "setup",
+                        "beforeCreate",
+                        "created",
+                        "beforeMount",
+                        "mounted",
+                        "beforeUpdate",
+                        "updated",
+                        "beforeDestroy",
+                        "destroyed",
+                        "beforeUnmount",
+                        "unmounted",
+                        "activated",
+                        "deactivated",
                         "errorCaptured",
-                        "render", "renderTracked", "renderTriggered",
+                        "render",
+                        "renderTracked",
+                        "renderTriggered",
                     ];
 
                     if vue_option_keys.contains(&key_text) && val_node.kind() == "object" {
@@ -633,9 +632,7 @@ impl ParsedFile {
             "object" | "object_pattern" | "array" | "expression_statement" | "statement_block" => {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
-                    self.collect_vue_options_structures(
-                        child, js_source, offset, structures,
-                    );
+                    self.collect_vue_options_structures(child, js_source, offset, structures);
                 }
             }
             _ => {}

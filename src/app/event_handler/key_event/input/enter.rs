@@ -1,9 +1,9 @@
-use crate::app::App;
-use crate::core::context_manager::ContextManager;
-use crate::app::event_handler::command::handle_command;
 use super::reset_input;
 use super::shell::handle_shell_command;
+use crate::app::App;
+use crate::app::event_handler::command::handle_command;
 use crate::app::event_handler::message::send_message_to_llm;
+use crate::core::context_manager::ContextManager;
 
 /// Handle Enter key press (send message)
 pub fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {

@@ -39,6 +39,22 @@ pub enum PlanConfirmationResult {
     AskDetails,
 }
 
+fn strip_step_prefix(s: &str) -> Option<&str> {
+    let s = s.trim();
+    let num_end = s.find(|c: char| !c.is_ascii_digit())?;
+    if num_end == 0 {
+        return None;
+    }
+    let rest = &s[num_end..];
+    if rest.starts_with(". ") || rest.starts_with(") ") {
+        Some(&rest[2..])
+    } else if rest.starts_with('.') || rest.starts_with(')') {
+        Some(rest[1..].trim_start())
+    } else {
+        None
+    }
+}
+
 impl PlanTracker {
     /// Create a new plan tracker
     pub fn new() -> Self {
@@ -64,23 +80,15 @@ impl PlanTracker {
 
         // Extract numbered steps from text
         for line in text.lines() {
-            let trimmed = line.trim();
-            // Match patterns like: 1. Step description
-            // or: 1) Step description
-            if let Some(stripped) = trimmed.strip_prefix(|c: char| c.is_ascii_digit()) {
-                if stripped.starts_with('.') || stripped.starts_with(')') {
-                    if let Some(rest) = stripped.strip_prefix(|c: char| c == '.' || c == ')') {
-                        let raw = rest.trim();
-                        // Strip trailing completion marker (✓ or checkmark)
-                        let step_text = raw
-                            .trim_end_matches('✓')
-                            .trim_end_matches(|c: char| c.is_whitespace())
-                            .to_string();
-                        if !step_text.is_empty() {
-                            self.steps.push(step_text.clone());
-                            self.step_status.insert(step_text, PlanStepStatus::Pending);
-                        }
-                    }
+            if let Some(rest) = strip_step_prefix(line) {
+                let step_text = rest
+                    .trim_end_matches('\u{2713}')
+                    .trim_end_matches('✓')
+                    .trim()
+                    .to_string();
+                if !step_text.is_empty() {
+                    self.steps.push(step_text.clone());
+                    self.step_status.insert(step_text, PlanStepStatus::Pending);
                 }
             }
         }
@@ -108,43 +116,36 @@ impl PlanTracker {
         };
 
         for line in new_text.lines() {
-            let trimmed = line.trim();
+            if let Some(rest) = strip_step_prefix(line) {
+                let has_marker = rest.ends_with('\u{2713}') || rest.ends_with('✓');
+                let step_text = rest
+                    .trim_end_matches('\u{2713}')
+                    .trim_end_matches('✓')
+                    .trim()
+                    .to_string();
 
-            // Check if this line is a numbered step (1. or 1))
-            if let Some(stripped) = trimmed.strip_prefix(|c: char| c.is_ascii_digit()) {
-                if stripped.starts_with('.') || stripped.starts_with(')') {
-                    if let Some(rest) = stripped.strip_prefix(|c: char| c == '.' || c == ')') {
-                        let step_text_raw = rest.trim();
+                if step_text.is_empty() || !has_marker {
+                    continue;
+                }
 
-                        // Detect ✓ marker at end of the step line
-                        let has_marker = step_text_raw.ends_with('\u{2713}');
-                        // Strip trailing ✓ and whitespace for matching
-                        let step_text = step_text_raw
-                            .trim_end_matches('\u{2713}')
-                            .trim_end_matches(|c: char| c.is_whitespace())
-                            .to_string();
+                let idx = self.steps.iter().position(|s| s == &step_text).or_else(|| {
+                    self.steps.iter().position(|s| {
+                        s.contains(step_text.as_str()) || step_text.contains(s.as_str())
+                    })
+                });
 
-                        if !step_text.is_empty() && has_marker {
-                            if let Some(idx) = self.steps.iter().position(|s| s == &step_text) {
-                                // Only mark as completed if this step hasn't been completed yet
-                                // and is at or beyond the current_step (forward-only progression)
-                                let status = self.step_status.get(&step_text);
-                                let already_completed =
-                                    status == Some(&PlanStepStatus::Completed);
-                                if !already_completed && idx >= self.current_step {
-                                    let step = &self.steps[idx];
-                                    self.step_status
-                                        .insert(step.clone(), PlanStepStatus::Completed);
-                                    // Update current_step to the first non-completed step
-                                    self.current_step = (0..self.steps.len())
-                                        .find(|&i| {
-                                            self.step_status.get(&self.steps[i])
-                                                != Some(&PlanStepStatus::Completed)
-                                        })
-                                        .unwrap_or(self.steps.len());
-                                }
-                            }
-                        }
+                if let Some(idx) = idx {
+                    let already_completed =
+                        self.step_status.get(&self.steps[idx]) == Some(&PlanStepStatus::Completed);
+                    if !already_completed && idx >= self.current_step {
+                        let step = self.steps[idx].clone();
+                        self.step_status.insert(step, PlanStepStatus::Completed);
+                        self.current_step = (0..self.steps.len())
+                            .find(|&i| {
+                                self.step_status.get(&self.steps[i])
+                                    != Some(&PlanStepStatus::Completed)
+                            })
+                            .unwrap_or(self.steps.len());
                     }
                 }
             }

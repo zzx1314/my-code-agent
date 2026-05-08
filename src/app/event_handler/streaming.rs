@@ -62,7 +62,9 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
 }
 
 /// Rebuild the agent (used for model/provider switching)
-pub fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<crate::core::preamble::Agent> {
+pub fn rebuild_agent(
+    config: &crate::core::config::Config,
+) -> anyhow::Result<crate::core::preamble::Agent> {
     use crate::core::preamble::build_agent;
     use crate::tools::create_mcp_tools;
 
@@ -196,7 +198,8 @@ fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamRe
     app.streaming_status_messages.clear();
 
     if !result.full_response.is_empty() {
-        app.chat_history.push(("assistant".to_string(), result.full_response.clone()));
+        app.chat_history
+            .push(("assistant".to_string(), result.full_response.clone()));
         // Mark that reasoning should be rendered inline with this LLM response
         app.show_inline_reasoning = !app.last_reasoning.is_empty();
     }

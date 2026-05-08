@@ -6,11 +6,11 @@ use ratatui::{
 // ── Color palette ──────────────────────────────────────────────────────────────
 const HEADING_COLORS: [Color; 6] = [
     Color::Cyan,      // H1
-    Color::Yellow,     // H2
-    Color::Green,      // H3
-    Color::Magenta,    // H4
-    Color::LightBlue,  // H5
-    Color::LightCyan,  // H6
+    Color::Yellow,    // H2
+    Color::Green,     // H3
+    Color::Magenta,   // H4
+    Color::LightBlue, // H5
+    Color::LightCyan, // H6
 ];
 
 const CODE_BG: Color = Color::Rgb(40, 40, 40);
@@ -174,7 +174,10 @@ fn heading_level(line: &str) -> Option<usize> {
 }
 
 fn render_heading(level: usize, content: &str) -> Line<'static> {
-    let color = HEADING_COLORS.get(level - 1).copied().unwrap_or(Color::Cyan);
+    let color = HEADING_COLORS
+        .get(level - 1)
+        .copied()
+        .unwrap_or(Color::Cyan);
     let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
 
     let prefix = match level {
@@ -222,9 +225,7 @@ fn parse_unordered_list(line: &str) -> Option<&str> {
 }
 
 fn render_unordered_item(content: &str) -> Line<'static> {
-    let mut spans = vec![
-        Span::styled("  • ", Style::default().fg(BULLET_FG)),
-    ];
+    let mut spans = vec![Span::styled("  • ", Style::default().fg(BULLET_FG))];
     spans.extend(parse_inline_spans(content, Style::default()));
     Line::from(spans)
 }
@@ -237,9 +238,7 @@ fn parse_ordered_list(line: &str) -> Option<(u32, &str)> {
         num_end += 1;
     }
     // Use get() to safely slice, avoiding invalid byte boundary panics
-    if num_end > 0
-        && line.get(num_end..num_end + 2).is_some_and(|s| s == ". ")
-    {
+    if num_end > 0 && line.get(num_end..num_end + 2).is_some_and(|s| s == ". ") {
         let num: u32 = line[..num_end].parse().ok()?;
         let rest = line.get(num_end + 2..)?;
         Some((num, rest))
@@ -249,9 +248,10 @@ fn parse_ordered_list(line: &str) -> Option<(u32, &str)> {
 }
 
 fn render_ordered_item(num: u32, content: &str) -> Line<'static> {
-    let mut spans = vec![
-        Span::styled(format!("  {}. ", num), Style::default().fg(BULLET_FG)),
-    ];
+    let mut spans = vec![Span::styled(
+        format!("  {}. ", num),
+        Style::default().fg(BULLET_FG),
+    )];
     spans.extend(parse_inline_spans(content, Style::default()));
     Line::from(spans)
 }
@@ -310,10 +310,7 @@ fn parse_inline_spans(text: &str, base_style: Style) -> Vec<Span<'static>> {
         // Inline code: `...`
         if chars[i] == '`' && !is_escaped(&chars, i) {
             if !current.is_empty() {
-                spans.push(Span::styled(
-                    std::mem::take(&mut current),
-                    base_style,
-                ));
+                spans.push(Span::styled(std::mem::take(&mut current), base_style));
             }
             if let Some((end, code)) = find_closing(&chars, i + 1, '`', true) {
                 spans.push(Span::styled(
@@ -328,10 +325,7 @@ fn parse_inline_spans(text: &str, base_style: Style) -> Vec<Span<'static>> {
         // Bold: **...** (must check before italic since * overlaps)
         if i + 1 < len && chars[i] == '*' && chars[i + 1] == '*' {
             if !current.is_empty() {
-                spans.push(Span::styled(
-                    std::mem::take(&mut current),
-                    base_style,
-                ));
+                spans.push(Span::styled(std::mem::take(&mut current), base_style));
             }
             if let Some((end, content)) = find_closing(&chars, i + 2, '*', false) {
                 // Find closing **
@@ -351,10 +345,7 @@ fn parse_inline_spans(text: &str, base_style: Style) -> Vec<Span<'static>> {
         // Strikethrough: ~~...~~
         if i + 1 < len && chars[i] == '~' && chars[i + 1] == '~' {
             if !current.is_empty() {
-                spans.push(Span::styled(
-                    std::mem::take(&mut current),
-                    base_style,
-                ));
+                spans.push(Span::styled(std::mem::take(&mut current), base_style));
             }
             if let Some((end, content)) = find_closing_double(&chars, i + 2, '~') {
                 let strike_style = base_style.add_modifier(Modifier::CROSSED_OUT);
@@ -376,10 +367,7 @@ fn parse_inline_spans(text: &str, base_style: Style) -> Vec<Span<'static>> {
                 continue;
             }
             if !current.is_empty() {
-                spans.push(Span::styled(
-                    std::mem::take(&mut current),
-                    base_style,
-                ));
+                spans.push(Span::styled(std::mem::take(&mut current), base_style));
             }
             if let Some((end, content)) = find_closing(&chars, i + 1, chars[i], true) {
                 let italic_style = base_style.add_modifier(Modifier::ITALIC);
@@ -392,10 +380,7 @@ fn parse_inline_spans(text: &str, base_style: Style) -> Vec<Span<'static>> {
         // Link: [text](url)
         if chars[i] == '[' {
             if !current.is_empty() {
-                spans.push(Span::styled(
-                    std::mem::take(&mut current),
-                    base_style,
-                ));
+                spans.push(Span::styled(std::mem::take(&mut current), base_style));
             }
             // Find closing ] then (url)
             if let Some(bracket_end) = find_char(&chars, i + 1, ']') {
@@ -436,10 +421,7 @@ fn parse_inline_spans_inner(text: &str, base_style: Style) -> Vec<Span<'static>>
         // Inline code: `...`
         if chars[i] == '`' {
             if !current.is_empty() {
-                spans.push(Span::styled(
-                    std::mem::take(&mut current),
-                    base_style,
-                ));
+                spans.push(Span::styled(std::mem::take(&mut current), base_style));
             }
             if let Some((end, code)) = find_closing(&chars, i + 1, '`', true) {
                 spans.push(Span::styled(
@@ -454,10 +436,7 @@ fn parse_inline_spans_inner(text: &str, base_style: Style) -> Vec<Span<'static>>
         // Link inside bold/italic
         if chars[i] == '[' {
             if !current.is_empty() {
-                spans.push(Span::styled(
-                    std::mem::take(&mut current),
-                    base_style,
-                ));
+                spans.push(Span::styled(std::mem::take(&mut current), base_style));
             }
             if let Some(bracket_end) = find_char(&chars, i + 1, ']') {
                 if bracket_end + 1 < len && chars[bracket_end + 1] == '(' {
@@ -489,7 +468,12 @@ fn parse_inline_spans_inner(text: &str, base_style: Style) -> Vec<Span<'static>>
 
 /// Find closing delimiter and return (position_after_match, content_between).
 /// For backtick inline code (`code`), no nested parsing needed.
-fn find_closing(chars: &[char], start: usize, delim: char, allow_newline: bool) -> Option<(usize, String)> {
+fn find_closing(
+    chars: &[char],
+    start: usize,
+    delim: char,
+    allow_newline: bool,
+) -> Option<(usize, String)> {
     let mut content = String::new();
     let mut i = start;
     while i < chars.len() {
@@ -549,4 +533,3 @@ pub fn render_streaming_markdown(text: &str) -> Vec<Line<'static>> {
 pub fn render_full_markdown(text: &str) -> Vec<Line<'static>> {
     render_markdown(text)
 }
-

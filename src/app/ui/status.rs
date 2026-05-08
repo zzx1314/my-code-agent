@@ -1,7 +1,4 @@
-use ratatui::{
-    prelude::*,
-    widgets::Paragraph,
-};
+use ratatui::{prelude::*, widgets::Paragraph};
 
 use crate::app::App;
 

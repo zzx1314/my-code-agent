@@ -33,7 +33,9 @@ pub fn handle_model_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                 app.chat_history
                     .push(("user".to_string(), format!("/model {}", selected_model)));
 
-                if let Ok(new_agent) = crate::app::event_handler::streaming::rebuild_agent(&app.config) {
+                if let Ok(new_agent) =
+                    crate::app::event_handler::streaming::rebuild_agent(&app.config)
+                {
                     app.agent = Arc::new(new_agent);
                     app.chat_history.push((
                         "assistant".to_string(),

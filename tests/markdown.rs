@@ -17,7 +17,11 @@ fn test_code_block() {
     assert!(result.len() >= 4);
     // Top border should contain the language label
     let top_border = format!("{:?}", result[0]);
-    assert!(top_border.contains("rust"), "top border should contain language label, got: {}", top_border);
+    assert!(
+        top_border.contains("rust"),
+        "top border should contain language label, got: {}",
+        top_border
+    );
 }
 
 #[test]

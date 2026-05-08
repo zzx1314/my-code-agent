@@ -18,8 +18,7 @@ const MAX_INPUT_HEIGHT: u16 = 14;
 fn update_input_style(app: &mut App) {
     let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let (border_color, title_text, cursor_style) = if app.is_streaming {
-        let frame = spinner_frames
-            [(app.marquee_frame as usize / 2) % spinner_frames.len()];
+        let frame = spinner_frames[(app.marquee_frame as usize / 2) % spinner_frames.len()];
         (
             Color::DarkGray,
             format!(" {} Processing... ", frame),

@@ -137,8 +137,8 @@ fn test_context_usage_percent_half() {
 #[test]
 fn test_context_usage_percent_uses_last_turn_not_accumulated() {
     let mut tu = TokenUsage::with_context_window(1000);
-    tu.add(make_usage(100, 50, 150));  // turn 1: 100 input tokens
-    tu.add(make_usage(200, 80, 280));  // turn 2: 200 input tokens (full prompt)
+    tu.add(make_usage(100, 50, 150)); // turn 1: 100 input tokens
+    tu.add(make_usage(200, 80, 280)); // turn 2: 200 input tokens (full prompt)
     // Should use last turn's 200, not accumulated 300
     assert_eq!(tu.context_usage_percent(), 20);
 }

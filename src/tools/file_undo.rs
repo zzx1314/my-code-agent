@@ -150,4 +150,3 @@ pub fn apply_undo(entry: &UndoEntry, details: &mut Vec<UndoDetail>) -> Result<()
 
     Ok(())
 }
-

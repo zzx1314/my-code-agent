@@ -6,10 +6,12 @@ use ratatui::crossterm::event::{self, KeyCode, KeyModifiers};
 
 use crate::app::App;
 use crate::core::context_manager::ContextManager;
-use completion::{apply_completion, hide_completion, trigger_completion, update_completion_query, get_cursor_position};
+use completion::{
+    apply_completion, get_cursor_position, hide_completion, trigger_completion,
+    update_completion_query,
+};
 use input::handle_enter_key;
-use picker::{handle_provider_picker_key, handle_session_picker_key, handle_model_picker_key};
-
+use picker::{handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key};
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {

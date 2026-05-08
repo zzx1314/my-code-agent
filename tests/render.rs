@@ -1,5 +1,5 @@
 use my_code_agent::ui::render::{MarkdownRenderer, ReasoningTracker};
-use my_code_agent::ui::render::{render_streaming_markdown, render_full};
+use my_code_agent::ui::render::{render_full, render_streaming_markdown};
 
 // ── MarkdownRenderer state tests ──
 

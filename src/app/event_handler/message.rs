@@ -47,10 +47,7 @@ pub fn handle_paste_event(text: &str, app: &mut App) {
 }
 
 /// Handle mouse events
-pub fn handle_mouse_event(
-    mouse: ratatui::crossterm::event::MouseEvent,
-    app: &mut App,
-) {
+pub fn handle_mouse_event(mouse: ratatui::crossterm::event::MouseEvent, app: &mut App) {
     use ratatui::crossterm::event::MouseEventKind;
 
     match mouse.kind {
@@ -69,4 +66,3 @@ pub fn handle_mouse_event(
         _ => {} // Ignore other mouse events without affecting text selection
     }
 }
-

@@ -12,8 +12,7 @@ pub fn handle_provider_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
     match key.code {
         KeyCode::Down | KeyCode::Tab => {
             if !app.provider_options.is_empty() {
-                app.provider_selected =
-                    (app.provider_selected + 1) % app.provider_options.len();
+                app.provider_selected = (app.provider_selected + 1) % app.provider_options.len();
             }
             true
         }
@@ -36,8 +35,7 @@ pub fn handle_provider_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                     "openrouter" => "OPENROUTER_API_KEY".to_string(),
                     _ => String::new(),
                 };
-                app.model_options =
-                    crate::app::get_model_options_for_provider(&selected_provider);
+                app.model_options = crate::app::get_model_options_for_provider(&selected_provider);
                 app.model_selected = 0;
                 app.config.llm.model = app.model_options.first().cloned();
 
@@ -46,7 +44,9 @@ pub fn handle_provider_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                     format!("/connect {}", selected_provider),
                 ));
 
-                if let Ok(new_agent) = crate::app::event_handler::streaming::rebuild_agent(&app.config) {
+                if let Ok(new_agent) =
+                    crate::app::event_handler::streaming::rebuild_agent(&app.config)
+                {
                     app.agent = Arc::new(new_agent);
                     app.chat_history.push((
                         "assistant".to_string(),

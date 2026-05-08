@@ -1,5 +1,5 @@
-use crate::app::App;
 use super::reset_input;
+use crate::app::App;
 
 /// Handle shell mode command execution
 pub fn handle_shell_command(app: &mut App, input_text: &str) {
@@ -32,9 +32,8 @@ pub fn handle_shell_command(app: &mut App, input_text: &str) {
 
     // Handle cd command specially — subprocess cd doesn't affect the parent process
     let cmd_trimmed = cmd.trim();
-    let is_cd = cmd_trimmed == "cd"
-        || cmd_trimmed.starts_with("cd ")
-        || cmd_trimmed.starts_with("cd\t");
+    let is_cd =
+        cmd_trimmed == "cd" || cmd_trimmed.starts_with("cd ") || cmd_trimmed.starts_with("cd\t");
     if is_cd {
         let target = if cmd_trimmed == "cd" {
             std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
@@ -85,9 +84,7 @@ pub fn handle_shell_command(app: &mut App, input_text: &str) {
     let output = std::process::Command::new("bash")
         .arg("-c")
         .arg(&cmd)
-        .current_dir(
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
-        )
+        .current_dir(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
         .output();
 
     match output {

@@ -27,8 +27,8 @@ pub mod plan;
 // session is still at crate::core::session
 
 // plan submodules re-exported at top level
-pub use plan::tracker as plan_tracker;
 pub use plan::detect_task_plan;
+pub use plan::tracker as plan_tracker;
 
 // agent submodules re-exported at top level
 pub use agent::connection;

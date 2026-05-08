@@ -1,5 +1,7 @@
 use my_code_agent::tools::file_undo::apply_undo;
-use my_code_agent::tools::undo_history::{pop_current_session_entries, record_change, set_session_id};
+use my_code_agent::tools::undo_history::{
+    pop_current_session_entries, record_change, set_session_id,
+};
 use tempfile::tempdir;
 
 #[test]

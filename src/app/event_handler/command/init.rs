@@ -1,8 +1,6 @@
 use crate::app::App;
 
-use super::super::init::{
-    build_init_prompt, build_init_result, generate_knowledge_content_local,
-};
+use super::super::init::{build_init_prompt, build_init_result, generate_knowledge_content_local};
 
 pub(super) fn handle(app: &mut App) -> bool {
     let knowledge_file = crate::core::preamble::KNOWLEDGE_FILE.to_string();
@@ -42,11 +40,9 @@ pub(super) fn handle(app: &mut App) -> bool {
 
     tokio::spawn(async move {
         let mut chat_history = Vec::new();
-        let mut token_usage =
-            crate::core::token_usage::TokenUsage::with_config(&config_clone);
+        let mut token_usage = crate::core::token_usage::TokenUsage::with_config(&config_clone);
         let mut interrupt_rx = interrupt_rx;
-        let mut ctx_mgr =
-            crate::core::context_manager::ContextManager::new(&config_clone);
+        let mut ctx_mgr = crate::core::context_manager::ContextManager::new(&config_clone);
 
         let result = crate::core::streaming::stream_response(
             &agent_clone,
@@ -70,10 +66,7 @@ pub(super) fn handle(app: &mut App) -> bool {
             let raw = result.full_response.trim();
             let stripped = super::super::init::strip_code_fences(raw);
             let cleaned = super::super::init::strip_preamble_before_heading(stripped);
-            tracing::info!(
-                bytes = cleaned.len(),
-                "Generated knowledge content via LLM"
-            );
+            tracing::info!(bytes = cleaned.len(), "Generated knowledge content via LLM");
             cleaned.to_string()
         };
 

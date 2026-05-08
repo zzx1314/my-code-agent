@@ -8,8 +8,8 @@ use crate::core::config::AgentConfig;
 use crate::core::context_manager::ContextManager;
 use crate::core::plan::detect::detect_task_plan;
 use crate::core::plan::tracker::PlanTracker;
-use crate::core::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::core::preamble::Agent;
+use crate::core::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::ui::render::ReasoningTracker;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -222,7 +222,10 @@ where
                     plan_tracker.update_and_ensure_progress(&plan_text);
                     // Refresh the plan display in status_messages with updated ✓ markers
                     let updated_display = plan_tracker.format_with_confirmation();
-                    if let Some(plan_msg) = status_messages.iter_mut().find(|m| m.contains("📋 Task Plan")) {
+                    if let Some(plan_msg) = status_messages
+                        .iter_mut()
+                        .find(|m| m.contains("📋 Task Plan"))
+                    {
                         *plan_msg = updated_display;
                     }
                 }
@@ -272,7 +275,10 @@ where
                     plan_tracker.update_from_text(&plan_text);
                     // Refresh the plan display with final ✓ markers
                     let updated_display = plan_tracker.format_with_confirmation();
-                    if let Some(plan_msg) = status_messages.iter_mut().find(|m| m.contains("📋 Task Plan")) {
+                    if let Some(plan_msg) = status_messages
+                        .iter_mut()
+                        .find(|m| m.contains("📋 Task Plan"))
+                    {
                         *plan_msg = updated_display;
                     }
                 }

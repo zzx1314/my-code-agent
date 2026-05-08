@@ -135,7 +135,7 @@ impl App {
         input_area.set_block(
             ratatui::widgets::Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Double)
+                .border_type(ratatui::widgets::BorderType::Double),
         );
         input_area.set_cursor_line_style(ratatui::style::Style::default());
 
