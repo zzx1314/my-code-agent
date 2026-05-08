@@ -1,13 +1,39 @@
+// Configuration
 pub mod config;
-pub mod connection;
-pub mod context;
-pub mod context_cache;
-pub mod context_manager;
-pub mod file_cache;
-pub mod parser;
 pub mod paths;
-pub mod plan_tracker;
-pub mod preamble;
+
+// Agent: LLM connection, preamble, streaming
+pub mod agent;
+
+// Context: file attachment, caching, token tracking
+pub mod context;
+
+// Code parsing
+pub mod parser;
+
+// Session persistence
 pub mod session;
-pub mod streaming;
-pub mod token_usage;
+
+// Task planning
+pub mod plan_tracker;
+
+// ── Backward-compatible re-exports ──────────────────────────────────────────
+// These ensure that existing code using `crate::core::config`, `crate::core::context`,
+// etc. continues to work without changes.
+
+// config is still at crate::core::config
+// paths is still at crate::core::paths
+// parser is still at crate::core::parser
+// session is still at crate::core::session
+// plan_tracker is still at crate::core::plan_tracker
+
+// agent submodules re-exported at top level
+pub use agent::connection;
+pub use agent::preamble;
+pub use agent::streaming;
+
+// context submodules re-exported at top level
+pub use context::context_cache;
+pub use context::context_manager;
+pub use context::file_cache;
+pub use context::token_usage;

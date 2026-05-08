@@ -4,10 +4,10 @@ use rig::completion::{CompletionModel, GetTokenUsage, Message};
 use rig::streaming::{StreamedAssistantContent, StreamingChat};
 use tokio::sync::mpsc;
 
-use super::config::AgentConfig;
-use super::context_manager::ContextManager;
-use super::plan_tracker::PlanTracker;
-use super::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
+use crate::core::config::AgentConfig;
+use crate::core::context_manager::ContextManager;
+use crate::core::plan_tracker::PlanTracker;
+use crate::core::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::core::preamble::Agent;
 use crate::ui::render::ReasoningTracker;
 
