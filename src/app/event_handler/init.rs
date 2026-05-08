@@ -100,8 +100,7 @@ pub fn build_init_result(
             Ok(new_agent) => InitResult {
                 message: format!(
                     "✅ {} '{}' ({} bytes) with current project info.\nAgent reloaded with updated knowledge.",
-                    action,
-                    knowledge_file,
+                    action, knowledge_file,
                     new_content.len()
                 ),
                 new_agent: Some(new_agent),
@@ -128,15 +127,35 @@ fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> 
     Ok(build_agent(config, mcp_tools))
 }
 
+// ---------------------------------------------------------------------------
+// Local knowledge generation (no LLM fallback)
+// ---------------------------------------------------------------------------
+
 /// Local fallback for knowledge generation (no LLM)
 pub fn generate_knowledge_content_local() -> String {
+    // Parse Cargo.toml once; all sections that need it share this reference
+    let cargo_toml = std::fs::read_to_string("Cargo.toml")
+        .ok()
+        .and_then(|c| c.parse::<toml::Value>().ok());
+
     let mut content = String::new();
     content.push_str("# Project Knowledge\n\n");
 
-    // === What This Is ===
-    content.push_str("## What This Is\n");
+    content.push_str(&section_what_this_is());
+    content.push_str(&section_project_structure());
+    content.push_str(&section_entry_points());
+    content.push_str(&section_dependencies(cargo_toml.as_ref()));
+    content.push_str(&section_project_metadata(cargo_toml.as_ref()));
+    content.push_str(&section_test_files());
+    content.push_str(&section_conventions());
+
+    content
+}
+
+/// Extract the first meaningful paragraph from README.md
+fn section_what_this_is() -> String {
+    let mut s = "## What This Is\n".to_string();
     if let Ok(readme) = std::fs::read_to_string("README.md") {
-        // Try to extract the first meaningful paragraph after the title
         let meaningful: String = readme
             .lines()
             .skip_while(|line| line.starts_with('#') || line.trim().is_empty())
@@ -144,158 +163,163 @@ pub fn generate_knowledge_content_local() -> String {
             .collect::<Vec<_>>()
             .join("\n");
         if !meaningful.is_empty() {
-            content.push_str(&meaningful);
-            content.push_str("\n\n");
-        } else {
-            content.push_str("[Project description from README.md]\n\n");
-        }
-    } else {
-        content.push_str("[Describe your project here]\n\n");
-    }
-
-    // === Project Structure ===
-    content.push_str("## Project Structure\n\n");
-    content.push_str("```\n");
-    if let Ok(entries) = glob::glob("**/*.rs") {
-        let mut files: Vec<String> = entries
-            .filter_map(|e| e.ok())
-            .filter(|e| !e.to_string_lossy().contains("target/"))
-            .map(|e| e.to_string_lossy().to_string())
-            .collect();
-        files.sort();
-        files.dedup();
-        for file in files.iter().take(40) {
-            content.push_str(&format!("{}\n", file));
-        }
-        if files.len() > 40 {
-            content.push_str(&format!("... ({} more files)\n", files.len() - 40));
+            s.push_str(&meaningful);
+            s.push_str("\n\n");
+            return s;
         }
     }
-    content.push_str("```\n\n");
+    s.push_str("[Describe your project here]\n\n");
+    s
+}
 
-    // === Entry Points ===
-    content.push_str("## Entry Points\n\n");
-    let entry_files = ["src/main.rs", "src/lib.rs", "src/index.rs", "src/app.rs"];
-    for entry in &entry_files {
+/// Glob source files with a limit and overflow message
+fn format_glob_files(pattern: &str, limit: usize) -> Vec<String> {
+    let Ok(entries) = glob::glob(pattern) else {
+        return Vec::new();
+    };
+    let mut files: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| !e.to_string_lossy().contains("target/"))
+        .map(|e| e.to_string_lossy().to_string())
+        .collect();
+    files.sort();
+    files.dedup();
+    let total = files.len();
+    files.truncate(limit);
+    if total > limit {
+        files.push(format!("... ({} more files)", total - limit));
+    }
+    files
+}
+
+/// Project directory structure
+fn section_project_structure() -> String {
+    let mut s = "## Project Structure\n\n```\n".to_string();
+    for file in format_glob_files("**/*.rs", 40) {
+        s.push_str(&format!("{}\n", file));
+    }
+    s.push_str("```\n\n");
+    s
+}
+
+/// Common entry-point files
+fn section_entry_points() -> String {
+    let mut s = "## Entry Points\n\n".to_string();
+    for entry in &["src/main.rs", "src/lib.rs", "src/index.rs", "src/app.rs"] {
         if std::path::Path::new(entry).exists() {
-            content.push_str(&format!("- `{}`\n", entry));
+            s.push_str(&format!("- `{}`\n", entry));
         }
     }
-    content.push_str("\n");
+    s.push('\n');
+    s
+}
 
-    // === Key Dependencies ===
-    content.push_str("## Key Dependencies\n\n");
-    if let Ok(cargo_content) = std::fs::read_to_string("Cargo.toml") {
-        if let Ok(cargo_toml) = cargo_content.parse::<toml::Value>() {
-            // Main dependencies
-            if let Some(deps) = cargo_toml.get("dependencies").and_then(|d| d.as_table()) {
-                let mut dep_list: Vec<String> = deps
-                    .iter()
-                    .filter(|(name, _)| !name.starts_with('_')) // skip internal path deps
-                    .map(|(name, value)| {
-                        let version = match value {
-                            toml::Value::String(v) => v.clone(),
-                            toml::Value::Table(t) => {
-                                let ver = t.get("version").and_then(|v| v.as_str()).unwrap_or("*");
-                                let features = t
-                                    .get("features")
-                                    .and_then(|f| f.as_array())
-                                    .map(|arr| {
-                                        let feats: Vec<&str> =
-                                            arr.iter().filter_map(|v| v.as_str()).collect();
-                                        format!(" (features: {})", feats.join(", "))
-                                    })
-                                    .unwrap_or_default();
-                                format!("{}{}", ver, features)
-                            }
-                            _ => "*".to_string(),
-                        };
-                        format!("- **{}** v{}", name, version)
-                    })
-                    .collect();
-                dep_list.sort();
-                content.push_str(&dep_list.join("\n"));
-                content.push_str("\n\n");
-            }
-            // Dev dependencies
-            if let Some(dev_deps) = cargo_toml
-                .get("dev-dependencies")
-                .and_then(|d| d.as_table())
-            {
-                if !dev_deps.is_empty() {
-                    content.push_str("### Dev Dependencies\n\n");
-                    let mut dev_list: Vec<String> = dev_deps
-                        .iter()
-                        .map(|(name, value)| {
-                            let version = match value {
-                                toml::Value::String(v) => v.clone(),
-                                _ => "*".to_string(),
-                            };
-                            format!("- **{}** v{}", name, version)
-                        })
-                        .collect();
-                    dev_list.sort();
-                    content.push_str(&dev_list.join("\n"));
-                    content.push_str("\n\n");
-                }
-            }
+/// Parse a single dependency value from Cargo.toml into a display version string
+fn parse_dep_version(value: &toml::Value) -> String {
+    match value {
+        toml::Value::String(v) => v.clone(),
+        toml::Value::Table(t) => {
+            let ver = t.get("version").and_then(|v| v.as_str()).unwrap_or("*");
+            let features = t
+                .get("features")
+                .and_then(|f| f.as_array())
+                .map(|arr| {
+                    let feats: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+                    format!(" (features: {})", feats.join(", "))
+                })
+                .unwrap_or_default();
+            format!("{}{}", ver, features)
+        }
+        _ => "*".to_string(),
+    }
+}
+
+/// Format a dependency table as a sorted Markdown list
+fn format_dep_table(deps: &toml::value::Table, skip_underscore: bool) -> String {
+    let mut list: Vec<String> = deps
+        .iter()
+        .filter(|(name, _)| !(skip_underscore && name.starts_with('_')))
+        .map(|(name, value)| format!("- **{}** v{}", name, parse_dep_version(value)))
+        .collect();
+    list.sort();
+    list.join("\n")
+}
+
+/// Key dependencies and dev-dependencies
+fn section_dependencies(cargo_toml: Option<&toml::Value>) -> String {
+    let mut s = "## Key Dependencies\n\n".to_string();
+    let Some(toml) = cargo_toml else {
+        return s;
+    };
+    if let Some(deps) = toml.get("dependencies").and_then(|d| d.as_table()) {
+        let list = format_dep_table(deps, true);
+        if !list.is_empty() {
+            s.push_str(&list);
+            s.push_str("\n\n");
         }
     }
-
-    // === Rust Edition & Features ===
-    if let Ok(cargo_content) = std::fs::read_to_string("Cargo.toml") {
-        if let Ok(cargo_toml) = cargo_content.parse::<toml::Value>() {
-            if let Some(package) = cargo_toml.get("package") {
-                let mut meta_parts = Vec::new();
-                if let Some(edition) = package.get("edition").and_then(|e| e.as_str()) {
-                    meta_parts.push(format!("Rust edition: {}", edition));
-                }
-                if let Some(name) = package.get("name").and_then(|n| n.as_str()) {
-                    meta_parts.push(format!("Crate name: {}", name));
-                }
-                if !meta_parts.is_empty() {
-                    content.push_str("## Project Metadata\n\n");
-                    for part in &meta_parts {
-                        content.push_str(&format!("- {}\n", part));
-                    }
-                    content.push_str("\n");
-                }
-            }
+    if let Some(dev_deps) = toml.get("dev-dependencies").and_then(|d| d.as_table()) {
+        if !dev_deps.is_empty() {
+            s.push_str("### Dev Dependencies\n\n");
+            s.push_str(&format_dep_table(dev_deps, false));
+            s.push_str("\n\n");
         }
     }
+    s
+}
 
-    // === Test Files ===
-    content.push_str("## Tests\n\n");
-    if let Ok(entries) = glob::glob("tests/**/*.rs") {
-        let mut test_files: Vec<String> = entries
-            .filter_map(|e| e.ok())
-            .map(|e| e.to_string_lossy().to_string())
-            .collect();
-        test_files.sort();
-        if test_files.is_empty() {
-            content.push_str("[No test files found in tests/]\n\n");
-        } else {
-            for file in test_files.iter().take(15) {
-                content.push_str(&format!("- `{}`\n", file));
-            }
-            if test_files.len() > 15 {
-                content.push_str(&format!(
-                    "... ({} more test files)\n",
-                    test_files.len() - 15
-                ));
-            }
-            content.push_str("\n");
-        }
+/// Project metadata (edition, crate name)
+fn section_project_metadata(cargo_toml: Option<&toml::Value>) -> String {
+    let Some(package) = cargo_toml.and_then(|t| t.get("package")) else {
+        return String::new();
+    };
+    let mut meta_parts = Vec::new();
+    if let Some(edition) = package.get("edition").and_then(|e| e.as_str()) {
+        meta_parts.push(format!("- Rust edition: {}", edition));
     }
+    if let Some(name) = package.get("name").and_then(|n| n.as_str()) {
+        meta_parts.push(format!("- Crate name: {}", name));
+    }
+    if meta_parts.is_empty() {
+        return String::new();
+    }
+    format!("## Project Metadata\n\n{}\n\n", meta_parts.join("\n"))
+}
 
-    // === Conventions ===
-    content.push_str("## Conventions & Gotchas\n\n");
-    // Auto-detect some conventions
+/// Test file listing
+fn section_test_files() -> String {
+    let mut s = "## Tests\n\n".to_string();
+    let Ok(entries) = glob::glob("tests/**/*.rs") else {
+        return s;
+    };
+    let mut test_files: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.to_string_lossy().to_string())
+        .collect();
+    test_files.sort();
+    if test_files.is_empty() {
+        s.push_str("[No test files found in tests/]\n\n");
+        return s;
+    }
+    let total = test_files.len();
+    for file in test_files.iter().take(15) {
+        s.push_str(&format!("- `{}`\n", file));
+    }
+    if total > 15 {
+        s.push_str(&format!("... ({} more test files)\n", total - 15));
+    }
+    s.push('\n');
+    s
+}
+
+/// Auto-detected conventions
+fn section_conventions() -> String {
     let mut conventions = Vec::new();
     if std::path::Path::new(".gitignore").exists() {
         conventions.push("- Project uses .gitignore for version control");
     }
-    if std::path::Path::new("clippy.toml").exists() || std::path::Path::new("rustfmt.toml").exists()
+    if std::path::Path::new("clippy.toml").exists()
+        || std::path::Path::new("rustfmt.toml").exists()
     {
         conventions.push("- Clippy/rustfmt configuration present — follow formatting rules");
     }
@@ -305,9 +329,5 @@ pub fn generate_knowledge_content_local() -> String {
     if conventions.is_empty() {
         conventions.push("- [Add important conventions here]");
     }
-    for conv in &conventions {
-        content.push_str(&format!("{}\n", conv));
-    }
-
-    content
+    format!("## Conventions & Gotchas\n\n{}\n", conventions.join("\n"))
 }
