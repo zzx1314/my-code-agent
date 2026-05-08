@@ -193,12 +193,17 @@ where
                     text_content.text.clone()
                 };
 
-                // Send text delta for live display (plain text during streaming)
-                send_event(StreamEvent::Text(text_to_send.clone()));
-
+                // Check plan BEFORE sending to UI so we can suppress raw plan text
                 if !plan_detected && detect_task_plan(&text_content.text) {
                     plan_detected = true;
                     plan_text.clear();
+                    plan_text.push_str(&text_content.text);
+                    continue;
+                }
+
+                // Suppress raw plan text from streaming display before plan is parsed (first tool call).
+                // Plan is shown via PlanProgress instead, avoiding confusing ✓ in the initial output.
+                if plan_detected && !plan_tracker.has_active_plan() {
                     plan_text.push_str(&text_content.text);
                     continue;
                 }
@@ -207,6 +212,7 @@ where
                     plan_text.push_str(&text_content.text);
                 }
 
+                send_event(StreamEvent::Text(text_to_send.clone()));
                 full_response.push_str(&text_to_send);
             }
 
