@@ -1,5 +1,4 @@
 mod command;
-mod completion;
 mod init;
 mod key_event;
 mod message;
