@@ -280,38 +280,65 @@ The session file is gitignored by default.
 
 ```
 src/
-├── main.rs           # CLI entry point and interactive loop
-├── lib.rs            # Library crate root
-├── core/            # Core functionality
-│   ├── config.rs   # Configuration (TOML) with defaults
-│   ├── context.rs  # @filepath parsing and expansion
-│   ├── preamble.rs # Agent builder, preamble template
-│   ├── session.rs  # Session persistence (save/load/resume)
-│   ├── streaming.rs# Streaming response handling
-│   └── token_usage.rs # Token usage tracking
-├── ui/              # Terminal UI
-│   ├── mod.rs      # UI module root
-│   ├── render.rs   # Markdown renderer
-│   └── terminal.rs # Banner, help, commands
-└── tools/          # Tool implementations
-    ├── mod.rs      # Tool registry (all_tools)
-    ├── file_outline.rs # Show file structure outline
-    ├── code_review.rs
-    ├── code_search.rs
-    ├── file_read.rs
-    ├── file_write.rs
-    ├── file_update.rs
-    ├── file_delete.rs
-    ├── shell_exec.rs
-    ├── list_dir.rs
-    ├── glob.rs
-    ├── git_status.rs
-    ├── git_diff.rs
-    ├── git_log.rs
-    ├── git_commit.rs
-    ├── confirmation.rs # User confirmation prompts
-    └── safety.rs   # Dangerous command/file checks
-tests/               # Integration tests (21 test files)
+├── main.rs               # CLI entry point and interactive loop
+├── lib.rs                # Library crate root (exports app, core, mcp, tools, ui)
+├── app/                  # Application layer
+│   ├── mod.rs            # App struct, InitResult, PendingConfirmation
+│   ├── conversion.rs     # Data conversion utilities (rig ↔ app message types)
+│   ├── lifecycle.rs      # Application lifecycle management
+│   ├── event_handler/    # User input event handling, command dispatch
+│   │   ├── mod.rs
+│   │   ├── init.rs       # Event handler initialization
+│   │   ├── message.rs    # Message event processing
+│   │   ├── streaming.rs  # Streaming event handling
+│   │   ├── terminal.rs   # Terminal event handling
+│   │   ├── command/      # Slash command implementations (15 commands)
+│   │   │   ├── mod.rs, clear.rs, connect.rs, help.rs, init.rs
+│   │   │   ├── load.rs, model.rs, plan.rs, quit.rs, save.rs
+│   │   │   ├── shell.rs, status.rs, think.rs, tokens.rs, undo.rs
+│   │   └── key_event/    # Key event handling
+│   │       ├── mod.rs, completion.rs
+│   │       ├── input/    # Input key handlers (enter.rs, shell.rs)
+│   │       └── picker/   # Picker handlers (model.rs, provider.rs, session.rs)
+│   └── ui/               # Application UI rendering
+│       ├── chat.rs       # Chat area rendering
+│       ├── input.rs      # Input area rendering
+│       ├── overlays.rs   # Overlay dialogs (picker, confirmation, etc.)
+│       └── status.rs     # Status bar rendering
+├── core/                 # Core functionality
+│   ├── mod.rs, init.rs
+│   ├── config/           # TOML config loader with defaults
+│   ├── agent/            # LLM agent management
+│   │   ├── connection.rs # LLM connection management
+│   │   ├── preamble.rs   # Agent builder, provider setup
+│   │   └── streaming.rs  # Streaming response handling
+│   ├── context/          # Context management
+│   │   ├── file_ref.rs   # @filepath parsing and expansion
+│   │   ├── context_cache.rs, context_manager.rs
+│   │   ├── file_cache.rs, token_usage.rs
+│   ├── parser/           # Parsing utilities (tree-sitter based)
+│   ├── session/          # Session persistence (save/load/resume)
+│   └── paths/            # Path resolution helpers
+├── tools/                # Tool implementations (18 tools)
+│   ├── mod.rs            # Tool registry (all_tools, all_tools_with_handle, create_mcp_tools)
+│   ├── code_review.rs, code_search.rs, confirmation.rs
+│   ├── file_delete.rs, file_outline.rs, file_read.rs
+│   ├── file_undo.rs, file_update.rs, file_write.rs
+│   ├── git_commit.rs, git_diff.rs, git_log.rs, git_status.rs
+│   ├── glob.rs, list_dir.rs, safety.rs
+│   ├── shell_exec.rs, undo_history.rs
+├── ui/                   # Terminal UI (3 files)
+│   ├── markdown.rs       # Custom markdown renderer
+│   ├── render.rs         # Markdown rendering integration
+│   └── terminal.rs       # Banner, help, startup text
+└── mcp/                  # Model Context Protocol
+    ├── client.rs         # MCP client implementation
+    ├── types.rs          # MCP type definitions
+    └── web_search_tool.rs # Web search via Parallel Search MCP
+
+tests/                    # Integration tests (26 test files)
+.github/workflows/        # CI/CD (release.yml)
+.sessions/                # Session persistence directory (gitignored)
 ```
 
 ## Configuration
