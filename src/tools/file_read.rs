@@ -124,11 +124,7 @@ impl Tool for FileRead {
             }
         };
 
-        let parsed = if args.path.ends_with(".rs") {
-            ParsedFile::parse(content.clone())
-        } else {
-            None
-        };
+        let parsed = ParsedFile::parse_with_path(content.clone(), &args.path);
 
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();

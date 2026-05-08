@@ -36,7 +36,8 @@ impl Tool for FileOutline {
             name: Self::NAME.to_string(),
             description: "Show the structure outline of a source file. \
                 Returns a tree view of all functions, structs, enums, impls, traits, and modules \
-                with their line ranges. Use this BEFORE file_read to understand the file structure \
+                with their line ranges. Supports Rust, JavaScript/JSX, HTML, and Vue files. \
+                Use this BEFORE file_read to understand the file structure \
                 and decide which parts to read. This helps avoid reading unnecessary code."
                 .to_string(),
             parameters: json!({
@@ -56,7 +57,7 @@ impl Tool for FileOutline {
         let content = std::fs::read_to_string(&args.path)?;
         let total_lines = content.lines().count();
 
-        let outline = if let Some(parsed) = ParsedFile::parse(content) {
+        let outline = if let Some(parsed) = ParsedFile::parse_with_path(content, &args.path) {
             let structures = parsed.get_all_structures();
             format_outline(&structures, total_lines)
         } else {

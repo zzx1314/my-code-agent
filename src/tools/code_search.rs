@@ -174,7 +174,7 @@ impl Tool for CodeSearch {
             };
 
             if let Some(content) = content {
-                if let Some(parsed) = ParsedFile::parse(content) {
+                if let Some(parsed) = ParsedFile::parse_with_path(content, &file) {
                     for idx in indices {
                         let line = matches[idx].line_number;
                         if let Some(structure) = parsed.find_enclosing_structure(line) {
