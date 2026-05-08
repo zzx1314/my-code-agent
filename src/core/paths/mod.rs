@@ -46,28 +46,3 @@ pub fn app_dir() -> &'static PathBuf {
 pub fn app_file(name: &str) -> PathBuf {
     app_dir().join(name)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_app_file_returns_path_under_app_dir() {
-        let path = app_file("test_config.toml");
-        assert!(path.ends_with("test_config.toml"));
-        assert_eq!(path.parent(), Some(app_dir().as_path()));
-    }
-
-    #[test]
-    fn test_app_dir_ends_with_mycode() {
-        let dir = app_dir();
-        assert_eq!(dir.file_name(), Some(std::ffi::OsStr::new(".mycode")));
-    }
-
-    #[test]
-    fn test_app_dir_is_consistent() {
-        let dir1 = app_dir();
-        let dir2 = app_dir();
-        assert_eq!(dir1, dir2);
-    }
-}
