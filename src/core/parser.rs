@@ -31,7 +31,9 @@ impl Language {
 /// Information about a code structure (function, struct, impl, etc.)
 #[derive(Debug, Clone)]
 pub struct StructureInfo {
-    /// Type of structure: "fn", "struct", "enum", "impl", "trait", "mod", "function", "class", "method", "const", "template", "script", "style"
+    /// Type of structure: "fn", "struct", "enum", "impl", "trait", "mod",
+    /// "function", "class", "method", "const", "template", "script", "style",
+    /// "vue:methods", "vue:computed", "vue:watch"
     pub kind: String,
     /// Name of the structure (if any)
     pub name: Option<String>,
@@ -46,8 +48,7 @@ impl std::fmt::Display for StructureInfo {
         match &self.name {
             Some(name) => write!(
                 f,
-                "{} {} (lines {}-{})",
-                self.kind,
+                "{} (lines {}-{})",
                 name,
                 self.start_line + 1,
                 self.end_line + 1
@@ -268,18 +269,6 @@ impl ParsedFile {
     fn html_node_kind(node: Node) -> Option<&'static str> {
         match node.kind() {
             "element" | "script_element" | "style_element" => {
-                // Get the tag name for more descriptive output
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    if child.kind() == "start_tag" {
-                        let mut c2 = child.walk();
-                        for sub in child.children(&mut c2) {
-                            if sub.kind() == "tag_name" {
-                                // We'll use a generic "element" kind; name carries the tag
-                            }
-                        }
-                    }
-                }
                 Some("element")
             }
             _ => None,
@@ -326,38 +315,7 @@ impl ParsedFile {
     /// Get the name for a node based on the current language
     fn get_node_name(&self, node: Node) -> Option<String> {
         match self.language {
-            Language::JavaScript => {
-                // For JS nodes, try "name" field first
-                if let Some(name_node) = node.child_by_field_name("name") {
-                    if let Ok(text) = name_node.utf8_text(self.source.as_bytes()) {
-                        return Some(text.to_string());
-                    }
-                }
-                // For lexical_declaration (const/let) and variable_declaration (var),
-                // look into variable_declarator children for the name
-                if matches!(node.kind(), "lexical_declaration" | "variable_declaration") {
-                    let mut cursor = node.walk();
-                    for child in node.children(&mut cursor) {
-                        if child.kind() == "variable_declarator" {
-                            if let Some(name_node) = child.child_by_field_name("name") {
-                                if let Ok(text) = name_node.utf8_text(self.source.as_bytes()) {
-                                    return Some(text.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-                // For export_statement, look for a declaration inside
-                if node.kind() == "export_statement" {
-                    let mut cursor = node.walk();
-                    for child in node.children(&mut cursor) {
-                        if let Some(name) = self.get_node_name(child) {
-                            return Some(name);
-                        }
-                    }
-                }
-                None
-            }
+            Language::JavaScript => Self::get_js_node_name(node, &self.source),
             Language::Vue => {
                 // For Vue SFC, elements get their tag name as the name
                 if let Some(tag) = Self::get_element_tag(node, &self.source) {
@@ -385,6 +343,40 @@ impl ParsedFile {
                     .map(|s| s.to_string())
             }
         }
+    }
+
+    /// Get name for a JS node (without needing &self - uses js_source directly)
+    fn get_js_node_name(node: Node, js_source: &str) -> Option<String> {
+        // Try "name" field first
+        if let Some(name_node) = node.child_by_field_name("name") {
+            if let Ok(text) = name_node.utf8_text(js_source.as_bytes()) {
+                return Some(text.to_string());
+            }
+        }
+        // For lexical_declaration (const/let) and variable_declaration (var),
+        // look into variable_declarator children for the name
+        if matches!(node.kind(), "lexical_declaration" | "variable_declaration") {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "variable_declarator" {
+                    if let Some(name_node) = child.child_by_field_name("name") {
+                        if let Ok(text) = name_node.utf8_text(js_source.as_bytes()) {
+                            return Some(text.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        // For export_statement, look for a declaration inside
+        if node.kind() == "export_statement" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if let Some(name) = Self::get_js_node_name(child, js_source) {
+                    return Some(name);
+                }
+            }
+        }
+        None
     }
 
     /// Recursively collect structures from a node
@@ -462,6 +454,7 @@ impl ParsedFile {
 
     /// Parse JavaScript inside a Vue <script> element and return JS structures
     /// with line numbers adjusted to the file's coordinate system.
+    /// Supports Vue Options API (methods, computed, data, etc.) and Composition API.
     fn parse_vue_script(&self, script_node: Node) -> Option<Vec<StructureInfo>> {
         // Find the raw_text child of the script_element
         let mut cursor = script_node.walk();
@@ -490,42 +483,220 @@ impl ParsedFile {
         let mut js_cursor = js_root.walk();
 
         for child in js_root.children(&mut js_cursor) {
-            let kind = Self::js_node_kind(child, js_source);
-            if let Some(kind_str) = kind {
-                let name = child
+            self.collect_js_structures(child, js_source, script_offset, &mut structures);
+        }
+
+        Some(structures)
+    }
+
+    /// Recursively collect JavaScript structures from a JS AST node.
+    /// Handles functions, classes, methods, const/let/var with function values,
+    /// and Vue Options API patterns (methods, computed, data, watch, lifecycle hooks).
+    fn collect_js_structures(
+        &self,
+        node: Node,
+        js_source: &str,
+        offset: usize,
+        structures: &mut Vec<StructureInfo>,
+    ) {
+        let kind = Self::js_node_kind(node, js_source);
+
+        if let Some(kind_str) = kind {
+            let name = Self::get_js_node_name(node, js_source);
+
+            structures.push(StructureInfo {
+                kind: kind_str.to_string(),
+                name,
+                start_line: node.start_position().row + offset,
+                end_line: node.end_position().row + offset,
+            });
+
+            // For classes, recurse to collect methods inside
+            if kind_str == "class" {
+                let mut class_cursor = node.walk();
+                for class_child in node.children(&mut class_cursor) {
+                    self.collect_js_structures(class_child, js_source, offset, structures);
+                }
+            }
+            // For export_statement, recurse into the inner declaration
+            if node.kind() == "export_statement" {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    self.collect_js_structures(child, js_source, offset, structures);
+                }
+            }
+        } else {
+            // Not a recognized JS structure at this level.
+            // Check for Vue Options API patterns:
+            // - export default { methods: {...}, computed: {...}, data() {...}, ... }
+            // - object properties that contain method definitions
+            self.collect_vue_options_structures(node, js_source, offset, structures);
+        }
+    }
+
+    /// Collect structures from Vue Options API patterns.
+    /// Looks inside `export default { ... }` for methods, computed, data, watch,
+    /// lifecycle hooks (mounted, created, etc.), and other option properties.
+    fn collect_vue_options_structures(
+        &self,
+        node: Node,
+        js_source: &str,
+        offset: usize,
+        structures: &mut Vec<StructureInfo>,
+    ) {
+        let node_kind = node.kind();
+
+        match node_kind {
+            // export default { ... } -> recurse into the object expression
+            "export_statement" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    self.collect_js_structures(child, js_source, offset, structures);
+                }
+            }
+            // A pair like `methods: { handleClick() {...} }` inside an object
+            "pair" => {
+                let key = node.child_by_field_name("key");
+                let value = node.child_by_field_name("value");
+
+                if let (Some(key_node), Some(val_node)) = (key, value) {
+                    let key_text = key_node
+                        .utf8_text(js_source.as_bytes())
+                        .unwrap_or("");
+
+                    let vue_option_keys = [
+                        "methods", "computed", "watch",
+                    ];
+                    let vue_lifecycle_hooks = [
+                        "data", "setup",
+                        "beforeCreate", "created",
+                        "beforeMount", "mounted",
+                        "beforeUpdate", "updated",
+                        "beforeDestroy", "destroyed",
+                        "beforeUnmount", "unmounted",
+                        "activated", "deactivated",
+                        "errorCaptured",
+                        "render", "renderTracked", "renderTriggered",
+                    ];
+
+                    if vue_option_keys.contains(&key_text) && val_node.kind() == "object" {
+                        // This is a Vue methods/computed/watch block
+                        // Emit it as a named structure group
+                        structures.push(StructureInfo {
+                            kind: format!("vue:{}", key_text),
+                            name: Some(key_text.to_string()),
+                            start_line: node.start_position().row + offset,
+                            end_line: node.end_position().row + offset,
+                        });
+
+                        // Collect each method inside
+                        let mut obj_cursor = val_node.walk();
+                        for obj_child in val_node.children(&mut obj_cursor) {
+                            self.collect_vue_object_methods(
+                                obj_child, js_source, offset, structures,
+                            );
+                        }
+                    } else if vue_lifecycle_hooks.contains(&key_text) {
+                        // Lifecycle hooks and data/setup as standalone methods
+                        structures.push(StructureInfo {
+                            kind: "method".to_string(),
+                            name: Some(key_text.to_string()),
+                            start_line: node.start_position().row + offset,
+                            end_line: node.end_position().row + offset,
+                        });
+                    } else if val_node.kind() == "object" {
+                        // Other object properties: recurse to find nested functions
+                        let mut obj_cursor = val_node.walk();
+                        for obj_child in val_node.children(&mut obj_cursor) {
+                            self.collect_vue_options_structures(
+                                obj_child, js_source, offset, structures,
+                            );
+                        }
+                    }
+                }
+            }
+            // Shorthand method like `data() { ... }` inside an object (without pair)
+            "method_definition" => {
+                let name = node
                     .child_by_field_name("name")
                     .and_then(|n| n.utf8_text(js_source.as_bytes()).ok())
                     .map(|s| s.to_string());
 
                 structures.push(StructureInfo {
-                    kind: kind_str.to_string(),
+                    kind: "method".to_string(),
                     name,
-                    start_line: child.start_position().row + script_offset,
-                    end_line: child.end_position().row + script_offset,
+                    start_line: node.start_position().row + offset,
+                    end_line: node.end_position().row + offset,
                 });
+            }
+            // Recurse into objects and other containers
+            "object" | "object_pattern" | "array" | "expression_statement" | "statement_block" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    self.collect_vue_options_structures(
+                        child, js_source, offset, structures,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
 
-                // Collect methods inside classes
-                if kind_str == "class" {
-                    let mut class_cursor = child.walk();
-                    for class_child in child.children(&mut class_cursor) {
-                        let sub_kind = Self::js_node_kind(class_child, js_source);
-                        if let Some(sub_kind_str) = sub_kind {
-                            let sub_name = class_child
-                                .child_by_field_name("name")
-                                .and_then(|n| n.utf8_text(js_source.as_bytes()).ok())
-                                .map(|s| s.to_string());
-                            structures.push(StructureInfo {
-                                kind: sub_kind_str.to_string(),
-                                name: sub_name,
-                                start_line: class_child.start_position().row + script_offset,
-                                end_line: class_child.end_position().row + script_offset,
-                            });
-                        }
+    /// Collect methods inside a Vue options object (e.g., methods: { ... })
+    fn collect_vue_object_methods(
+        &self,
+        node: Node,
+        js_source: &str,
+        offset: usize,
+        structures: &mut Vec<StructureInfo>,
+    ) {
+        match node.kind() {
+            // method: { handleClick() {...} } -> shorthand method
+            "method_definition" => {
+                let name = node
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(js_source.as_bytes()).ok())
+                    .map(|s| s.to_string());
+                structures.push(StructureInfo {
+                    kind: "method".to_string(),
+                    name,
+                    start_line: node.start_position().row + offset,
+                    end_line: node.end_position().row + offset,
+                });
+            }
+            // handleClick: function() {...} -> pair with function value
+            "pair" => {
+                if let Some(name_node) = node.child_by_field_name("key") {
+                    let name = name_node
+                        .utf8_text(js_source.as_bytes())
+                        .ok()
+                        .map(|s| s.to_string());
+                    structures.push(StructureInfo {
+                        kind: "method".to_string(),
+                        name,
+                        start_line: node.start_position().row + offset,
+                        end_line: node.end_position().row + offset,
+                    });
+                }
+            }
+            "spread_element" | "comment" | "," => {}
+            _ => {
+                // For other nodes (e.g., properties), try to get name
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = name_node
+                        .utf8_text(js_source.as_bytes())
+                        .ok()
+                        .map(|s| s.to_string());
+                    if name.is_some() {
+                        structures.push(StructureInfo {
+                            kind: "method".to_string(),
+                            name,
+                            start_line: node.start_position().row + offset,
+                            end_line: node.end_position().row + offset,
+                        });
                     }
                 }
             }
         }
-
-        Some(structures)
     }
 }

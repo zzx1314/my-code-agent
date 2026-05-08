@@ -344,3 +344,64 @@ struct Config {
     let config = structures.iter().find(|s| s.name == Some("Config".to_string()));
     assert!(config.is_some());
 }
+
+#[test]
+fn test_vue_outline_display_demo() {
+    let source = "<template>
+  <div class=\"app\">
+    <h1>{{ title }}</h1>
+    <button @click=\"handleClick\">Click me</button>
+    <ChildComponent :data=\"items\" />
+  </div>
+</template>
+
+<script>
+import ChildComponent from './ChildComponent.vue'
+
+const MAX_ITEMS = 100
+
+export default {
+  name: 'MyApp',
+  components: { ChildComponent },
+  data() {
+    return {
+      title: 'Hello Vue',
+      items: []
+    }
+  },
+  methods: {
+    handleClick() {
+      console.log('clicked')
+    },
+    async fetchItems() {
+      const res = await fetch('/api/items')
+      this.items = await res.json()
+    }
+  },
+  computed: {
+    itemCount() {
+      return this.items.length
+    }
+  }
+}
+</script>
+
+<style scoped>
+.app {
+  max-width: 800px;
+  margin: 0 auto;
+}
+</style>
+";
+    let parsed = ParsedFile::parse_with_path(source.to_string(), "App.vue").unwrap();
+    let structures = parsed.get_all_structures();
+    
+    println!("\n=== Vue SFC Outline ({} structures) ===", structures.len());
+    for s in &structures {
+        let display_name = s.name.as_deref().unwrap_or("(unnamed)");
+        println!("  {:12} {:20} lines {:3}-{:3}", s.kind, display_name, s.start_line + 1, s.end_line + 1);
+    }
+    println!("=============================\n");
+    
+    assert!(structures.len() >= 3, "Should detect Vue SFC blocks");
+}
