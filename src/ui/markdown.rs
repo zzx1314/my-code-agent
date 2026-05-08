@@ -23,6 +23,10 @@ const BLOCKQUOTE_BAR: Color = Color::Rgb(100, 100, 100);
 const LINK_FG: Color = Color::Rgb(86, 156, 214);
 const HR_FG: Color = Color::Rgb(100, 100, 100);
 const BULLET_FG: Color = Color::Rgb(180, 180, 180);
+const TABLE_BORDER_FG: Color = Color::Rgb(100, 100, 100);
+const TABLE_HEADER_FG: Color = Color::Rgb(180, 220, 255);
+const TABLE_HEADER_BG: Color = Color::Rgb(40, 50, 65);
+const TABLE_ALT_ROW_BG: Color = Color::Rgb(30, 30, 38);
 
 // ── Block-level parsing state ──────────────────────────────────────────────────
 
@@ -36,6 +40,20 @@ enum BlockState {
         lang: Option<String>,
         lines: Vec<String>,
     },
+    /// Inside a markdown table
+    Table {
+        header_cells: Vec<String>,
+        alignments: Vec<TableAlignment>,
+        rows: Vec<Vec<String>>,
+    },
+}
+
+/// Column alignment for table rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TableAlignment {
+    Left,
+    Center,
+    Right,
 }
 
 // ── Main renderer ──────────────────────────────────────────────────────────────
@@ -43,28 +61,52 @@ enum BlockState {
 /// Render a markdown string into styled `Line`s for ratatui.
 ///
 /// Supports: headings (h1–h6), fenced code blocks, inline code, bold, italic,
-/// blockquotes, unordered/ordered lists, horizontal rules, and links.
+/// blockquotes, unordered/ordered lists, horizontal rules, links, and tables.
 pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
     if text.is_empty() {
         return vec![];
     }
 
+    let lines: Vec<&str> = text.split('\n').collect();
     let mut result = Vec::new();
     let mut state = BlockState::Paragraph;
     let mut prev_was_heading = false;
+    let mut i = 0;
 
-    for line in text.split('\n') {
+    while i < lines.len() {
+        let line = lines[i];
+        let mut reprocess = false;
+
         match &mut state {
-            BlockState::CodeBlock { lang, lines } => {
+            BlockState::CodeBlock { lang, lines: code_lines } => {
                 if line.trim_start().starts_with("```") {
                     // Close code block
                     prev_was_heading = false;
-                    let code_lines = lines.clone();
+                    let code_lines = code_lines.clone();
                     let code_lang = lang.clone();
                     state = BlockState::Paragraph;
                     result.extend(render_code_block_lines(&code_lines, code_lang.as_deref()));
                 } else {
-                    lines.push(line.to_string());
+                    code_lines.push(line.to_string());
+                }
+            }
+            BlockState::Table { header_cells, alignments, rows } => {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() && is_table_row(trimmed) {
+                    let cells = parse_table_cells(trimmed);
+                    rows.push(cells);
+                } else {
+                    // End of table — render it and re-process this line
+                    let hdr = header_cells.clone();
+                    let aligns = alignments.clone();
+                    let table_rows = rows.clone();
+                    state = BlockState::Paragraph;
+                    result.extend(render_table(&hdr, &aligns, &table_rows));
+                    if !trimmed.is_empty() {
+                        result.push(Line::default());
+                    }
+                    reprocess = true;
+                    prev_was_heading = false;
                 }
             }
             BlockState::Paragraph => {
@@ -83,6 +125,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                         lang,
                         lines: Vec::new(),
                     };
+                    i += 1;
                     continue;
                 }
 
@@ -93,6 +136,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                     let content = content.trim_end_matches('#').trim();
                     result.push(render_heading(level, content));
                     prev_was_heading = true;
+                    i += 1;
                     continue;
                 }
 
@@ -101,6 +145,24 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                     prev_was_heading = false;
                     result.push(render_horizontal_rule());
                     result.push(Line::default());
+                    i += 1;
+                    continue;
+                }
+
+                // Table: header row followed by separator enters table mode
+                if is_table_header_candidate(trimmed)
+                    && i + 1 < lines.len()
+                    && is_table_separator(lines[i + 1].trim())
+                {
+                    let header = parse_table_cells(trimmed);
+                    let aligns = parse_column_alignments(lines[i + 1].trim());
+                    state = BlockState::Table {
+                        header_cells: header,
+                        alignments: aligns,
+                        rows: Vec::new(),
+                    };
+                    prev_was_heading = false;
+                    i += 2; // Skip header and separator
                     continue;
                 }
 
@@ -110,6 +172,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                     let quote_content = trimmed.strip_prefix('>').unwrap_or(trimmed);
                     let quote_content = quote_content.strip_prefix(' ').unwrap_or(quote_content);
                     result.push(render_blockquote(quote_content));
+                    i += 1;
                     continue;
                 }
 
@@ -117,6 +180,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                 if let Some(item) = parse_unordered_list(trimmed) {
                     prev_was_heading = false;
                     result.push(render_unordered_item(item));
+                    i += 1;
                     continue;
                 }
 
@@ -124,6 +188,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                 if let Some((num, item)) = parse_ordered_list(trimmed) {
                     prev_was_heading = false;
                     result.push(render_ordered_item(num, item));
+                    i += 1;
                     continue;
                 }
 
@@ -135,6 +200,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                     } else {
                         result.push(Line::default());
                     }
+                    i += 1;
                     continue;
                 }
 
@@ -143,13 +209,22 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                 result.push(render_inline(line));
             }
         }
+
+        if !reprocess {
+            i += 1;
+        }
     }
 
     // If a code block was never closed (streaming case), render it as-is
-    if let BlockState::CodeBlock { lang, lines } = &state {
-        if !lines.is_empty() {
-            result.extend(render_code_block_lines(lines, lang.as_deref()));
+    if let BlockState::CodeBlock { lang, lines: code_lines } = &state {
+        if !code_lines.is_empty() {
+            result.extend(render_code_block_lines(code_lines, lang.as_deref()));
         }
+    }
+
+    // If a table was never closed (streaming case), render it as-is
+    if let BlockState::Table { header_cells, alignments, rows } = &state {
+        result.extend(render_table(header_cells, alignments, rows));
     }
 
     result
@@ -285,6 +360,226 @@ fn render_code_block_lines(lines: &[String], lang: Option<&str>) -> Vec<Line<'st
         "└───",
         Style::default().fg(CODE_BORDER_FG),
     )));
+
+    result
+}
+
+// ── Table parsing and rendering ────────────────────────────────────────────────
+
+/// Check if a line looks like a table header candidate (contains | and has non-whitespace content).
+fn is_table_header_candidate(line: &str) -> bool {
+    // Must start with | (or trimmed start) and contain at least one |
+    let trimmed = line.trim();
+    trimmed.starts_with('|') && trimmed.contains('|') && trimmed.len() > 1
+}
+
+/// Check if a line is a table separator (e.g., |---|---| or |:---:|:---:|).
+fn is_table_separator(line: &str) -> bool {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('|') {
+        return false;
+    }
+    // Remove leading/trailing |
+    let inner = trimmed.trim_start_matches('|').trim_end_matches('|');
+    if inner.is_empty() {
+        return false;
+    }
+    // Each cell in separator must be only dashes, colons, and spaces
+    inner.split('|').all(|cell| {
+        let cell = cell.trim();
+        !cell.is_empty() && cell.chars().all(|c| c == '-' || c == ':' || c == ' ')
+    })
+}
+
+/// Check if a line is a table data row (contains |).
+fn is_table_row(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with('|') && trimmed.contains('|') && trimmed.len() > 1
+}
+
+/// Parse cells from a table row like `| a | b | c |` → vec!["a", "b", "c"].
+fn parse_table_cells(line: &str) -> Vec<String> {
+    let trimmed = line.trim();
+    // Remove leading and trailing |
+    let inner = trimmed.trim_start_matches('|').trim_end_matches('|');
+    inner
+        .split('|')
+        .map(|cell| cell.trim().to_string())
+        .collect()
+}
+
+/// Parse column alignments from a separator line like `|:---|:---:|---:|`.
+fn parse_column_alignments(line: &str) -> Vec<TableAlignment> {
+    let trimmed = line.trim();
+    let inner = trimmed.trim_start_matches('|').trim_end_matches('|');
+    inner
+        .split('|')
+        .map(|cell| {
+            let cell = cell.trim();
+            let left = cell.starts_with(':');
+            let right = cell.ends_with(':');
+            match (left, right) {
+                (true, true) => TableAlignment::Center,
+                (false, true) => TableAlignment::Right,
+                _ => TableAlignment::Left,
+            }
+        })
+        .collect()
+}
+
+/// Compute display width of a string (approximation: 1 per char, 2 for wide chars).
+fn display_width(s: &str) -> usize {
+    s.chars()
+        .map(|c| {
+            if unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) > 1 {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+/// Pad a string to the target display width according to alignment.
+fn align_cell(content: &str, width: usize, align: TableAlignment) -> String {
+    let content_width = display_width(content);
+    if content_width >= width {
+        return content.to_string();
+    }
+    let padding = width - content_width;
+    match align {
+        TableAlignment::Left => format!("{}{}", content, " ".repeat(padding)),
+        TableAlignment::Right => format!("{}{}", " ".repeat(padding), content),
+        TableAlignment::Center => {
+            let left_pad = padding / 2;
+            let right_pad = padding - left_pad;
+            format!("{}{}{}", " ".repeat(left_pad), content, " ".repeat(right_pad))
+        }
+    }
+}
+
+/// Render a complete table as styled `Line`s.
+fn render_table(
+    header: &[String],
+    alignments: &[TableAlignment],
+    rows: &[Vec<String>],
+) -> Vec<Line<'static>> {
+    let mut result = Vec::new();
+
+    // Determine column count and compute max widths
+    let col_count = header.len();
+    if col_count == 0 {
+        return result;
+    }
+
+    let mut col_widths = vec![0usize; col_count];
+    for (i, cell) in header.iter().enumerate() {
+        col_widths[i % col_count] = col_widths[i % col_count].max(display_width(cell));
+    }
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            col_widths[i % col_count] = col_widths[i % col_count].max(display_width(cell));
+        }
+    }
+    // Ensure minimum width of 3 for separator dashes
+    for w in &mut col_widths {
+        if *w < 3 {
+            *w = 3;
+        }
+    }
+
+    let border_style = Style::default().fg(TABLE_BORDER_FG);
+    let border_char = '│';
+
+    // ┌───┬───┬───┐  (top border)
+    let mut top = String::new();
+    top.push('┌');
+    for (i, w) in col_widths.iter().enumerate() {
+        top.push_str(&"─".repeat(w + 2));
+        if i + 1 < col_count {
+            top.push('┬');
+        }
+    }
+    top.push('┐');
+    result.push(Line::from(Span::styled(top, border_style)));
+
+    // Header row: │ content │ content │
+    {
+        let mut spans = Vec::new();
+        spans.push(Span::styled(format!(" {border_char} "), border_style));
+        for i in 0..col_count {
+            let cell = header.get(i).map(|s| s.as_str()).unwrap_or("");
+            let align = alignments.get(i).copied().unwrap_or(TableAlignment::Left);
+            let padded = align_cell(cell, col_widths[i], align);
+            spans.push(Span::styled(
+                padded,
+                Style::default()
+                    .fg(TABLE_HEADER_FG)
+                    .bg(TABLE_HEADER_BG)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(
+                format!(" {border_char} "),
+                border_style.bg(TABLE_HEADER_BG),
+            ));
+        }
+        result.push(Line::from(spans));
+    }
+
+    // ├───┼───┼───┤  (header separator)
+    let mut sep = String::new();
+    sep.push('├');
+    for (i, w) in col_widths.iter().enumerate() {
+        sep.push_str(&"─".repeat(w + 2));
+        if i + 1 < col_count {
+            sep.push('┼');
+        }
+    }
+    sep.push('┤');
+    result.push(Line::from(Span::styled(sep, border_style)));
+
+    // Data rows
+    for (row_idx, row) in rows.iter().enumerate() {
+        let mut spans = Vec::new();
+        let row_bg = if row_idx % 2 == 1 {
+            Some(TABLE_ALT_ROW_BG)
+        } else {
+            None
+        };
+
+        spans.push(Span::styled(format!(" {border_char} "), border_style));
+        for i in 0..col_count {
+            let cell = row.get(i).map(|s| s.as_str()).unwrap_or("");
+            let align = alignments.get(i).copied().unwrap_or(TableAlignment::Left);
+            let padded = align_cell(cell, col_widths[i], align);
+            let mut cell_style = Style::default();
+            if let Some(bg) = row_bg {
+                cell_style = cell_style.bg(bg);
+            }
+            spans.push(Span::styled(padded, cell_style));
+            let mut border_style_cell = border_style;
+            if let Some(bg) = row_bg {
+                border_style_cell = border_style_cell.bg(bg);
+            }
+            spans.push(Span::styled(
+                format!(" {border_char} "),
+                border_style_cell,
+            ));
+        }
+        result.push(Line::from(spans));
+    }
+
+    // └───┴───┴───┘  (bottom border)
+    let mut bottom = String::new();
+    bottom.push('└');
+    for (i, w) in col_widths.iter().enumerate() {
+        bottom.push_str(&"─".repeat(w + 2));
+        if i + 1 < col_count {
+            bottom.push('┴');
+        }
+    }
+    bottom.push('┘');
+    result.push(Line::from(Span::styled(bottom, border_style)));
 
     result
 }
