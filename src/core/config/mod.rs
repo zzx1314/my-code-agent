@@ -169,7 +169,7 @@ pub struct LLMConfig {
 }
 
 fn default_llm_timeout_secs() -> u64 {
-    60
+    1800 // 30 minutes for long reasoning models like deepseek-reasoner
 }
 
 /// MCP (Model Context Protocol) settings.

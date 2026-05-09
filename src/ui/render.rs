@@ -130,11 +130,11 @@ pub fn get_reasoning_summary(reasoning: &str) -> String {
 
 /// Render streaming markdown text. Delegates to the custom markdown renderer
 /// which handles unclosed code blocks natively.
-pub fn render_streaming_markdown(text: &str) -> Vec<Line<'static>> {
-    md_render_streaming(text)
+pub fn render_streaming_markdown(text: &str, max_width: Option<usize>) -> Vec<Line<'static>> {
+    md_render_streaming(text, max_width)
 }
 
 /// Render complete (non-streaming) markdown text.
-pub fn render_full(text: &str) -> Vec<Line<'static>> {
-    render_full_markdown(text)
+pub fn render_full(text: &str, max_width: Option<usize>) -> Vec<Line<'static>> {
+    render_full_markdown(text, max_width)
 }

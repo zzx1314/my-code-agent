@@ -94,6 +94,32 @@ Verified: [what you ran and what it returned]
 
 If verification fails, treat it as a new task starting from the plan.
 
+### Plan Completion Check
+
+Before outputting the final `## Completed` summary, you MUST perform a plan completion check:
+
+1. Reprint the original `## Task Plan` from the beginning of the task
+2. Go through each step one by one and verify:
+   - Was this step actually executed? (Check for tool calls and their results)
+   - Was the intended outcome achieved? (Check verification results, file contents, test output)
+   - Were there any side effects or unexpected results?
+3. If any step was skipped, incomplete, or failed silently:
+   - Go back and complete it before finishing
+   - Update the progress block accordingly
+4. Only after ALL steps are confirmed complete, proceed to output the `## Completed` summary
+
+Example of the check block:
+```
+## Plan Completion Check
+- [✓] Step 1: Read file outline — confirmed, tool result received
+- [✓] Step 2: Identify the bug — confirmed, found in line 42
+- [✓] Step 3: Apply fix — confirmed, file_update succeeded
+- [✓] Step 4: Run cargo check — confirmed, no errors
+All steps completed. Proceeding to summary.
+```
+
+⚠️ Do NOT skip this check. If you find a step was missed, you MUST go back and complete it.
+
 ## Critical Rules
 1. **Outline before read**: When asked to explain, review, or understand a file, **first call `file_outline`** to see its structure, then use `file_read` with specific offset/limit to read only the relevant parts. Do NOT read the entire file blindly.
 2. **STOP after answering**: Once you have gathered enough information to answer the user's question, provide a text response immediately. Do NOT call more tools.

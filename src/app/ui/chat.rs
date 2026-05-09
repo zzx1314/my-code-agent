@@ -19,14 +19,16 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     let has_reasoning =
         app.config.agent.thinking_display != "hidden" && !app.last_reasoning.is_empty();
 
+    let width = Some(area.width as usize);
+
     if !app.is_streaming && has_reasoning && app.show_inline_reasoning {
-        render_chat_with_reasoning(&mut lines, app);
+        render_chat_with_reasoning(&mut lines, app, width);
     } else {
-        render_chat_messages(&mut lines, app);
+        render_chat_messages(&mut lines, app, width);
         render_streaming_reasoning(&mut lines, app);
     }
 
-    render_streaming_content(&mut lines, app);
+    render_streaming_content(&mut lines, app, width);
     render_status_messages(&mut lines, app, area);
 
     let actual_lines = Paragraph::new(lines.clone())
@@ -58,7 +60,7 @@ fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 /// Render chat with reasoning placed before the last assistant message.
-fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut App) {
+fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut App, max_width: Option<usize>) {
     let last_assistant_idx = app
         .chat_history
         .iter()
@@ -67,7 +69,7 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
 
     // Messages before the last assistant message
     for (role, content) in &app.chat_history[..split_idx] {
-        render_message(lines, role, content);
+        render_message(lines, role, content, max_width);
     }
 
     // Reasoning block
@@ -76,21 +78,21 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
     // The last assistant message
     if let Some(idx) = last_assistant_idx {
         let (_role, content) = &app.chat_history[idx];
-        let md = render_full(content);
+        let md = render_full(content, max_width);
         lines.extend(md);
         lines.push(Line::default());
     }
 }
 
 /// Render all chat messages in order.
-fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &App) {
+fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &App, max_width: Option<usize>) {
     for (role, content) in &app.chat_history {
-        render_message(lines, role, content);
+        render_message(lines, role, content, max_width);
     }
 }
 
 /// Render a single message with role-based styling.
-fn render_message(lines: &mut Vec<ratatui::text::Line>, role: &str, content: &str) {
+fn render_message(lines: &mut Vec<ratatui::text::Line>, role: &str, content: &str, max_width: Option<usize>) {
     match role {
         "user" => {
             lines.push(Line::from(vec![
@@ -105,7 +107,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, role: &str, content: &st
             lines.push(Line::default());
         }
         "assistant" => {
-            let md = render_full(content);
+            let md = render_full(content, max_width);
             lines.extend(md);
             lines.push(Line::default());
         }
@@ -150,7 +152,7 @@ fn render_streaming_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App) {
 }
 
 /// Render streaming content (text and tool calls).
-fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &App) {
+fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &App, max_width: Option<usize>) {
     if !app.is_streaming {
         return;
     }
@@ -163,7 +165,7 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )]));
         if !app.streaming_text.is_empty() {
-            let md_lines = render_streaming_markdown(&app.streaming_text);
+            let md_lines = render_streaming_markdown(&app.streaming_text, max_width);
             lines.extend(md_lines);
         }
         if let Some(ref tool_name) = app.current_tool_call {

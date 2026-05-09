@@ -27,6 +27,8 @@ const TABLE_BORDER_FG: Color = Color::Rgb(100, 100, 100);
 const TABLE_HEADER_FG: Color = Color::Rgb(180, 220, 255);
 const TABLE_HEADER_BG: Color = Color::Rgb(40, 50, 65);
 const TABLE_ALT_ROW_BG: Color = Color::Rgb(30, 30, 38);
+const DONE_FG: Color = Color::Rgb(80, 200, 80);   // Green for completed steps
+const TODO_FG: Color = Color::Rgb(255, 180, 50);   // Amber for pending steps
 
 // ── Block-level parsing state ──────────────────────────────────────────────────
 
@@ -62,7 +64,7 @@ enum TableAlignment {
 ///
 /// Supports: headings (h1–h6), fenced code blocks, inline code, bold, italic,
 /// blockquotes, unordered/ordered lists, horizontal rules, links, and tables.
-pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
+pub fn render_markdown(text: &str, max_width: Option<usize>) -> Vec<Line<'static>> {
     if text.is_empty() {
         return vec![];
     }
@@ -101,7 +103,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
                     let aligns = alignments.clone();
                     let table_rows = rows.clone();
                     state = BlockState::Paragraph;
-                    result.extend(render_table(&hdr, &aligns, &table_rows));
+                    result.extend(render_table(&hdr, &aligns, &table_rows, max_width));
                     if !trimmed.is_empty() {
                         result.push(Line::default());
                     }
@@ -224,7 +226,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
 
     // If a table was never closed (streaming case), render it as-is
     if let BlockState::Table { header_cells, alignments, rows } = &state {
-        result.extend(render_table(header_cells, alignments, rows));
+        result.extend(render_table(header_cells, alignments, rows, max_width));
     }
 
     result
@@ -300,6 +302,11 @@ fn parse_unordered_list(line: &str) -> Option<&str> {
 }
 
 fn render_unordered_item(content: &str) -> Line<'static> {
+    if let Some(style) = progress_marker_style(content) {
+        let mut spans = vec![Span::styled("  • ", Style::default().fg(style.fg.unwrap_or(BULLET_FG)))];
+        spans.push(Span::styled(content.to_string(), style));
+        return Line::from(spans);
+    }
     let mut spans = vec![Span::styled("  • ", Style::default().fg(BULLET_FG))];
     spans.extend(parse_inline_spans(content, Style::default()));
     Line::from(spans)
@@ -323,6 +330,14 @@ fn parse_ordered_list(line: &str) -> Option<(u32, &str)> {
 }
 
 fn render_ordered_item(num: u32, content: &str) -> Line<'static> {
+    if let Some(style) = progress_marker_style(content) {
+        let mut spans = vec![Span::styled(
+            format!("  {}. ", num),
+            Style::default().fg(style.fg.unwrap_or(BULLET_FG)),
+        )];
+        spans.push(Span::styled(content.to_string(), style));
+        return Line::from(spans);
+    }
     let mut spans = vec![Span::styled(
         format!("  {}. ", num),
         Style::default().fg(BULLET_FG),
@@ -434,6 +449,49 @@ fn display_width(s: &str) -> usize {
         .sum()
 }
 
+/// Pad a string to the target display width (does not truncate).
+fn pad_display_string(s: &str, width: usize) -> String {
+    let w = display_width(s);
+    if w >= width {
+        s.to_string()
+    } else {
+        format!("{}{}", s, " ".repeat(width - w))
+    }
+}
+
+/// Fit a string to exactly `target_width` display columns: truncate with '…' if too wide, pad if too narrow.
+fn fit_display_string(s: &str, target_width: usize) -> String {
+    let w = display_width(s);
+    if target_width == 0 {
+        return String::new();
+    }
+    if w <= target_width {
+        pad_display_string(s, target_width)
+    } else {
+        // Truncate to fit, appending ellipsis
+        let mut result = String::new();
+        let mut current_width = 0usize;
+        for ch in s.chars() {
+            let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1);
+            // Reserve 1 column for the ellipsis
+            if current_width + cw + 1 > target_width {
+                break;
+            }
+            result.push(ch);
+            current_width += cw;
+        }
+        if !result.is_empty() {
+            result.push('\u{2026}');
+            // Pad remaining if the ellipsis takes less space than expected
+            let final_w = display_width(&result);
+            if final_w < target_width {
+                result.push_str(&" ".repeat(target_width - final_w));
+            }
+        }
+        result
+    }
+}
+
 /// Pad a string to the target display width according to alignment.
 fn align_cell(content: &str, width: usize, align: TableAlignment) -> String {
     let content_width = display_width(content);
@@ -452,11 +510,27 @@ fn align_cell(content: &str, width: usize, align: TableAlignment) -> String {
     }
 }
 
+/// Fit a cell to the target width: truncate with '…' if too wide, pad with alignment if too narrow.
+fn align_cell_fit(content: &str, width: usize, align: TableAlignment) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let w = display_width(content);
+    if w > width {
+        fit_display_string(content, width)
+    } else {
+        align_cell(content, width, align)
+    }
+}
+
 /// Render a complete table as styled `Line`s.
+/// When `max_width` is set, columns are proportionally shrunk to fit, and cells
+/// are truncated with `…` when necessary.
 fn render_table(
     header: &[String],
     alignments: &[TableAlignment],
     rows: &[Vec<String>],
+    max_width: Option<usize>,
 ) -> Vec<Line<'static>> {
     let mut result = Vec::new();
 
@@ -475,10 +549,76 @@ fn render_table(
             col_widths[i % col_count] = col_widths[i % col_count].max(display_width(cell));
         }
     }
-    // Ensure minimum width of 3 for separator dashes
+    // Ensure minimum width of 1 for each column
     for w in &mut col_widths {
-        if *w < 3 {
-            *w = 3;
+        if *w < 1 {
+            *w = 1;
+        }
+    }
+
+    // Shrink column widths if total table width exceeds max_width.
+    // Table width = col_count * (col + 2 padding) + (col_count - 1) separators + 2 borders
+    if let Some(max_w) = max_width {
+        let border_overhead = 3 * col_count + 1;
+        let content_budget = max_w.saturating_sub(border_overhead);
+        let total_content: usize = col_widths.iter().sum();
+
+        if total_content > content_budget && content_budget >= col_count {
+            let min_per_col = 1usize;
+            let min_total = col_count * min_per_col;
+            let distributable = content_budget.saturating_sub(min_total);
+            let natural_distributable = total_content.saturating_sub(min_total);
+
+            if natural_distributable > 0 {
+                for w in &mut col_widths {
+                    let excess = w.saturating_sub(min_per_col);
+                    let scaled =
+                        ((excess as f64 / natural_distributable as f64) * distributable as f64) as usize;
+                    *w = min_per_col + scaled;
+                }
+            } else {
+                for w in &mut col_widths {
+                    *w = min_per_col;
+                }
+            }
+            // Trim from widest columns if still overshooting
+            let new_total: usize = col_widths.iter().sum();
+            let mut over = new_total.saturating_sub(content_budget);
+            while over > 0 {
+                if let Some(w) = col_widths.iter_mut().filter(|w| **w > min_per_col).max() {
+                    let reduce = over.min(*w - min_per_col);
+                    *w -= reduce;
+                    over -= reduce;
+                } else {
+                    break;
+                }
+            }
+        } else if total_content > content_budget && content_budget > 0 {
+            for w in &mut col_widths {
+                *w = content_budget / col_count;
+            }
+        }
+    }
+
+    // After all shrinking, do a final check: if the total table width still exceeds
+    // max_width (e.g. due to rounding or box-drawing chars rendering wider on mobile
+    // terminals), aggressively trim columns until the table fits.
+    if let Some(max_w) = max_width {
+        loop {
+            let table_width: usize = col_widths.iter().sum::<usize>() + 3 * col_count + 1;
+            if table_width <= max_w {
+                break;
+            }
+            // Reduce the widest column by 1
+            if let Some(w) = col_widths.iter_mut().max() {
+                if *w > 0 {
+                    *w -= 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
         }
     }
 
@@ -504,7 +644,7 @@ fn render_table(
         for i in 0..col_count {
             let cell = header.get(i).map(|s| s.as_str()).unwrap_or("");
             let align = alignments.get(i).copied().unwrap_or(TableAlignment::Left);
-            let padded = align_cell(cell, col_widths[i], align);
+            let padded = align_cell_fit(cell, col_widths[i], align);
             spans.push(Span::styled(
                 padded,
                 Style::default()
@@ -552,7 +692,7 @@ fn render_table(
         for i in 0..col_count {
             let cell = row.get(i).map(|s| s.as_str()).unwrap_or("");
             let align = alignments.get(i).copied().unwrap_or(TableAlignment::Left);
-            let padded = align_cell(cell, col_widths[i], align);
+            let padded = align_cell_fit(cell, col_widths[i], align);
             let mut cell_style = Style::default();
             if let Some(bg) = row_bg {
                 cell_style = cell_style.bg(bg);
@@ -594,8 +734,24 @@ fn render_table(
 
 // ── Inline formatting ──────────────────────────────────────────────────────────
 
+/// Check if text contains a progress marker ([DONE] or [TODO])
+/// and return the corresponding style.
+fn progress_marker_style(text: &str) -> Option<Style> {
+    if text.contains("[DONE]") {
+        Some(Style::default().fg(DONE_FG))
+    } else if text.contains("[TODO]") {
+        Some(Style::default().fg(TODO_FG))
+    } else {
+        None
+    }
+}
+
 /// Render a line of text with inline markdown formatting.
+/// Detects [DONE] and [TODO] markers and applies status colors to the entire line.
 fn render_inline(text: &str) -> Line<'static> {
+    if let Some(style) = progress_marker_style(text) {
+        return Line::from(vec![Span::styled(text.to_string(), style)]);
+    }
     Line::from(parse_inline_spans(text, Style::default()))
 }
 
@@ -828,11 +984,11 @@ fn is_escaped(chars: &[char], pos: usize) -> bool {
 
 /// Render streaming markdown text. Handles unclosed code blocks natively
 /// (no temporary fence hack needed).
-pub fn render_streaming_markdown(text: &str) -> Vec<Line<'static>> {
-    render_markdown(text)
+pub fn render_streaming_markdown(text: &str, max_width: Option<usize>) -> Vec<Line<'static>> {
+    render_markdown(text, max_width)
 }
 
 /// Render complete (non-streaming) markdown text.
-pub fn render_full_markdown(text: &str) -> Vec<Line<'static>> {
-    render_markdown(text)
+pub fn render_full_markdown(text: &str, max_width: Option<usize>) -> Vec<Line<'static>> {
+    render_markdown(text, max_width)
 }
