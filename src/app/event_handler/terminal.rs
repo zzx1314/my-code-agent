@@ -3,6 +3,7 @@ use ratatui::{
     backend::CrosstermBackend,
     crossterm::{
         execute,
+        event::{DisableMouseCapture, EnableMouseCapture},
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
 };
@@ -12,7 +13,7 @@ use std::io::Write as _;
 pub fn enter_terminal() -> anyhow::Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let _ = write!(std::io::stdout(), "\x1b[?1007h");
     let _ = write!(std::io::stdout(), "\x1b[?2004h");
     let _ = std::io::stdout().flush();
@@ -29,6 +30,6 @@ pub fn leave_terminal(
     let _ = write!(std::io::stdout(), "\x1b[?2004l");
     let _ = std::io::stdout().flush();
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     Ok(())
 }
