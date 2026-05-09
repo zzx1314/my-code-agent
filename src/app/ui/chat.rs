@@ -73,7 +73,8 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
     }
 
     // Reasoning block
-    render_reasoning_block(lines, &app.last_reasoning);
+    let max_height = app.config.agent.thinking_display_height;
+    render_reasoning_block(lines, &app.last_reasoning, max_height);
 
     // The last assistant message
     if let Some(idx) = last_assistant_idx {
@@ -118,19 +119,41 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, role: &str, content: &st
     }
 }
 
-/// Render reasoning block with blockquote style.
-fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str) {
+/// Render reasoning block with blockquote style, limited to max_height lines.
+fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str, max_height: u16) {
+    // Reserve lines for: header ("💭 Thinking:"), trailing empty line, and optionally "hidden" message
+    let header_reserve: u16 = 2; // header + trailing empty
+    let content_budget = max_height.saturating_sub(header_reserve).max(1);
     lines.push(Line::from(Span::styled(
         "💭 Thinking:",
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD),
     )));
-    for line in reasoning.lines() {
-        lines.push(Line::from(vec![
-            Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
-            Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
-        ]));
+    let reasoning_lines: Vec<&str> = reasoning.lines().collect();
+    let total = reasoning_lines.len();
+    let max_display = content_budget as usize;
+    if total > max_display {
+        let skipped = total - max_display;
+        // "hidden" message line also counts toward the budget
+        let effective_display = max_display.saturating_sub(1);
+        lines.push(Line::from(Span::styled(
+            format!("│ … {} lines hidden (showing last {}) …", skipped, effective_display),
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        )));
+        for line in &reasoning_lines[total - effective_display..] {
+            lines.push(Line::from(vec![
+                Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
+                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+    } else {
+        for line in reasoning_lines {
+            lines.push(Line::from(vec![
+                Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
+                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+            ]));
+        }
     }
     lines.push(Line::default());
 }
@@ -147,7 +170,8 @@ fn render_streaming_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App) {
         } else {
             &app.last_reasoning
         };
-        render_reasoning_block(lines, text);
+        let max_height = app.config.agent.thinking_display_height;
+        render_reasoning_block(lines, text, max_height);
     }
 }
 
