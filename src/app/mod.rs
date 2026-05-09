@@ -116,6 +116,14 @@ pub struct App {
     /// Set to true when an LLM response with reasoning completes, false when a local
     /// command pushes a non-LLM assistant message.
     pub show_inline_reasoning: bool,
+    // === Input history ===
+    /// History of previously sent input texts (newest last)
+    pub input_history: Vec<String>,
+    /// Current position in input history while navigating; None = not browsing history.
+    /// Index 0 is the oldest entry, last index is the newest.
+    pub history_index: Option<usize>,
+    /// Draft text saved when the user starts browsing history (so we can restore it on Down past the end)
+    pub history_draft: String,
 }
 
 impl App {
@@ -195,6 +203,9 @@ impl App {
             shell_mode: false,
             message_queue: Vec::new(),
             show_inline_reasoning: false,
+            input_history: Vec::new(),
+            history_index: None,
+            history_draft: String::new(),
         }
     }
 }
@@ -204,6 +215,8 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
     match provider {
         "deepseek" => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
         "openrouter" => vec![
+            // Baidu free models
+            "baidu/cobuddy:free".to_string(),
             // OpenRouter free models
             "nvidia/nemotron-3-super-120b-a12b:free".to_string(),
             "tencent/hy3-preview:free".to_string(),

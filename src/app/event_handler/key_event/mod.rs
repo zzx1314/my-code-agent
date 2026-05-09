@@ -11,6 +11,7 @@ use completion::{
     update_completion_query,
 };
 use input::handle_enter_key;
+use input::{history_down, history_up};
 use picker::{handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key};
 
 /// Handle key events
@@ -150,8 +151,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                     };
                 }
             } else {
-                app.scroll = app.scroll.saturating_sub(3);
-                app.auto_scroll = false;
+                history_up(app);
             }
         }
         (KeyCode::Down, modifiers) if modifiers.is_empty() => {
@@ -161,14 +161,11 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                         (app.completion_selected + 1) % app.completion_items.len();
                 }
             } else {
-                let max_scroll = app.total_lines.saturating_sub(app.chat_area_height);
-                app.scroll = (app.scroll + 3).min(max_scroll);
-                if app.scroll >= max_scroll {
-                    app.auto_scroll = true;
-                }
+                history_down(app);
             }
         }
         (KeyCode::Char(c), _) => {
+            app.history_index = None; // Exit history browsing on any typed character
             if c == '/' || c == '@' {
                 app.input.input(key);
                 trigger_completion(app, c);
@@ -180,6 +177,7 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             }
         }
         (KeyCode::Backspace, _) => {
+            app.history_index = None; // Exit history browsing on backspace
             app.input.input(key);
             if app.show_completion {
                 let cursor_pos = get_cursor_position(app);
