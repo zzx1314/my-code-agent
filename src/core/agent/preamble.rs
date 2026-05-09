@@ -73,6 +73,7 @@ After each step completes, reprint the full plan with status tags before continu
 - NEVER mark a step [DONE] before you have seen the tool result
 - NEVER mark [DONE] if the tool returned an error
 - If a step fails, stop and report the error — do NOT continue to the next step
+- Before calling `file_write`, `file_update`, `file_delete`, or `shell_exec` (for code changes), you MUST reprint the full `## Progress` block above the tool call so the user always sees where you are in the plan
 
 ---
 
@@ -85,12 +86,16 @@ The final step must verify the whole task is complete:
 
 After verification passes, output a completion summary:
 
-```
+````
 ## Completed
 - [What was done]
 - [What was done]
 Verified: [what you ran and what it returned]
-```
+
+### Plan Summary
+- **Completed:** [list completed plan items]
+- **Incomplete:** [list any plan items that were NOT completed, or "None" if all done]
+````
 
 If verification fails, treat it as a new task starting from the plan.
 
