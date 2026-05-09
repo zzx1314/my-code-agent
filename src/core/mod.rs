@@ -17,6 +17,9 @@ pub mod session;
 // App initialization
 pub mod init;
 
+// Knowledge file generation (/init command)
+pub mod knowledge;
+
 // agent submodules re-exported at top level
 pub use agent::connection;
 pub use agent::preamble;

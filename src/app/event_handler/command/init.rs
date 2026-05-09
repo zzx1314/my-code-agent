@@ -1,6 +1,6 @@
 use crate::app::App;
 
-use super::super::init::{build_init_prompt, build_init_result, generate_knowledge_content_local};
+use super::super::init::build_init_prompt;
 
 pub(super) fn handle(app: &mut App) -> bool {
     let knowledge_file = crate::core::preamble::KNOWLEDGE_FILE.to_string();
@@ -61,17 +61,21 @@ pub(super) fn handle(app: &mut App) -> bool {
             tracing::warn!(
                 "LLM returned empty response for /init, falling back to local generation"
             );
-            generate_knowledge_content_local()
+            crate::core::knowledge::generate_knowledge_content_local()
         } else {
             let raw = result.full_response.trim();
-            let stripped = super::super::init::strip_code_fences(raw);
-            let cleaned = super::super::init::strip_preamble_before_heading(stripped);
+            let stripped = crate::core::knowledge::strip_code_fences(raw);
+            let cleaned = crate::core::knowledge::strip_preamble_before_heading(stripped);
             tracing::info!(bytes = cleaned.len(), "Generated knowledge content via LLM");
             cleaned.to_string()
         };
 
-        let init_result =
-            build_init_result(&knowledge_file, &new_content, &config_clone, is_update);
+        let init_result = crate::core::knowledge::build_init_result(
+            &knowledge_file,
+            &new_content,
+            &config_clone,
+            is_update,
+        );
         init_tx.send(init_result).await.ok();
     });
 
