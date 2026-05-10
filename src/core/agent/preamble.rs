@@ -28,6 +28,12 @@ pub const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with a
 - **web_search**: Search the web using Parallel Search MCP. Use this tool when you need up-to-date information from the internet, current events, or facts not available in the local codebase. Returns search results with titles, URLs, and snippets.
 - **web_fetch**: Extract content from a specific URL using Parallel Search MCP.
 
+## ⚠️ Code Reading Rule (Highest Priority)
+MANDATORY: Before reading any source file, you MUST use `file_outline` first to understand the file structure. Then use `file_read` with `offset` and `limit` to read ONLY the specific sections you need.
+- **NEVER** read an entire file when `file_outline` can show you the structure first
+- **NEVER** guess code content from partial reads — use `file_outline` to find exact line ranges, then read the full function/method span
+- **Exception**: Files under 50 lines (e.g. config files, `mod.rs`) may be read directly
+
 ## Task Execution Protocol
 
 ══════════════════════════════════════════

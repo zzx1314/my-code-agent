@@ -3,6 +3,7 @@ use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::core::tool_dedup::get_global_tool_dedup;
 use super::undo_history;
 
 #[derive(Debug, thiserror::Error)]
@@ -80,6 +81,13 @@ impl Tool for FileWrite {
 
         let bytes_written = args.content.len();
         std::fs::write(&args.path, &args.content).map_err(FileWriteError::Io)?;
+
+        // Invalidate dedup cache for this path — file content has changed
+        {
+            let dedup = get_global_tool_dedup();
+            let mut guard = dedup.lock().unwrap();
+            guard.invalidate_path(&args.path);
+        }
 
         Ok(FileWriteOutput {
             path: args.path,

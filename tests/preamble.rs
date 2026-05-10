@@ -84,6 +84,22 @@ fn test_preamble_has_knowledge_placeholder() {
 }
 
 #[test]
+fn test_preamble_has_code_reading_rule() {
+    assert!(
+        PREAMBLE_TEMPLATE.contains("Code Reading Rule"),
+        "Preamble should have a 'Code Reading Rule' section"
+    );
+    assert!(
+        PREAMBLE_TEMPLATE.contains("file_outline"),
+        "Code Reading Rule should mention file_outline"
+    );
+    assert!(
+        PREAMBLE_TEMPLATE.contains("NEVER") && PREAMBLE_TEMPLATE.contains("offset"),
+        "Code Reading Rule should have NEVER rules about reading entire files"
+    );
+}
+
+#[test]
 fn test_preamble_has_task_planning_section() {
     assert!(
         PREAMBLE_TEMPLATE.contains("Task Planning"),

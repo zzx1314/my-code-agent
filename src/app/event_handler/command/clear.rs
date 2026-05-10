@@ -16,6 +16,12 @@ pub(super) fn handle(app: &mut App) -> bool {
     if let Err(e) = crate::tools::undo_history::clear_current_session_entries() {
         tracing::warn!(error = %e, "Failed to clear undo history on /clear");
     }
+    // Reset tool dedup cache — no stale reads from previous session
+    {
+        let dedup = crate::core::tool_dedup::get_global_tool_dedup();
+        let mut guard = dedup.lock().unwrap();
+        guard.reset();
+    }
     // Generate a new session ID so the cleared session's history is separate
     let new_session_id = format!(
         "session_{}",

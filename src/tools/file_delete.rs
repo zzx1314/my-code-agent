@@ -3,6 +3,7 @@ use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::core::tool_dedup::get_global_tool_dedup;
 use super::confirmation::ConfirmationHandle;
 use super::safety::{confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion};
 use super::undo_history;
@@ -182,6 +183,13 @@ impl Tool for FileDelete {
 
             std::fs::write(path, &new_content).map_err(FileDeleteError::Io)?;
 
+            // Invalidate dedup cache for this path — file content has changed
+            {
+                let dedup = get_global_tool_dedup();
+                let mut guard = dedup.lock().unwrap();
+                guard.invalidate_path(&args.path);
+            }
+
             let diff = super::build_diff(&snippet, "", &content);
 
             return Ok(FileDeleteOutput {
@@ -232,6 +240,13 @@ impl Tool for FileDelete {
         } else {
             return Err(FileDeleteError::InvalidType { path: args.path });
         };
+
+        // Invalidate dedup cache for this path — file has been deleted
+        {
+            let dedup = get_global_tool_dedup();
+            let mut guard = dedup.lock().unwrap();
+            guard.invalidate_path(&args.path);
+        }
 
         Ok(FileDeleteOutput {
             path: args.path,

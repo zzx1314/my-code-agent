@@ -6,3 +6,4 @@ pub mod context_manager;
 pub mod file_cache;
 pub mod file_ref;
 pub mod token_usage;
+pub mod tool_dedup;

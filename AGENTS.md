@@ -1,5 +1,40 @@
 # AGENTS.md — My Code Agent
 
+## ⚠️ Top Priority: Code Reading Workflow
+
+**MANDATORY** — This rule supersedes all other instructions.
+
+### Rule: outline-first, read-precise
+
+When reading any source code file, you **MUST** follow this two-step workflow:
+
+1. **Step 1: `file_outline`** — Always call `file_outline` **BEFORE** `file_read` to understand the file's structure (functions, structs, enums, impls, traits, modules with line ranges).
+2. **Step 2: `file_read` (targeted)** — Use the outline to identify the **exact line range** you need, then read **only that range** using `offset` + `limit`. **NEVER** read an entire file when you only need a specific function or section.
+
+### Why
+
+- Saves tokens and context window budget
+- Prevents information overload and missed details
+- Enables precise, surgical code understanding
+
+### Examples
+
+✅ **Correct**:
+1. `file_outline("src/tools/file_read.rs")` → sees `fn execute()` at lines 45-120
+2. `file_read("src/tools/file_read.rs", offset=44, limit=76)` → reads only `execute()`
+
+❌ **Wrong**:
+- `file_read("src/tools/file_read.rs")` without calling `file_outline` first
+- Reading the entire 300-line file when you only need one function
+
+### Exceptions
+
+- Files **under 50 lines** — you may read directly without outline
+- `AGENTS.md`, `Cargo.toml`, `config.toml` — config/doc files, read directly
+- `@filepath` attachments from user — already loaded, don't re-read
+
+---
+
 ## Quick Start
 
 ```bash

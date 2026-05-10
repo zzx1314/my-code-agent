@@ -30,3 +30,4 @@ pub use context::context_cache;
 pub use context::context_manager;
 pub use context::file_cache;
 pub use context::token_usage;
+pub use context::tool_dedup;

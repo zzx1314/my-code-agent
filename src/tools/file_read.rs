@@ -1,6 +1,7 @@
 use crate::core::config::Config;
 use crate::core::file_cache::get_global_file_cache;
 use crate::core::parser::ParsedFile;
+use crate::core::tool_dedup::get_global_tool_dedup;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
@@ -112,6 +113,34 @@ impl Tool for FileRead {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let offset = args.offset.unwrap_or(0);
+        let limit = args.limit.unwrap_or(self.default_read_limit);
+
+        // ── Dedup check ───────────────────────────────────────────────────
+        // If we already read the same (path, offset, limit) and the file
+        // hasn't been modified since, return a short message instead of the
+        // full content.  This saves the model from re-consuming tokens for
+        // identical reads.
+        {
+            let dedup = get_global_tool_dedup();
+            let mut dedup_guard = dedup.lock().unwrap();
+            match dedup_guard.check_file_read(&args.path, offset, limit) {
+                crate::core::tool_dedup::DedupAction::ShortCircuit(info) => {
+                    let msg = info.format_message();
+                    return Ok(FileReadOutput {
+                        path: args.path,
+                        content: msg,
+                        lines: info.total_lines,
+                        start: info.start,
+                        end: info.end,
+                        truncated: false,
+                    });
+                }
+                crate::core::tool_dedup::DedupAction::Allow => {}
+            }
+        }
+
+        // ── File I/O (via disk cache) ─────────────────────────────────────
         let cache = get_global_file_cache();
         let content = {
             let mut cache_guard = cache.lock().unwrap();
@@ -128,9 +157,6 @@ impl Tool for FileRead {
 
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
-
-        let offset = args.offset.unwrap_or(0);
-        let limit = args.limit.unwrap_or(self.default_read_limit);
 
         let start = offset.min(total_lines);
         let end = (start + limit).min(total_lines);
@@ -184,6 +210,21 @@ impl Tool for FileRead {
                 "\n\n... (showing {} of {} total lines. Use offset={} to read more)",
                 shown, total_lines, adjusted_end
             ));
+        }
+
+        // ── Record in dedup cache ─────────────────────────────────────────
+        // Future identical reads will be short-circuited.
+        {
+            let dedup = get_global_tool_dedup();
+            let mut dedup_guard = dedup.lock().unwrap();
+            dedup_guard.record_file_read(
+                &args.path,
+                offset,
+                limit,
+                total_lines,
+                start,
+                adjusted_end,
+            );
         }
 
         Ok(FileReadOutput {

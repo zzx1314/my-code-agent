@@ -49,6 +49,13 @@ pub fn handle_session_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                         );
                         crate::tools::undo_history::set_session_id(new_session_id);
 
+                        // Reset tool dedup cache — stale reads from previous session are invalid
+                        {
+                            let dedup = crate::core::tool_dedup::get_global_tool_dedup();
+                            let mut guard = dedup.lock().unwrap();
+                            guard.reset();
+                        }
+
                         app.chat_history
                             .push(("user".to_string(), format!("/load {}", session_name)));
                         app.chat_history.push((
