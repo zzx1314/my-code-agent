@@ -119,9 +119,10 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, role: &str, content: &st
     }
 }
 
-/// Render reasoning block with blockquote style, limited to max_height lines.
+/// Render reasoning block with blockquote style, always exactly max_height lines tall.
+/// Fixed height prevents the content below from jumping as reasoning streams in.
 fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str, max_height: u16) {
-    // Reserve lines for: header ("💭 Thinking:"), trailing empty line, and optionally "hidden" message
+    // Reserve lines for: header ("💭 Thinking:") and trailing empty line
     let header_reserve: u16 = 2; // header + trailing empty
     let content_budget = max_height.saturating_sub(header_reserve).max(1);
     lines.push(Line::from(Span::styled(
@@ -133,6 +134,7 @@ fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str,
     let reasoning_lines: Vec<&str> = reasoning.lines().collect();
     let total = reasoning_lines.len();
     let max_display = content_budget as usize;
+
     if total > max_display {
         let skipped = total - max_display;
         // "hidden" message line also counts toward the budget
@@ -148,11 +150,21 @@ fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str,
             ]));
         }
     } else {
+        let mut content_lines_added: u16 = 0;
         for line in reasoning_lines {
             lines.push(Line::from(vec![
                 Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
                 Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
             ]));
+            content_lines_added += 1;
+        }
+        // Pad with empty placeholder lines to keep a fixed height
+        while content_lines_added < content_budget {
+            lines.push(Line::from(Span::styled(
+                "│",
+                Style::default().fg(Color::DarkGray),
+            )));
+            content_lines_added += 1;
         }
     }
     lines.push(Line::default());
