@@ -219,7 +219,7 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
             "baidu/cobuddy:free".to_string(),
             // OpenRouter free models
             "nvidia/nemotron-3-super-120b-a12b:free".to_string(),
-            "tencent/hy3-preview:free".to_string(),
+            "inclusionai/ring-2.6-1t:free".to_string(),
             // Poolside free models
             "poolside/laguna-m.1:free".to_string(),
             "poolside/laguna-xs.2:free".to_string(),

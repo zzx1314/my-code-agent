@@ -14,23 +14,70 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    let mut lines: Vec<ratatui::text::Line> = Vec::new();
-
-    let has_reasoning =
-        app.config.agent.thinking_display != "hidden" && !app.last_reasoning.is_empty();
+    let has_reasoning = app.config.agent.thinking_display != "hidden"
+        && (app.is_streaming || !app.last_reasoning.is_empty());
 
     let width = Some(area.width as usize);
 
     if !app.is_streaming && has_reasoning && app.show_inline_reasoning {
+        let mut lines: Vec<ratatui::text::Line> = Vec::new();
         render_chat_with_reasoning(&mut lines, app, width);
+        render_status_messages(&mut lines, app, area);
+        render_paragraph_with_scroll(f, app, lines, area);
+    } else if has_reasoning {
+        // Split layout: scrolling content on top, fixed reasoning block at bottom
+        let max_height = app.config.agent.thinking_display_height;
+        let total_reserve = max_height + 2; // header + content + trailing empty
+        let (content_area, reasoning_area) = if area.height > total_reserve {
+            let areas = ratatui::layout::Layout::default()
+                .direction(ratatui::layout::Direction::Vertical)
+                .constraints([
+                    ratatui::layout::Constraint::Min(1),
+                    ratatui::layout::Constraint::Length(total_reserve),
+                ])
+                .split(area);
+            (areas[0], areas[1])
+        } else {
+            // Not enough space, use full area for reasoning
+            let areas = ratatui::layout::Layout::default()
+                .direction(ratatui::layout::Direction::Vertical)
+                .constraints([
+                    ratatui::layout::Constraint::Length(0),
+                    ratatui::layout::Constraint::Min(1),
+                ])
+                .split(area);
+            (areas[0], areas[1])
+        };
+
+        // Top: history + streaming content
+        let mut content_lines: Vec<ratatui::text::Line> = Vec::new();
+        render_chat_messages(&mut content_lines, app, width);
+        render_streaming_content(&mut content_lines, app, width);
+        render_status_messages(&mut content_lines, app, area);
+        render_paragraph_with_scroll(f, app, content_lines, content_area);
+
+        // Bottom: fixed reasoning block
+        let mut reasoning_lines: Vec<ratatui::text::Line> = Vec::new();
+        let reasoning_text = if !app.streaming_reasoning.is_empty() {
+            &app.streaming_reasoning
+        } else {
+            &app.last_reasoning
+        };
+        render_reasoning_block(&mut reasoning_lines, reasoning_text, max_height);
+        let paragraph = Paragraph::new(reasoning_lines)
+            .wrap(Wrap { trim: false })
+            .block(Block::default().borders(Borders::NONE));
+        f.render_widget(paragraph, reasoning_area);
     } else {
+        let mut lines: Vec<ratatui::text::Line> = Vec::new();
         render_chat_messages(&mut lines, app, width);
-        render_streaming_reasoning(&mut lines, app);
+        render_streaming_content(&mut lines, app, width);
+        render_status_messages(&mut lines, app, area);
+        render_paragraph_with_scroll(f, app, lines, area);
     }
+}
 
-    render_streaming_content(&mut lines, app, width);
-    render_status_messages(&mut lines, app, area);
-
+fn render_paragraph_with_scroll(f: &mut Frame, app: &mut App, lines: Vec<ratatui::text::Line>, area: Rect) {
     let actual_lines = Paragraph::new(lines.clone())
         .wrap(Wrap { trim: false })
         .line_count(area.width) as u16;
@@ -39,7 +86,10 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     app.chat_area_height = area.height;
 
     if app.auto_scroll {
-        app.scroll = actual_lines.saturating_sub(area.height);
+        // Use max() to prevent scroll from decreasing (monotonic),
+        // which avoids visual jumping when line_count fluctuates due to word-wrap reflow.
+        let new_scroll = actual_lines.saturating_sub(area.height);
+        app.scroll = app.scroll.max(new_scroll);
     }
 
     let paragraph = Paragraph::new(lines)
@@ -168,23 +218,6 @@ fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str,
         }
     }
     lines.push(Line::default());
-}
-
-/// Render reasoning during streaming if applicable.
-fn render_streaming_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App) {
-    let show_reasoning = app.config.agent.thinking_display != "hidden"
-        && app.is_streaming
-        && (!app.streaming_reasoning.is_empty() || !app.last_reasoning.is_empty());
-
-    if show_reasoning {
-        let text = if !app.streaming_reasoning.is_empty() {
-            &app.streaming_reasoning
-        } else {
-            &app.last_reasoning
-        };
-        let max_height = app.config.agent.thinking_display_height;
-        render_reasoning_block(lines, text, max_height);
-    }
 }
 
 /// Render streaming content (text and tool calls).
