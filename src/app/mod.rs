@@ -185,14 +185,27 @@ impl App {
             pending_confirmation: None,
             // Model picker initialization
             show_model_picker: false,
-            model_options: get_model_options_for_provider(&config.llm.provider),
+            model_options: {
+                let opts = get_model_options_for_provider(&config.llm.provider);
+                if config.llm.provider == "custom" {
+                    // For custom provider, use the model from config
+                    let model = config.llm.model.clone().unwrap_or_else(|| "custom-model".to_string());
+                    vec![model]
+                } else {
+                    opts
+                }
+            },
             model_selected: 0,
             // Provider picker initialization
             show_provider_picker: false,
-            provider_options: vec!["deepseek".to_string(), "openrouter".to_string()],
+            provider_options: vec!["deepseek".to_string(), "openrouter".to_string(), "custom".to_string()],
             provider_selected: {
                 let p = config.llm.provider.as_str();
-                if p == "openrouter" { 1 } else { 0 }
+                match p {
+                    "openrouter" => 1,
+                    "custom" => 2,
+                    _ => 0,
+                }
             },
             // Session picker initialization
             show_session_picker: false,
@@ -226,6 +239,7 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
             // OpenRouter-specific models
             "openrouter/owl-alpha".to_string(),
         ],
+        "custom" => vec!["custom-model".to_string()],
         _ => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
     }
 }

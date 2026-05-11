@@ -30,14 +30,21 @@ pub fn handle_provider_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
             if !app.provider_options.is_empty() {
                 let selected_provider = app.provider_options[app.provider_selected].clone();
                 app.config.llm.provider = selected_provider.clone();
-                app.config.llm.api_key_env = match selected_provider.as_str() {
-                    "deepseek" => "DEEPSEEK_API_KEY".to_string(),
-                    "openrouter" => "OPENROUTER_API_KEY".to_string(),
-                    _ => String::new(),
-                };
-                app.model_options = crate::app::get_model_options_for_provider(&selected_provider);
-                app.model_selected = 0;
-                app.config.llm.model = app.model_options.first().cloned();
+                if selected_provider != "custom" {
+                    app.config.llm.api_key_env = match selected_provider.as_str() {
+                        "deepseek" => "DEEPSEEK_API_KEY".to_string(),
+                        "openrouter" => "OPENROUTER_API_KEY".to_string(),
+                        _ => String::new(),
+                    };
+                    app.model_options = crate::app::get_model_options_for_provider(&selected_provider);
+                    app.model_selected = 0;
+                    app.config.llm.model = app.model_options.first().cloned();
+                } else {
+                    // Custom provider: preserve config.toml values (model, api_key_env, base_url)
+                    let current_model = app.config.llm.model.clone().unwrap_or_default();
+                    app.model_options = vec![current_model];
+                    app.model_selected = 0;
+                }
 
                 app.chat_history.push((
                     "user".to_string(),
