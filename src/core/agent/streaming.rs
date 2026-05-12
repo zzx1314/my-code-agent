@@ -262,8 +262,6 @@ where
                 // Record cache metrics for this turn
                 crate::core::context_cache::global_cache().record_turn(&turn_usage);
 
-                status_messages.extend(format_context_warning(session_usage));
-
                 tracing::info!(
                     session_input = session_usage.input_tokens(),
                     session_output = session_usage.output_tokens(),
@@ -310,6 +308,9 @@ where
                         "Context pruning triggered",
                     );
                 }
+
+                // Must be after pruning — otherwise cache-hit-inflated API input_tokens cause false warnings.
+                status_messages.extend(format_context_warning(session_usage));
 
                 return StreamResult {
                     full_response,
