@@ -257,12 +257,11 @@ impl ContextManager {
     /// Estimate text token count.
     /// ASCII: ~4 chars/token. CJK/non-ASCII: ~1.5 chars/token.
     fn estimate_text_tokens(text: &str) -> u64 {
-        let len = text.len() as u64;
-        if len == 0 {
+        if text.is_empty() {
             return 1;
         }
+        let ascii = text.chars().filter(|c| c.is_ascii()).count() as u64;
         let non_ascii = text.chars().filter(|c| !c.is_ascii()).count() as u64;
-        let ascii = len.saturating_sub(non_ascii);
         (ascii / 4 + non_ascii * 2 / 3).max(1)
     }
 
