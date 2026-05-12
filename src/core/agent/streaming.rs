@@ -10,6 +10,11 @@ use crate::core::preamble::Agent;
 use crate::core::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::ui::render::ReasoningTracker;
 
+/// Estimated token overhead per tool call result during multi-turn streaming.
+/// Used by the running estimate in `stream_inner` to detect approaching context limits.
+/// Conservative: covers file_read (200 lines ≈ 3K tokens), shell_exec (10K chars ≈ 2.5K tokens).
+const TOOL_RESULT_OVERHEAD: u64 = 3000;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // StreamResult & StreamEvent
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,6 +118,10 @@ where
     let mut status_messages: Vec<String> = Vec::new();
     let mut after_tool_call = false;
 
+    // Running estimate for intermediate context checks during multi-turn tool calls.
+    let mut running_approx = context_manager.estimate_messages_tokens(chat_history, true)
+        + ContextManager::estimate_message_tokens(&Message::user(input));
+
     let display_mode = agent_config.thinking_display.as_str();
 
     // Helper to send event if channel exists
@@ -174,6 +183,7 @@ where
 
                 send_event(StreamEvent::Text(text_to_send.clone()));
                 full_response.push_str(&text_to_send);
+                running_approx += ContextManager::estimate_text_tokens(&text_content.text);
             }
 
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
@@ -187,6 +197,25 @@ where
                 // No longer appended to full_response to avoid polluting conversation history with tool call markers
                 send_event(StreamEvent::ToolCall(tool_call.function.name.clone()));
                 after_tool_call = true;
+
+                // Running estimate update: each ToolCall will produce a ToolResult (added by Rig internally).
+                // Estimate the ToolCall itself + a conservative overhead for the ToolResult.
+                let tc_est = ContextManager::estimate_text_tokens(&tool_call.function.name)
+                    + ContextManager::estimate_text_tokens(
+                        &serde_json::to_string(&tool_call.function.arguments).unwrap_or_default(),
+                    )
+                    + 5;
+                running_approx += tc_est + TOOL_RESULT_OVERHEAD;
+
+                if context_manager.should_compact(running_approx) {
+                    if !context_manager.is_prune_triggered() {
+                        context_manager.set_prune_triggered(true);
+                        status_messages.push(
+                            "📝 Context window nearly full — will compact after this turn"
+                                .to_string(),
+                        );
+                    }
+                }
             }
 
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Reasoning(
@@ -229,9 +258,20 @@ where
                 status_messages.extend(format_context_warning(session_usage));
 
                 let input_tokens = session_usage.last_turn_input_tokens();
-                if context_manager.should_compact(input_tokens) {
-                    status_messages
-                        .push("📝 Context window full - pruning old messages...".to_string());
+                let api_at_limit = context_manager.should_compact(input_tokens);
+                let estimated_at_limit = context_manager.is_prune_triggered();
+
+                if api_at_limit || estimated_at_limit {
+                    if api_at_limit {
+                        status_messages.push(
+                            "📝 Context window full - pruning old messages...".to_string(),
+                        );
+                    } else {
+                        status_messages.push(
+                            "📝 Tool-heavy turn - pruning to maintain context headroom..."
+                                .to_string(),
+                        );
+                    }
                     let pruned_messages = context_manager.prune_messages(chat_history);
                     let pruned_count = chat_history.len() - pruned_messages.len();
                     *chat_history = pruned_messages;

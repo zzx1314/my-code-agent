@@ -256,7 +256,7 @@ impl ContextManager {
 
     /// Estimate text token count.
     /// ASCII: ~4 chars/token. CJK/non-ASCII: ~1.5 chars/token.
-    fn estimate_text_tokens(text: &str) -> u64 {
+    pub(crate) fn estimate_text_tokens(text: &str) -> u64 {
         if text.is_empty() {
             return 1;
         }
@@ -265,7 +265,7 @@ impl ContextManager {
         (ascii / 4 + non_ascii * 2 / 3).max(1)
     }
 
-    fn estimate_message_tokens(msg: &Message) -> u64 {
+    pub(crate) fn estimate_message_tokens(msg: &Message) -> u64 {
         match msg {
             Message::User { content } => {
                 let mut total = 0u64;
