@@ -249,6 +249,13 @@ where
                     *chat_history = history.to_vec();
                 }
                 let turn_usage = final_res.usage();
+                tracing::info!(
+                    turn_input_tokens = turn_usage.input_tokens,
+                    turn_output_tokens = turn_usage.output_tokens,
+                    turn_total_tokens = turn_usage.total_tokens,
+                    caches_hit = turn_usage.cached_input_tokens,
+                    "Turn token usage",
+                );
                 let turn_usage_line = Some(format_turn_usage(&turn_usage));
                 session_usage.add(turn_usage);
 
@@ -256,6 +263,14 @@ where
                 crate::core::context_cache::global_cache().record_turn(&turn_usage);
 
                 status_messages.extend(format_context_warning(session_usage));
+
+                tracing::info!(
+                    session_input = session_usage.input_tokens(),
+                    session_output = session_usage.output_tokens(),
+                    session_total = session_usage.total_tokens(),
+                    context_usage_pct = format!("{:.2}", session_usage.context_usage_percent()),
+                    "Session token usage after turn",
+                );
 
                 let input_tokens = session_usage.last_turn_input_tokens();
                 let api_at_limit = context_manager.should_compact(input_tokens);
@@ -282,6 +297,18 @@ where
                         pruned_count,
                         chat_history.len()
                     ));
+
+                    let pruned_estimate =
+                        context_manager.estimate_messages_tokens(chat_history, true);
+                    session_usage.update_pruned_estimate(pruned_estimate);
+
+                    tracing::info!(
+                        trigger = if api_at_limit { "api" } else { "estimated" },
+                        pruned = pruned_count,
+                        remaining = chat_history.len(),
+                        context_estimate_after = format!("{:.2}%", session_usage.context_usage_percent()),
+                        "Context pruning triggered",
+                    );
                 }
 
                 return StreamResult {

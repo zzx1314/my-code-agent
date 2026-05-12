@@ -269,6 +269,16 @@ impl TokenUsage {
         }
     }
 
+    /// Update the context token estimate after pruning.
+    ///
+    /// After messages are pruned from the chat history, the actual context size
+    /// is smaller than what the API reported for this turn. Calling this makes
+    /// `context_usage_percent()` reflect the post-pruning state immediately,
+    /// rather than showing the pre-pruning value until the next API turn.
+    pub fn update_pruned_estimate(&mut self, estimated_tokens: u64) {
+        self.last_turn_input_tokens = estimated_tokens;
+    }
+
     /// Returns a reference to the underlying [`Usage`] for programmatic access.
     pub fn usage(&self) -> &Usage {
         &self.usage
