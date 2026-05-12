@@ -22,6 +22,7 @@ pub fn reset_streaming_state(app: &mut App) {
 
 /// Spawn an async LLM streaming task with the given prompt
 pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, prompt: &str) {
+    use rig::completion::Message;
     use crate::app::conversion::convert_app_to_rig;
     use crate::core::context::expand_file_refs;
     use crate::core::streaming::{StreamResult, stream_response};
@@ -43,6 +44,20 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
 
     tokio::spawn(async move {
         let mut interrupt_rx = interrupt_rx;
+
+        // ── Pre-send pruning ──────────────────────────────────────────────
+        // Estimate total tokens: preamble + chat_history + new input.
+        // If too high, prune the chat_history before sending to leave room
+        // for multi-turn tool call results (which rig adds internally).
+        let estimated_new_input = ctx_mgr.estimate_messages_tokens(
+            &[Message::user(&expanded.expanded)],
+            false,
+        );
+        let estimated_total = ctx_mgr.estimate_messages_tokens(&rig_chat_history, true)
+            + estimated_new_input;
+        if ctx_mgr.should_prune_before_send(estimated_total) {
+            rig_chat_history = ctx_mgr.prune_messages(&rig_chat_history);
+        }
 
         let result = stream_response(
             &agent_clone,
@@ -194,6 +209,26 @@ fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamRe
             .push(("assistant".to_string(), result.full_response.clone()));
         // Mark that reasoning should be rendered inline with this LLM response
         app.show_inline_reasoning = !app.last_reasoning.is_empty();
+    }
+
+    // Sync the (potentially pruned) chat history from rig back to app.chat_history.
+    // This prevents cross-turn accumulation: the pruned history (with tool content
+    // stripped and old messages dropped) becomes the base for the next turn,
+    // rather than the ever-growing text-only history.
+    if !result.updated_history.is_empty() {
+        use crate::app::conversion::convert_rig_to_app;
+        let pruned: Vec<(String, String)> = result
+            .updated_history
+            .into_iter()
+            .map(convert_rig_to_app)
+            .filter(|(role, text)| {
+                // Skip system messages, placeholders, and empty entries
+                role != "unknown" && !text.is_empty() && text != "[tool content removed]"
+            })
+            .collect();
+        if !pruned.is_empty() {
+            app.chat_history = pruned;
+        }
     }
 
     app.token_usage = result.session_usage;

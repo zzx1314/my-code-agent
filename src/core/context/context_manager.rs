@@ -1,16 +1,22 @@
 use rig::completion::AssistantContent;
 use rig::completion::Message;
 use rig::message::UserContent;
-use std::collections::VecDeque;
 
 use crate::core::config::Config;
+
+/// Preamble overhead estimate: PREAMBLE_TEMPLATE (~150 lines) + knowledge.md
+/// Roughly 500-800 tokens depending on knowledge content. We use 1000 for safety.
+const PREAMBLE_ESTIMATED_TOKENS: u64 = 1000;
+
+/// Pre-send pruning threshold: if estimated tokens >= this % of window, prune before sending.
+/// Set to 50% to leave room for multi-turn tool call results (which rig adds internally).
+const PRE_SEND_THRESHOLD_PERCENT: u64 = 50;
 
 #[derive(Debug, Clone)]
 pub struct ContextManager {
     config: Config,
     prune_triggered: bool,
     compact_count: usize,
-    message_buffer: VecDeque<Message>,
 }
 
 impl ContextManager {
@@ -19,7 +25,6 @@ impl ContextManager {
             config: config.clone(),
             prune_triggered: false,
             compact_count: 0,
-            message_buffer: VecDeque::new(),
         }
     }
 
@@ -28,8 +33,18 @@ impl ContextManager {
             config,
             prune_triggered: false,
             compact_count: 0,
-            message_buffer: VecDeque::new(),
         }
+    }
+
+    /// Pre-send budget check: if estimated total tokens >= PRE_SEND_THRESHOLD_PERCENT
+    /// of window_size, prune before sending to leave room for multi-turn tool results.
+    pub fn should_prune_before_send(&self, estimated_tokens: u64) -> bool {
+        let window_size = self.config.context.window_size;
+        if window_size == 0 {
+            return false;
+        }
+        let usage_pct = (estimated_tokens * 100).div_ceil(window_size);
+        usage_pct >= PRE_SEND_THRESHOLD_PERCENT
     }
 
     pub fn should_compact(&self, input_tokens: u64) -> bool {
@@ -79,7 +94,7 @@ impl ContextManager {
         let mut token_count: u64 = 0;
 
         for msg in &messages[..min_prefix] {
-            token_count += self.estimate_message_tokens(msg);
+            token_count += Self::estimate_message_tokens(msg);
             kept.push(msg.clone());
         }
 
@@ -105,7 +120,7 @@ impl ContextManager {
         // (We want recent context to survive — older messages are dropped first)
         let mut tail_kept: Vec<(usize, Message)> = Vec::new();
         for (idx, msg) in candidates.iter().rev() {
-            let msg_tokens = self.estimate_message_tokens(msg);
+            let msg_tokens = Self::estimate_message_tokens(msg);
             if token_count + msg_tokens <= max_tokens {
                 token_count += msg_tokens;
                 tail_kept.push((*idx, msg.clone()));
@@ -192,7 +207,7 @@ impl ContextManager {
 
         let mut token_count = 0;
         for (i, msg) in messages.iter().enumerate().rev() {
-            let msg_tokens = self.estimate_message_tokens(msg);
+            let msg_tokens = Self::estimate_message_tokens(msg);
             if token_count + msg_tokens > retain_tokens {
                 return Some(i + 1);
             }
@@ -228,14 +243,75 @@ impl ContextManager {
         window_size * (100 - warn_threshold) / 100
     }
 
-    fn estimate_message_tokens(&self, msg: &Message) -> u64 {
-        let content = match msg {
-            Message::User { content, .. } => format!("{:?}", content),
-            Message::Assistant { content, .. } => format!("{:?}", content),
-            Message::System { content, .. } => format!("{:?}", content),
+    /// Estimate tokens for a slice of messages. Includes preamble overhead.
+    pub fn estimate_messages_tokens(&self, messages: &[Message], include_preamble: bool) -> u64 {
+        let preamble = if include_preamble {
+            PREAMBLE_ESTIMATED_TOKENS
+        } else {
+            0
         };
+        let msgs: u64 = messages.iter().map(|m| Self::estimate_message_tokens(m)).sum();
+        preamble + msgs
+    }
 
-        (content.len() as u64 / 4).max(1)
+    /// Estimate text token count.
+    /// ASCII: ~4 chars/token. CJK/non-ASCII: ~1.5 chars/token.
+    fn estimate_text_tokens(text: &str) -> u64 {
+        let len = text.len() as u64;
+        if len == 0 {
+            return 1;
+        }
+        let non_ascii = text.chars().filter(|c| !c.is_ascii()).count() as u64;
+        let ascii = len.saturating_sub(non_ascii);
+        (ascii / 4 + non_ascii * 2 / 3).max(1)
+    }
+
+    fn estimate_message_tokens(msg: &Message) -> u64 {
+        match msg {
+            Message::User { content } => {
+                let mut total = 0u64;
+                for item in content.iter() {
+                    match item {
+                        UserContent::Text(t) => {
+                            total += Self::estimate_text_tokens(&t.text);
+                        }
+                        UserContent::ToolResult(r) => {
+                            for tr_content in r.content.iter() {
+                                if let rig::completion::message::ToolResultContent::Text(t) = tr_content
+                                {
+                                    total += Self::estimate_text_tokens(&t.text);
+                                } else {
+                                    total += 5;
+                                }
+                            }
+                            total += 10;
+                        }
+                        _ => total += 5,
+                    }
+                }
+                total.max(1)
+            }
+            Message::Assistant { content, .. } => {
+                let mut total = 0u64;
+                for item in content.iter() {
+                    match item {
+                        AssistantContent::Text(t) => {
+                            total += Self::estimate_text_tokens(&t.text);
+                        }
+                        AssistantContent::ToolCall(tc) => {
+                            total += Self::estimate_text_tokens(&tc.function.name);
+                            let args_str = serde_json::to_string(&tc.function.arguments)
+                                .unwrap_or_default();
+                            total += Self::estimate_text_tokens(&args_str);
+                            total += 5;
+                        }
+                        _ => total += 5,
+                    }
+                }
+                total.max(1)
+            }
+            Message::System { content } => Self::estimate_text_tokens(content).max(1),
+        }
     }
 
     pub fn is_prune_triggered(&self) -> bool {
@@ -257,7 +333,6 @@ impl ContextManager {
     pub fn reset(&mut self) {
         self.prune_triggered = false;
         self.compact_count = 0;
-        self.message_buffer.clear();
     }
 }
 

@@ -23,6 +23,10 @@ pub struct StreamResult {
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
     pub session_usage: TokenUsage,
+    /// The (potentially pruned) chat history after this turn.
+    /// On the next turn, this should be used instead of app.chat_history
+    /// to avoid context window growth from accumulated tool call artifacts.
+    pub updated_history: Vec<Message>,
 }
 
 /// Events emitted during streaming for real-time UI display.
@@ -136,6 +140,7 @@ where
                         status_messages,
                         turn_usage_line: None,
                         session_usage: session_usage.clone(),
+                        updated_history: chat_history.clone(),
                     };
                 }
                 interrupted = true;
@@ -247,6 +252,7 @@ where
                     status_messages,
                     turn_usage_line,
                     session_usage: session_usage.clone(),
+                    updated_history: chat_history.clone(),
                 };
             }
 
@@ -283,5 +289,6 @@ where
         status_messages,
         turn_usage_line: None,
         session_usage: session_usage.clone(),
+        updated_history: chat_history.clone(),
     }
 }
