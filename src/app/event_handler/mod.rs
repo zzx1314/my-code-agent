@@ -1,5 +1,4 @@
 mod command;
-mod init;
 mod key_event;
 mod message;
 mod streaming;
