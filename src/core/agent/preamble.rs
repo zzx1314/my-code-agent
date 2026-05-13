@@ -286,6 +286,7 @@ pub fn build_client(config: &Config) -> LlmClient {
 
     let base_url = match provider {
         Provider::DeepSeek => "https://api.deepseek.com/v1",
+        Provider::OpenRouter => "https://openrouter.ai/api/v1",
         Provider::Custom => config
             .llm
             .base_url
