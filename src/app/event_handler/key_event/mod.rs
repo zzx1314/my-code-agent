@@ -15,7 +15,7 @@ use input::handle_enter_key;
 use input::{history_down, history_up};
 pub use mouse::handle_mouse_event;
 pub use paste::handle_paste_event;
-use crate::ui::picker::{handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key};
+use crate::app::event_handler::picker::{handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key};
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {
