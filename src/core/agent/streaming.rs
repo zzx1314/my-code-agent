@@ -8,8 +8,6 @@ use crate::core::tool::ToolRegistry;
 use crate::core::types::{Message, ToolCall};
 use crate::ui::render::ReasoningTracker;
 
-const TOOL_RESULT_OVERHEAD: u64 = 3000;
-
 #[derive(Clone)]
 pub struct StreamResult {
     pub full_response: String,
@@ -126,7 +124,6 @@ async fn process_sse_stream(
                     }
                 }
                 after_tool_call = true;
-                *running_approx += TOOL_RESULT_OVERHEAD;
                 if context_manager.should_compact(*running_approx) && !context_manager.is_prune_triggered() {
                     context_manager.set_prune_triggered(true);
                     status_messages.push("📝 Context window nearly full — will compact after this turn".to_string());
@@ -335,6 +332,7 @@ pub async fn stream_response(
                         context_manager.increment_compact_count();
                         status_messages.push(format!("✓ Pruned {} old messages ({} remaining)", pruned_count, messages.len()));
                         let pruned_estimate = context_manager.estimate_messages_tokens(&messages, true);
+                        running_approx = pruned_estimate;
                         session_usage.update_pruned_estimate(pruned_estimate);
                     }
 
@@ -416,7 +414,6 @@ pub async fn stream_response(
                         Err(e) => format!("Error: {}", e),
                     };
                     let tr = Message::tool(&tc.id, content);
-                    running_approx += ContextManager::estimate_message_tokens(&tr);
                     messages.push(tr);
                 }
             }
