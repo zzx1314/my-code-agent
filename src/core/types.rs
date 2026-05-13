@@ -27,9 +27,14 @@ pub struct Usage {
 
 /// Custom deserializer that defaults missing usage fields to 0.
 ///
-/// This is necessary because some providers (e.g. DeepSeek) may send
-/// partial `usage` objects in intermediate SSE streaming chunks,
-/// omitting fields like `input_tokens`, `cached_input_tokens`, etc.
+/// Different providers use different field names for token usage:
+/// - OpenAI/DeepSeek (OpenAI-compatible): `prompt_tokens`, `completion_tokens`,
+///   `total_tokens`, with cached tokens under `prompt_tokens_details.cached_tokens`
+/// - OpenRouter: `input_tokens`, `output_tokens`, `total_tokens`,
+///   `cached_input_tokens`, `cache_creation_input_tokens`
+///
+/// This deserializer handles both naming conventions, preferring the
+/// OpenRouter names first as fallback to OpenAI-style names.
 ///
 /// Using `serde_json::Value` as intermediary ensures any field that is
 /// missing or has an unexpected type simply defaults to 0, rather than
@@ -41,12 +46,25 @@ impl<'de> serde::Deserialize<'de> for Usage {
     {
         let v = serde_json::Value::deserialize(deserializer)?;
         Ok(Usage {
-            input_tokens: v.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-            output_tokens: v.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+            input_tokens: v
+                .get("input_tokens")
+                .and_then(|v| v.as_u64())
+                .or_else(|| v.get("prompt_tokens").and_then(|v| v.as_u64()))
+                .unwrap_or(0),
+            output_tokens: v
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .or_else(|| v.get("completion_tokens").and_then(|v| v.as_u64()))
+                .unwrap_or(0),
             total_tokens: v.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
             cached_input_tokens: v
                 .get("cached_input_tokens")
                 .and_then(|v| v.as_u64())
+                .or_else(|| {
+                    v.get("prompt_tokens_details")
+                        .and_then(|d| d.get("cached_tokens"))
+                        .and_then(|v| v.as_u64())
+                })
                 .unwrap_or(0),
             cache_creation_input_tokens: v
                 .get("cache_creation_input_tokens")
