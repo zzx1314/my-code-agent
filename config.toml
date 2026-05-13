@@ -6,15 +6,17 @@
 
 # ── LLM Provider Settings ──
 [llm]
-provider = "custom"
-model = "mimo-v2.5-pro"
-api_key_env = "MIMO_API_KEY"
-base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+# Default provider: deepseek, openai, anthropic, cohere, openrouter, custom
+provider = "deepseek"
+# Model name: deepseek-chat (default), deepseek-reasoner, etc.
+model = "deepseek-chat"
+# Environment variable name for the API key
+api_key_env = "DEEPSEEK_API_KEY"
 
 # Model API request timeout in seconds.
-# Default: 60
+# Default: 1800 (30 minutes, for long reasoning models)
 # Set to 0 to disable timeout (not recommended).
-timeout_secs = 300
+# timeout_secs = 1800
 
 # ── File Reading / Attachment Settings ──
 [files]
