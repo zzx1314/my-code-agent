@@ -1,6 +1,6 @@
 use my_code_agent::core::config::Config;
 use my_code_agent::tools::shell_exec::{ShellExec, ShellExecArgs, ShellExecOutput};
-use rig::tool::Tool;
+use my_code_agent::tools::Tool;
 
 fn make_exec() -> ShellExec {
     let config = Config::default();
@@ -8,15 +8,15 @@ fn make_exec() -> ShellExec {
 }
 
 async fn exec_cmd(command: &str, timeout_secs: Option<u64>, cwd: Option<&str>) -> ShellExecOutput {
-    make_exec()
-        .call(ShellExecArgs {
-            command: command.to_string(),
-            timeout_secs,
-            cwd: cwd.map(|s| s.to_string()),
-            auto_approve: true, // skip confirmation prompts in tests
-        })
-        .await
-        .unwrap()
+    let args = serde_json::to_value(ShellExecArgs {
+        command: command.to_string(),
+        timeout_secs,
+        cwd: cwd.map(|s| s.to_string()),
+        auto_approve: true,
+    })
+    .unwrap();
+    let result = make_exec().call(args).await.unwrap();
+    serde_json::from_str(&result).unwrap()
 }
 
 #[tokio::test]
@@ -65,7 +65,6 @@ async fn test_multiline_output() {
 
 #[tokio::test]
 async fn test_long_output_is_truncated() {
-    // Generate output longer than the 10_000 char stdout limit
     let output = exec_cmd("yes a | head -n 11000", Some(10), None).await;
     assert_eq!(output.exit_code, Some(0));
     assert!(output.stdout.len() < 15000, "output should be truncated");

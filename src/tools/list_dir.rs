@@ -1,5 +1,5 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -45,15 +45,15 @@ pub struct DirEntry {
 #[derive(Debug, Clone, Default)]
 pub struct ListDir;
 
+#[async_trait::async_trait]
 impl Tool for ListDir {
-    const NAME: &'static str = "list_dir";
-    type Error = ListDirError;
-    type Args = ListDirArgs;
-    type Output = ListDirOutput;
+    fn name(&self) -> &str {
+        "list_dir"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "List files and directories in a given path. \
                 Returns a tree of entries showing file and directory names. \
                 Use max_depth to control recursion depth (default: 1, i.e. flat listing). \
@@ -76,19 +76,17 @@ impl Tool for ListDir {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, ListDirError> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: ListDirArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
         let path = Path::new(&args.path);
 
         if !path.exists() {
-            return Err(ListDirError::NotFound {
-                path: args.path.clone(),
-            });
+            return Err(format!("Path not found: {}", args.path));
         }
 
         if !path.is_dir() {
-            return Err(ListDirError::NotADirectory {
-                path: args.path.clone(),
-            });
+            return Err(format!("Path is not a directory: {}", args.path));
         }
 
         let mut total_files = 0usize;
@@ -97,12 +95,13 @@ impl Tool for ListDir {
         let entries =
             list_dir_recursive(path, args.max_depth, 1, &mut total_files, &mut total_dirs);
 
-        Ok(ListDirOutput {
+        let output = ListDirOutput {
             path: args.path,
             entries,
             total_files,
             total_dirs,
-        })
+        };
+        serde_json::to_string(&output).map_err(|e| e.to_string())
     }
 }
 

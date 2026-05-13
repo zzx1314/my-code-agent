@@ -1,5 +1,5 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -208,15 +208,15 @@ impl CodeReview {
     }
 }
 
+#[async_trait::async_trait]
 impl Tool for CodeReview {
-    const NAME: &'static str = "code_review";
-    type Error = CodeReviewError;
-    type Args = CodeReviewArgs;
-    type Output = CodeReviewOutput;
+    fn name(&self) -> &str {
+        "code_review"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Review code files for quality, potential issues, and improvements. \
                 Accepts a file path or directory path. For directories, recursively finds code files \
                 and reads their contents for review. \
@@ -249,18 +249,17 @@ impl Tool for CodeReview {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: CodeReviewArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
         let path = std::path::Path::new(&args.path);
 
         if !path.exists() {
-            return Err(CodeReviewError::InvalidPath(format!(
-                "Path {} does not exist",
-                args.path
-            )));
+            return Err(format!("Path {} does not exist", args.path));
         }
 
         let extensions = args.file_extensions.unwrap_or_default();
-        let files = self.collect_files(path, &extensions, args.max_files)?;
+        let files = self.collect_files(path, &extensions, args.max_files).map_err(|e| e.to_string())?;
 
         let mut files_to_review = Vec::new();
         let mut truncated = false;
@@ -280,17 +279,17 @@ impl Tool for CodeReview {
                     });
                 }
                 Err(e) => {
-                    // Skip files that can't be read, but continue with others
                     tracing::warn!(file = %file.display(), error = %e, "Could not read file");
                 }
             }
         }
 
-        Ok(CodeReviewOutput {
+        let output = CodeReviewOutput {
             path: args.path,
             files: files_to_review,
             total_files: files.len(),
             truncated,
-        })
+        };
+        serde_json::to_string(&output).map_err(|e| e.to_string())
     }
 }

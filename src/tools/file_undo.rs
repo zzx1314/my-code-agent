@@ -1,5 +1,5 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -52,15 +52,15 @@ pub struct UndoDetail {
 #[derive(Debug, Clone, Default)]
 pub struct FileUndo;
 
+#[async_trait::async_trait]
 impl Tool for FileUndo {
-    const NAME: &'static str = "file_undo";
-    type Error = FileUndoError;
-    type Args = FileUndoArgs;
-    type Output = FileUndoOutput;
+    fn name(&self) -> &str {
+        "file_undo"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Undo recent file changes made by file_write, file_update, or file_delete. \
                 Restores files to their previous state. Use `steps` to specify how many recent changes \
                 to undo (default: 1). Changes are undone in reverse chronological order (most recent first)."
@@ -78,16 +78,18 @@ impl Tool for FileUndo {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: FileUndoArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
         let available =
-            current_session_history_len().map_err(|e| FileUndoError::History(e.to_string()))?;
+            current_session_history_len().map_err(|e| format!("History error: {}", e))?;
         if available == 0 {
-            return Err(FileUndoError::NoHistory);
+            return Err("No undo history available".to_string());
         }
 
         // Pop all current session entries (session-scoped undo)
         let mut entries =
-            pop_current_session_entries().map_err(|e| FileUndoError::History(e.to_string()))?;
+            pop_current_session_entries().map_err(|e| format!("History error: {}", e))?;
 
         // If steps < available, only undo the N most recent
         if args.steps < entries.len() {
@@ -97,13 +99,14 @@ impl Tool for FileUndo {
         let mut details = Vec::new();
 
         for entry in &entries {
-            apply_undo(entry, &mut details)?;
+            apply_undo(entry, &mut details).map_err(|e| e.to_string())?;
         }
 
-        Ok(FileUndoOutput {
+        serde_json::to_string(&FileUndoOutput {
             undone: entries.len(),
             details,
         })
+        .map_err(|e| e.to_string())
     }
 }
 

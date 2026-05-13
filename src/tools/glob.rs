@@ -1,5 +1,5 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::Path;
@@ -36,15 +36,15 @@ pub struct GlobOutput {
 #[derive(Debug, Clone, Default)]
 pub struct GlobSearch;
 
+#[async_trait::async_trait]
 impl Tool for GlobSearch {
-    const NAME: &'static str = "glob";
-    type Error = GlobError;
-    type Args = GlobArgs;
-    type Output = GlobOutput;
+    fn name(&self) -> &str {
+        "glob"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Find files matching a glob pattern. \
                 Supports standard glob syntax: * matches any characters except /, \
                 ** matches any characters including /, ? matches a single character, \
@@ -72,7 +72,9 @@ impl Tool for GlobSearch {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, GlobError> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: GlobArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
         let base = Path::new(args.cwd.as_deref().unwrap_or("."));
         let full_pattern = if args.pattern.starts_with('/') {
             args.pattern.clone()
@@ -81,7 +83,7 @@ impl Tool for GlobSearch {
             joined.to_string_lossy().to_string()
         };
 
-        let glob_iter = glob::glob(&full_pattern)?;
+        let glob_iter = glob::glob(&full_pattern).map_err(|e| e.to_string())?;
 
         let mut matches = Vec::new();
         let mut total_matches = 0usize;
@@ -92,7 +94,6 @@ impl Tool for GlobSearch {
                 Ok(path) => {
                     total_matches += 1;
                     if matches.len() < args.max_results {
-                        // Strip the base prefix for cleaner relative paths
                         let display = if !args.pattern.starts_with('/') {
                             path.strip_prefix(base)
                                 .map(|p| p.to_string_lossy().to_string())
@@ -105,17 +106,16 @@ impl Tool for GlobSearch {
                         truncated = true;
                     }
                 }
-                Err(_) => {
-                    // Skip paths with permission or IO errors silently
-                }
+                Err(_) => {}
             }
         }
 
-        Ok(GlobOutput {
+        let output = GlobOutput {
             pattern: args.pattern,
             matches,
             total_matches,
             truncated,
-        })
+        };
+        serde_json::to_string(&output).map_err(|e| e.to_string())
     }
 }

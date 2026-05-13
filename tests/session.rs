@@ -1,6 +1,6 @@
 use my_code_agent::core::session::{SessionData, format_timestamp};
 use my_code_agent::core::token_usage::TokenUsage;
-use rig::completion::Message;
+use my_code_agent::core::types::Message;
 
 // ── Helpers ──
 
@@ -9,9 +9,7 @@ fn test_token_usage() -> TokenUsage {
 }
 
 fn test_messages() -> Vec<Message> {
-    vec![Message::User {
-        content: rig::one_or_many::OneOrMany::one(rig::message::UserContent::text("hello")),
-    }]
+    vec![Message::user("hello")]
 }
 
 // ── SessionData creation ──
@@ -58,7 +56,7 @@ fn test_save_and_load_preserves_token_usage() {
     let path_str = path.to_str().unwrap();
 
     let mut usage = TokenUsage::with_context_window(65_536);
-    usage.add(rig::completion::Usage {
+    usage.add(my_code_agent::core::types::Usage {
         input_tokens: 100,
         output_tokens: 50,
         total_tokens: 150,

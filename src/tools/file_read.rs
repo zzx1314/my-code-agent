@@ -2,8 +2,8 @@ use crate::core::config::Config;
 use crate::core::file_cache::get_global_file_cache;
 use crate::core::parser::ParsedFile;
 use crate::core::tool_dedup::get_global_tool_dedup;
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -71,15 +71,15 @@ impl FileRead {
     }
 }
 
+#[async_trait::async_trait]
 impl Tool for FileRead {
-    const NAME: &'static str = "file_read";
-    type Error = FileReadError;
-    type Args = FileReadArgs;
-    type Output = FileReadOutput;
+    fn name(&self) -> &str {
+        "file_read"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Read the contents of a file from the local filesystem. \
                 Returns the file content with line numbers. By default, only the first \
                 200 lines are returned (set `limit` to read more, or use `offset` to skip ahead). \
@@ -112,7 +112,8 @@ impl Tool for FileRead {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: FileReadArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
         let offset = args.offset.unwrap_or(0);
         let limit = args.limit.unwrap_or(self.default_read_limit);
 
@@ -127,14 +128,14 @@ impl Tool for FileRead {
             match dedup_guard.check_file_read(&args.path, offset, limit) {
                 crate::core::tool_dedup::DedupAction::ShortCircuit(info) => {
                     let msg = info.format_message();
-                    return Ok(FileReadOutput {
+                    return serde_json::to_string(&FileReadOutput {
                         path: args.path,
                         content: msg,
                         lines: info.total_lines,
                         start: info.start,
                         end: info.end,
                         truncated: false,
-                    });
+                    }).map_err(|e| e.to_string());
                 }
                 crate::core::tool_dedup::DedupAction::Allow => {}
             }
@@ -147,7 +148,7 @@ impl Tool for FileRead {
             if let Some(entry) = cache_guard.get(&args.path) {
                 entry.content.clone()
             } else {
-                let content = std::fs::read_to_string(&args.path).map_err(FileReadError::Io)?;
+                let content = std::fs::read_to_string(&args.path).map_err(|e| e.to_string())?;
                 cache_guard.insert(&args.path, content.clone());
                 content
             }
@@ -227,13 +228,14 @@ impl Tool for FileRead {
             );
         }
 
-        Ok(FileReadOutput {
+        let result = FileReadOutput {
             path: args.path,
             content: output,
             lines: total_lines,
             start,
             end: adjusted_end,
             truncated: adjusted_end < total_lines,
-        })
+        };
+        serde_json::to_string(&result).map_err(|e| e.to_string())
     }
 }

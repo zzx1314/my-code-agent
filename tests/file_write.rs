@@ -1,19 +1,23 @@
-use my_code_agent::tools::file_write::{FileWrite, FileWriteArgs, FileWriteError, FileWriteOutput};
-use rig::tool::Tool;
+use my_code_agent::tools::file_write::{FileWrite, FileWriteArgs, FileWriteOutput};
+use my_code_agent::tools::Tool;
 use tempfile::TempDir;
 
 async fn write_file(
     path: &str,
     content: &str,
     create_dirs: bool,
-) -> Result<FileWriteOutput, FileWriteError> {
-    FileWrite
-        .call(FileWriteArgs {
-            path: path.to_string(),
-            content: content.to_string(),
-            create_dirs,
-        })
-        .await
+) -> Result<String, String> {
+    let args = serde_json::to_value(FileWriteArgs {
+        path: path.to_string(),
+        content: content.to_string(),
+        create_dirs,
+    })
+    .unwrap();
+    FileWrite.call(args).await
+}
+
+fn parse_output(result: &str) -> FileWriteOutput {
+    serde_json::from_str(result).unwrap()
 }
 
 #[tokio::test]
@@ -21,9 +25,10 @@ async fn test_write_new_file() {
     let tmp = TempDir::new().unwrap();
     let file_path = tmp.path().join("new.txt");
 
-    let output = write_file(file_path.to_str().unwrap(), "hello world", false)
+    let result = write_file(file_path.to_str().unwrap(), "hello world", false)
         .await
         .unwrap();
+    let output = parse_output(&result);
     assert_eq!(output.bytes_written, 11);
     assert_eq!(output.path, file_path.to_str().unwrap());
 
@@ -37,9 +42,10 @@ async fn test_overwrite_existing_file() {
     let file_path = tmp.path().join("overwrite.txt");
     std::fs::write(&file_path, "old content").unwrap();
 
-    let output = write_file(file_path.to_str().unwrap(), "new content", false)
+    let result = write_file(file_path.to_str().unwrap(), "new content", false)
         .await
         .unwrap();
+    let output = parse_output(&result);
     assert_eq!(output.bytes_written, 11);
 
     let content = std::fs::read_to_string(&file_path).unwrap();
@@ -51,9 +57,10 @@ async fn test_write_with_create_dirs() {
     let tmp = TempDir::new().unwrap();
     let file_path = tmp.path().join("nested/dir/file.txt");
 
-    let output = write_file(file_path.to_str().unwrap(), "nested content", true)
+    let result = write_file(file_path.to_str().unwrap(), "nested content", true)
         .await
         .unwrap();
+    let output = parse_output(&result);
     assert_eq!(output.bytes_written, 14);
 
     let content = std::fs::read_to_string(&file_path).unwrap();
@@ -74,9 +81,10 @@ async fn test_write_empty_content() {
     let tmp = TempDir::new().unwrap();
     let file_path = tmp.path().join("empty.txt");
 
-    let output = write_file(file_path.to_str().unwrap(), "", false)
+    let result = write_file(file_path.to_str().unwrap(), "", false)
         .await
         .unwrap();
+    let output = parse_output(&result);
     assert_eq!(output.bytes_written, 0);
 
     let content = std::fs::read_to_string(&file_path).unwrap();
@@ -89,9 +97,10 @@ async fn test_write_unicode_content() {
     let file_path = tmp.path().join("unicode.txt");
 
     let unicode_content = "你好世界 🌍 日本語";
-    let output = write_file(file_path.to_str().unwrap(), unicode_content, false)
+    let result = write_file(file_path.to_str().unwrap(), unicode_content, false)
         .await
         .unwrap();
+    let output = parse_output(&result);
     assert_eq!(output.bytes_written, unicode_content.len());
 
     let content = std::fs::read_to_string(&file_path).unwrap();

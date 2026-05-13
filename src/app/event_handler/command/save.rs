@@ -2,20 +2,23 @@ use crate::app::App;
 
 pub(super) fn handle(app: &mut App) -> bool {
     use crate::core::session::{SessionData, format_saved_confirmation, generate_session_name};
+    use crate::core::types::Message;
 
     let session_name = generate_session_name();
-    let rig_history: Vec<_> = app
+    let history: Vec<Message> = app
         .chat_history
         .iter()
-        .map(|(r, c)| match r.as_str() {
-            "user" => rig::completion::Message::user(c.clone()),
-            "assistant" => rig::completion::Message::assistant(c.clone()),
-            _ => rig::completion::Message::user(c.clone()),
+        .map(|(r, c)| Message {
+            role: r.clone(),
+            content: c.clone(),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: None,
         })
         .collect();
 
     let data = SessionData::new(
-        rig_history,
+        history,
         app.token_usage.clone(),
         app.last_reasoning.clone(),
     );

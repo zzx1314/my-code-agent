@@ -1,5 +1,5 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -42,15 +42,15 @@ impl GitDiff {
     const DEFAULT_MAX_LINES: usize = 2000;
 }
 
+#[async_trait::async_trait]
 impl Tool for GitDiff {
-    const NAME: &'static str = "git_diff";
-    type Error = GitDiffError;
-    type Args = GitDiffArgs;
-    type Output = GitDiffOutput;
+    fn name(&self) -> &str {
+        "git_diff"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Show git diff for the entire repository or a specific file. \
                 Returns the diff output showing changes between commits, or between the \
                 staging area and the working directory. Use this instead of `shell_exec` \
@@ -80,7 +80,8 @@ impl Tool for GitDiff {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: GitDiffArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
         let max_lines = args.max_lines.unwrap_or(Self::DEFAULT_MAX_LINES);
         let cwd = args.cwd.as_deref();
 
@@ -91,7 +92,6 @@ impl Tool for GitDiff {
             cmd.arg("--cached");
         }
 
-        // Add file path if specified
         if let Some(file) = &args.file {
             cmd.arg("--").arg(file);
         }
@@ -103,17 +103,14 @@ impl Tool for GitDiff {
         cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        let output = cmd.output().await.map_err(GitDiffError::Io)?;
+        let output = cmd.output().await.map_err(|e| e.to_string())?;
 
         if !output.status.success() {
-            return Err(GitDiffError::Git(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            ));
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
 
         let diff = String::from_utf8_lossy(&output.stdout).to_string();
 
-        // Truncate if too long
         let (truncated_diff, was_truncated) = if diff.lines().count() > max_lines {
             let truncated: Vec<&str> = diff.lines().take(max_lines).collect();
             (
@@ -128,11 +125,12 @@ impl Tool for GitDiff {
             (diff, false)
         };
 
-        Ok(GitDiffOutput {
+        let result = GitDiffOutput {
             file: args.file,
             cached: args.cached,
             diff: truncated_diff,
             truncated: was_truncated,
-        })
+        };
+        serde_json::to_string(&result).map_err(|e| e.to_string())
     }
 }

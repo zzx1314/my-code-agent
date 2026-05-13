@@ -1,5 +1,5 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -7,26 +7,6 @@ use crate::core::tool_dedup::get_global_tool_dedup;
 use super::confirmation::ConfirmationHandle;
 use super::safety::{confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion};
 use super::undo_history;
-
-#[derive(Debug, thiserror::Error)]
-pub enum FileDeleteError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Path not found: {path}")]
-    NotFound { path: String },
-    #[error("Path is not a file or directory: {path}")]
-    InvalidType { path: String },
-    #[error("Snippet not found in file: {path}")]
-    SnippetNotFound { path: String },
-    #[error(
-        "Snippet found multiple times in file: {path} ({count} occurrences). Use `allow_multiple` to delete all."
-    )]
-    SnippetMultipleMatches { path: String, count: usize },
-    #[error("Cannot use snippet mode on a directory: {path}")]
-    SnippetOnDirectory { path: String },
-    #[error("Action cancelled by user: {path}")]
-    Cancelled { path: String },
-}
 
 #[derive(Deserialize, Serialize)]
 pub struct FileDeleteArgs {
@@ -79,15 +59,15 @@ impl Default for FileDelete {
     }
 }
 
+#[async_trait::async_trait]
 impl Tool for FileDelete {
-    const NAME: &'static str = "file_delete";
-    type Error = FileDeleteError;
-    type Args = FileDeleteArgs;
-    type Output = FileDeleteOutput;
+    fn name(&self) -> &str {
+        "file_delete"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Delete a file, directory, or a specific text snippet from a file. \
                 When `snippet` is provided, the tool removes that exact text from the file \
                 (like file_update with an empty replacement, but clearer intent). \
@@ -125,21 +105,23 @@ impl Tool for FileDelete {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: FileDeleteArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
         // ── Snippet deletion mode ──
         if let Some(snippet) = args.snippet {
             if snippet.is_empty() {
-                return Err(FileDeleteError::SnippetNotFound { path: args.path });
+                return Err(format!("Snippet not found in file: {}", args.path));
             }
 
             let path = std::path::Path::new(&args.path);
 
             // Existence/type checks first — no point confirming deletion of a non-existent file
             if !path.exists() {
-                return Err(FileDeleteError::NotFound { path: args.path });
+                return Err(format!("Path not found: {}", args.path));
             }
             if path.is_dir() {
-                return Err(FileDeleteError::SnippetOnDirectory { path: args.path });
+                return Err(format!("Cannot use snippet mode on a directory: {}", args.path));
             }
 
             // Safety check — skip if auto_approve is set
@@ -153,22 +135,22 @@ impl Tool for FileDelete {
                 )
                 .await;
                 if !approved {
-                    return Err(FileDeleteError::Cancelled { path: args.path });
+                    return Err(format!("Action cancelled by user: {}", args.path));
                 }
             }
 
-            let content = std::fs::read_to_string(path).map_err(FileDeleteError::Io)?;
+            let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
 
             let count = content.matches(&snippet).count();
 
             if count == 0 {
-                return Err(FileDeleteError::SnippetNotFound { path: args.path });
+                return Err(format!("Snippet not found in file: {}", args.path));
             }
             if count > 1 && !args.allow_multiple {
-                return Err(FileDeleteError::SnippetMultipleMatches {
-                    path: args.path,
-                    count,
-                });
+                return Err(format!(
+                    "Snippet found multiple times in file: {} ({} occurrences). Use `allow_multiple` to delete all.",
+                    args.path, count
+                ));
             }
 
             let new_content = content.replace(&snippet, "");
@@ -181,7 +163,7 @@ impl Tool for FileDelete {
                 "file_delete (snippet)",
             );
 
-            std::fs::write(path, &new_content).map_err(FileDeleteError::Io)?;
+            std::fs::write(path, &new_content).map_err(|e| e.to_string())?;
 
             // Invalidate dedup cache for this path — file content has changed
             {
@@ -192,12 +174,13 @@ impl Tool for FileDelete {
 
             let diff = super::build_diff(&snippet, "", &content);
 
-            return Ok(FileDeleteOutput {
+            return serde_json::to_string(&FileDeleteOutput {
                 path: args.path,
                 deleted_type: "snippet".to_string(),
                 deletions: Some(count),
                 diff: Some(diff),
-            });
+            })
+            .map_err(|e| e.to_string());
         }
 
         // ── Whole file/directory deletion mode ──
@@ -205,7 +188,7 @@ impl Tool for FileDelete {
 
         // Existence check first — no point confirming deletion of a non-existent path
         if !path.exists() {
-            return Err(FileDeleteError::NotFound { path: args.path });
+            return Err(format!("Path not found: {}", args.path));
         }
 
         // Safety check — skip if auto_approve is set
@@ -219,26 +202,26 @@ impl Tool for FileDelete {
             };
             let approved = confirm_action(&self.confirmation_handle, reason, &detail).await;
             if !approved {
-                return Err(FileDeleteError::Cancelled { path: args.path });
+                return Err(format!("Action cancelled by user: {}", args.path));
             }
         }
 
         let deleted_type = if path.is_dir() {
             if args.recursive {
-                std::fs::remove_dir_all(path).map_err(FileDeleteError::Io)?;
+                std::fs::remove_dir_all(path).map_err(|e| e.to_string())?;
                 "directory".to_string()
             } else {
-                std::fs::remove_dir(path).map_err(FileDeleteError::Io)?;
+                std::fs::remove_dir(path).map_err(|e| e.to_string())?;
                 "directory".to_string()
             }
         } else if path.is_file() {
             // Record file content for undo before deletion
             let old_content = std::fs::read_to_string(path).ok();
             let _ = undo_history::record_change(&args.path, old_content, None, "file_delete");
-            std::fs::remove_file(path).map_err(FileDeleteError::Io)?;
+            std::fs::remove_file(path).map_err(|e| e.to_string())?;
             "file".to_string()
         } else {
-            return Err(FileDeleteError::InvalidType { path: args.path });
+            return Err(format!("Path is not a file or directory: {}", args.path));
         };
 
         // Invalidate dedup cache for this path — file has been deleted
@@ -248,11 +231,12 @@ impl Tool for FileDelete {
             guard.invalidate_path(&args.path);
         }
 
-        Ok(FileDeleteOutput {
+        serde_json::to_string(&FileDeleteOutput {
             path: args.path,
             deleted_type,
             deletions: None,
             diff: None,
         })
+        .map_err(|e| e.to_string())
     }
 }

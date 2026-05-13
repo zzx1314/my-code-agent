@@ -20,6 +20,11 @@ pub mod init;
 // Knowledge file generation (/init command)
 pub mod knowledge;
 
+// Core types, tool trait, and HTTP client (replaces rig-core)
+pub mod types;
+pub mod tool;
+pub mod client;
+
 // agent submodules re-exported at top level
 pub use agent::connection;
 pub use agent::preamble;

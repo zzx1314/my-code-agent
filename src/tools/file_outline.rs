@@ -1,14 +1,8 @@
 use crate::core::parser::ParsedFile;
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-
-#[derive(Debug, thiserror::Error)]
-pub enum FileOutlineError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-}
 
 #[derive(Deserialize, Serialize)]
 pub struct FileOutlineArgs {
@@ -25,15 +19,15 @@ pub struct FileOutlineOutput {
 #[derive(Debug, Clone)]
 pub struct FileOutline;
 
+#[async_trait::async_trait]
 impl Tool for FileOutline {
-    const NAME: &'static str = "file_outline";
-    type Error = FileOutlineError;
-    type Args = FileOutlineArgs;
-    type Output = FileOutlineOutput;
+    fn name(&self) -> &str {
+        "file_outline"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Show the structure outline of a source file. \
                 Returns a tree view of all functions, structs, enums, impls, traits, and modules \
                 with their line ranges. Supports Rust, JavaScript/JSX, HTML, and Vue files. \
@@ -53,8 +47,10 @@ impl Tool for FileOutline {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let content = std::fs::read_to_string(&args.path)?;
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: FileOutlineArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
+        let content = std::fs::read_to_string(&args.path).map_err(|e| e.to_string())?;
         let total_lines = content.lines().count();
 
         let outline = if let Some(parsed) = ParsedFile::parse_with_path(content, &args.path) {
@@ -64,11 +60,12 @@ impl Tool for FileOutline {
             format!("(unable to parse file - not a supported language)")
         };
 
-        Ok(FileOutlineOutput {
+        serde_json::to_string(&FileOutlineOutput {
             path: args.path,
             total_lines,
             outline,
         })
+        .map_err(|e| e.to_string())
     }
 }
 

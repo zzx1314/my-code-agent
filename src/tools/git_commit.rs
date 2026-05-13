@@ -1,5 +1,5 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -85,15 +85,15 @@ impl GitCommit {
     }
 }
 
+#[async_trait::async_trait]
 impl Tool for GitCommit {
-    const NAME: &'static str = "git_commit";
-    type Error = GitCommitError;
-    type Args = GitCommitArgs;
-    type Output = GitCommitOutput;
+    fn name(&self) -> &str {
+        "git_commit"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Commit changes to the git repository with a message. \
                 Before committing, checks if there are staged changes. \
                 Use `git_status` first to see what's staged. \
@@ -124,10 +124,10 @@ impl Tool for GitCommit {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: GitCommitArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
         let cwd = args.cwd.as_deref();
 
-        // Safety check
         if !args.auto_approve {
             let approved = confirm_action(
                 &self.confirmation_handle,
@@ -136,18 +136,14 @@ impl Tool for GitCommit {
             )
             .await;
             if !approved {
-                return Err(GitCommitError::Cancelled(
-                    "Commit cancelled by user".to_string(),
-                ));
+                return Err("Commit cancelled by user".to_string());
             }
         }
 
-        // Check for staged changes (unless --all is used)
-        if !args.all && !Self::has_staged_changes(cwd).await? {
-            return Err(GitCommitError::NothingToCommit);
+        if !args.all && !Self::has_staged_changes(cwd).await.map_err(|e| e.to_string())? {
+            return Err("No changes staged for commit".to_string());
         }
 
-        // Build commit command
         let mut cmd = tokio::process::Command::new("git");
         cmd.arg("commit").arg("-m").arg(&args.message);
 
@@ -162,16 +158,14 @@ impl Tool for GitCommit {
         cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        let output = cmd.output().await.map_err(GitCommitError::Io)?;
+        let output = cmd.output().await.map_err(|e| e.to_string())?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(GitCommitError::Git(stderr));
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
 
         let commit_hash = Self::get_commit_hash(cwd).await;
 
-        // Parse output to get files changed
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let files_changed = stdout
             .lines()
@@ -184,11 +178,12 @@ impl Tool for GitCommit {
             .next()
             .unwrap_or(0);
 
-        Ok(GitCommitOutput {
+        let result = GitCommitOutput {
             success: true,
             commit_hash,
             message: args.message,
             files_changed,
-        })
+        };
+        serde_json::to_string(&result).map_err(|e| e.to_string())
     }
 }

@@ -1,7 +1,7 @@
-use my_code_agent::token_usage::{
-    CONTEXT_WINDOW_SIZE, ContextWarning, TokenUsage, print_context_warning, print_turn_usage,
+use my_code_agent::core::token_usage::{
+    ContextWarning, TokenUsage, print_context_warning, print_turn_usage,
 };
-use rig::completion::Usage;
+use my_code_agent::core::types::Usage;
 
 fn make_usage(input: u64, output: u64, total: u64) -> Usage {
     Usage {
@@ -104,7 +104,7 @@ fn test_print_turn_usage_does_not_panic() {
 #[test]
 fn test_context_window_default() {
     let tu = TokenUsage::new();
-    assert_eq!(tu.context_window(), CONTEXT_WINDOW_SIZE);
+    assert_eq!(tu.context_window(), 131_072);
     assert_eq!(tu.context_window(), 131_072); // 128K tokens
 }
 

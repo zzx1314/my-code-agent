@@ -39,48 +39,86 @@ pub use safety::{
 pub use shell_exec::ShellExec;
 
 use crate::core::config::Config;
+use crate::core::tool::ToolRegistry as CoreToolRegistry;
+use crate::core::types::ToolDefinition;
 use crate::tools::confirmation::ConfirmationHandle;
-use rig::tool::ToolDyn;
 
-/// Returns all tools boxed as `Box<dyn ToolDyn>` for registration with the agent builder.
-/// Config values are passed through to tool structs that need them.
-pub fn all_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
-    // Use a disabled handle by default (no UI feedback channel).
-    let handle = ConfirmationHandle::disabled();
-    all_tools_with_handle(config, handle)
+/// Our own Tool trait for tool implementations.
+/// Replaces `rig::tool::Tool` / `rig::tool::ToolDyn`.
+#[async_trait::async_trait]
+pub trait Tool: Send + Sync {
+    fn name(&self) -> &str;
+    fn definition(&self) -> ToolDefinition;
+    async fn call(&self, args: serde_json::Value) -> Result<String, String>;
 }
 
-/// Returns all tools with a confirmation handle for user interaction.
-/// The handle is used by tools to request user confirmation for dangerous operations.
-pub fn all_tools_with_handle(
-    config: &Config,
-    confirmation_handle: ConfirmationHandle,
-) -> Vec<Box<dyn ToolDyn>> {
-    vec![
-        Box::new(FileRead::from_config(config)),
-        Box::new(FileOutline),
-        Box::new(FileWrite),
-        Box::new(FileUpdate),
-        Box::new(FileDelete::new(confirmation_handle.clone())),
-        Box::new(ShellExec::new(
-            config.shell.default_timeout_secs,
-            confirmation_handle.clone(),
-        )),
-        Box::new(CodeSearch),
-        Box::new(CodeReview),
-        Box::new(ListDir),
-        Box::new(GlobSearch),
-        Box::new(GitStatus),
-        Box::new(GitDiff),
-        Box::new(GitLog),
-        Box::new(GitCommit::new(confirmation_handle)),
-        Box::new(FileUndo),
-    ]
+/// Wrap our Tool trait so it can be used with the core ToolRegistry.
+struct ToolWrapper {
+    inner: Box<dyn Tool>,
 }
 
-/// Create MCP tools (Parallel Search MCP).
-pub async fn create_mcp_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
-    let mut mcp_tools: Vec<Box<dyn ToolDyn>> = Vec::new();
+#[async_trait::async_trait]
+impl crate::core::tool::Tool for ToolWrapper {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        self.inner.definition()
+    }
+
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        self.inner.call(args).await
+    }
+}
+
+/// Extension: build a ToolRegistry from config and confirmation handle.
+impl CoreToolRegistry {
+    /// Create a new ToolRegistry with all built-in tools.
+    pub fn from_config(config: &Config) -> Self {
+        let handle = ConfirmationHandle::disabled();
+        Self::from_config_and_handle(config, handle)
+    }
+
+    /// Create a new ToolRegistry with all built-in tools and a confirmation handle.
+    pub fn from_config_and_handle(config: &Config, handle: ConfirmationHandle) -> Self {
+        let mut registry = CoreToolRegistry::new();
+
+        let tools: Vec<Box<dyn Tool>> = vec![
+            Box::new(FileRead::from_config(config)),
+            Box::new(FileOutline),
+            Box::new(FileWrite),
+            Box::new(FileUpdate),
+            Box::new(FileDelete::new(handle.clone())),
+            Box::new(ShellExec::new(config.shell.default_timeout_secs, handle.clone())),
+            Box::new(CodeSearch),
+            Box::new(CodeReview),
+            Box::new(ListDir),
+            Box::new(GlobSearch),
+            Box::new(GitStatus),
+            Box::new(GitDiff),
+            Box::new(GitLog),
+            Box::new(GitCommit::new(handle)),
+            Box::new(FileUndo),
+        ];
+
+        for tool in tools {
+            registry.register_dyn(tool);
+        }
+
+        registry
+    }
+
+    /// Register a tool using our local Tool trait.
+    pub fn register_dyn(&mut self, tool: Box<dyn Tool>) {
+        let wrapper = ToolWrapper { inner: tool };
+        self.register(wrapper);
+    }
+}
+
+/// Create MCP tools (Parallel Search MCP) returning boxed local Tool trait objects.
+pub async fn create_mcp_tools(config: &Config) -> Vec<Box<dyn Tool>> {
+    let mut mcp_tools: Vec<Box<dyn Tool>> = Vec::new();
 
     if !config.mcp.enabled {
         return mcp_tools;
@@ -97,13 +135,13 @@ pub async fn create_mcp_tools(config: &Config) -> Vec<Box<dyn ToolDyn>> {
     let search_tool = crate::mcp::web_search_tool::ParallelWebSearch::new(&key);
     if search_tool.is_available() {
         tracing::info!("web_search tool added");
-        mcp_tools.push(Box::new(search_tool) as Box<dyn ToolDyn>);
+        mcp_tools.push(Box::new(search_tool));
     }
 
     let fetch_tool = crate::mcp::web_search_tool::ParallelWebFetch::new(&key);
     if fetch_tool.is_available() {
         tracing::info!("web_fetch tool added");
-        mcp_tools.push(Box::new(fetch_tool) as Box<dyn ToolDyn>);
+        mcp_tools.push(Box::new(fetch_tool));
     }
 
     mcp_tools

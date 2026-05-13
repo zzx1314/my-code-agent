@@ -1,20 +1,13 @@
 use my_code_agent::core::config::Config;
 use my_code_agent::core::context_manager::ContextManager;
-use rig::completion::Message;
-use rig::message::UserContent;
-use rig::one_or_many::OneOrMany;
+use my_code_agent::core::types::Message;
 
 fn make_user_message(content: &str) -> Message {
-    Message::User {
-        content: OneOrMany::one(UserContent::Text(content.into())),
-    }
+    Message::user(content)
 }
 
 fn make_assistant_message(content: &str) -> Message {
-    Message::Assistant {
-        id: None,
-        content: OneOrMany::one(rig::completion::AssistantContent::Text(content.into())),
-    }
+    Message::assistant(content)
 }
 
 #[test]

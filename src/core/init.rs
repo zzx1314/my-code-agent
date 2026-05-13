@@ -1,19 +1,15 @@
-//! Application initialization: dotenv, logging, config, session restore, agent setup.
-
 use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::app::conversion::convert_rig_to_app;
 use crate::core::config::Config;
 use crate::core::context_manager::ContextManager;
-use crate::core::preamble::{Agent, build_agent_with_confirmation};
+use crate::core::preamble::{Agent, build_client, build_preamble};
 use crate::core::session::SessionData;
 use crate::core::token_usage::TokenUsage;
 use crate::tools::confirmation::{ConfirmationHandle, ConfirmationRequest};
 use crate::tools::create_mcp_tools;
 
-/// All state produced during initialization, handed off to the event loop.
 pub struct InitState {
     pub config: Config,
     pub chat_history: Vec<(String, String)>,
@@ -25,14 +21,6 @@ pub struct InitState {
     pub context_manager: ContextManager,
 }
 
-/// Perform full application initialization:
-/// 1. Load `.env`
-/// 2. Set up tracing / logging
-/// 3. Load config
-/// 4. Generate session ID for undo tracking
-/// 5. Restore session (if enabled)
-/// 6. Build agent with MCP tools & confirmation channel
-/// 7. Create context manager & interrupt channel
 pub async fn init_app() -> Result<InitState> {
     // ── 1. Environment ──────────────────────────────────────────────────────
     let env_path = crate::core::paths::app_file(".env");
@@ -79,10 +67,11 @@ pub async fn init_app() -> Result<InitState> {
         if let Some(Ok(data)) =
             SessionData::load_default(config.session.save_file.as_deref())
         {
+            // Convert session Messages back to simple (role, text) pairs
             chat_history = data
                 .chat_history
                 .into_iter()
-                .map(convert_rig_to_app)
+                .map(|m| (m.role, m.content))
                 .collect();
             token_usage = data.token_usage;
             last_reasoning = data.last_reasoning;
@@ -95,20 +84,26 @@ pub async fn init_app() -> Result<InitState> {
         }
     }
 
-    // ── 6. Agent & confirmation channel ─────────────────────────────────────
+    // ── 6. Agent & tool registration ────────────────────────────────────────
     let mcp_tools = create_mcp_tools(&config).await;
     let (confirmation_handle, confirmation_rx) = ConfirmationHandle::new();
-    let agent = Arc::new(build_agent_with_confirmation(
+
+    let mut all_tools = crate::core::tool::ToolRegistry::from_config_and_handle(
         &config,
-        mcp_tools,
         confirmation_handle,
-    ));
+    );
+    for tool in mcp_tools {
+        all_tools.register_dyn(tool);
+    }
+
+    let client = build_client(&config);
+    let system_prompt = build_preamble();
+    let agent = Arc::new(Agent::new(client, system_prompt, all_tools));
 
     // ── 7. Context manager & interrupt channel ──────────────────────────────
     let context_manager = ContextManager::new(&config);
     let (interrupt_tx, _) = tokio::sync::broadcast::channel::<()>(16);
 
-    // Ctrl+C handler sends interrupt on broadcast channel
     let interrupt_tx_ctrlc = interrupt_tx.clone();
     tokio::spawn(async move {
         loop {

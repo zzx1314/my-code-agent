@@ -1,16 +1,10 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::core::tool_dedup::get_global_tool_dedup;
 use super::undo_history;
-
-#[derive(Debug, thiserror::Error)]
-pub enum FileWriteError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-}
 
 #[derive(Deserialize, Serialize)]
 pub struct FileWriteArgs {
@@ -29,15 +23,15 @@ pub struct FileWriteOutput {
 #[derive(Debug, Clone, Default)]
 pub struct FileWrite;
 
+#[async_trait::async_trait]
 impl Tool for FileWrite {
-    const NAME: &'static str = "file_write";
-    type Error = FileWriteError;
-    type Args = FileWriteArgs;
-    type Output = FileWriteOutput;
+    fn name(&self) -> &str {
+        "file_write"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Write content to a file on the local filesystem. \
                 Creates the file if it doesn't exist, overwrites if it does. \
                 Set create_dirs to true to create parent directories automatically."
@@ -63,11 +57,13 @@ impl Tool for FileWrite {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: FileWriteArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
         if args.create_dirs
             && let Some(parent) = std::path::Path::new(&args.path).parent()
         {
-            std::fs::create_dir_all(parent).map_err(FileWriteError::Io)?;
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
 
         // Record the change for undo before writing
@@ -80,7 +76,7 @@ impl Tool for FileWrite {
         );
 
         let bytes_written = args.content.len();
-        std::fs::write(&args.path, &args.content).map_err(FileWriteError::Io)?;
+        std::fs::write(&args.path, &args.content).map_err(|e| e.to_string())?;
 
         // Invalidate dedup cache for this path — file content has changed
         {
@@ -89,9 +85,10 @@ impl Tool for FileWrite {
             guard.invalidate_path(&args.path);
         }
 
-        Ok(FileWriteOutput {
+        serde_json::to_string(&FileWriteOutput {
             path: args.path,
             bytes_written,
         })
+        .map_err(|e| e.to_string())
     }
 }

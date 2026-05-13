@@ -1,15 +1,19 @@
-use my_code_agent::tools::list_dir::{ListDir, ListDirArgs, ListDirError, ListDirOutput};
-use rig::tool::Tool;
+use my_code_agent::tools::list_dir::{ListDir, ListDirArgs, ListDirOutput};
+use my_code_agent::tools::Tool;
 use std::fs;
 use tempfile::TempDir;
 
-async fn list_dir(path: &str, max_depth: usize) -> Result<ListDirOutput, ListDirError> {
-    ListDir
-        .call(ListDirArgs {
-            path: path.to_string(),
-            max_depth,
-        })
-        .await
+async fn list_dir(path: &str, max_depth: usize) -> Result<String, String> {
+    let args = serde_json::to_value(ListDirArgs {
+        path: path.to_string(),
+        max_depth,
+    })
+    .unwrap();
+    ListDir.call(args).await
+}
+
+fn parse_output(result: &str) -> ListDirOutput {
+    serde_json::from_str(result).unwrap()
 }
 
 #[tokio::test]
@@ -19,16 +23,14 @@ async fn test_list_dir_flat() {
     fs::write(tmp.path().join("file2.rs"), "fn main() {}").unwrap();
     fs::create_dir(tmp.path().join("subdir")).unwrap();
 
-    let output = list_dir(tmp.path().to_str().unwrap(), 1).await.unwrap();
+    let result = list_dir(tmp.path().to_str().unwrap(), 1).await.unwrap();
+    let output = parse_output(&result);
 
     assert_eq!(output.total_files, 2);
     assert_eq!(output.total_dirs, 1);
     assert_eq!(output.entries.len(), 3);
-
-    // Directories should come first
     assert_eq!(output.entries[0].entry_type, "directory");
     assert_eq!(output.entries[0].name, "subdir");
-    // Flat listing — no children
     assert!(output.entries[0].children.is_none());
 }
 
@@ -40,12 +42,11 @@ async fn test_list_dir_with_depth() {
     fs::write(subdir.join("main.rs"), "fn main() {}").unwrap();
     fs::write(subdir.join("lib.rs"), "pub mod foo;").unwrap();
 
-    let output = list_dir(tmp.path().to_str().unwrap(), 2).await.unwrap();
+    let result = list_dir(tmp.path().to_str().unwrap(), 2).await.unwrap();
+    let output = parse_output(&result);
 
     assert_eq!(output.total_files, 2);
     assert_eq!(output.total_dirs, 1);
-
-    // src directory should have children at depth 2
     let src_entry = &output.entries[0];
     assert_eq!(src_entry.name, "src");
     assert!(src_entry.children.is_some());
@@ -57,7 +58,7 @@ async fn test_list_dir_with_depth() {
 #[tokio::test]
 async fn test_list_dir_not_found() {
     let err = list_dir("/nonexistent/path", 1).await.unwrap_err();
-    assert!(err.to_string().contains("not found"));
+    assert!(err.contains("not found"));
 }
 
 #[tokio::test]
@@ -67,7 +68,7 @@ async fn test_list_dir_not_a_directory() {
     fs::write(&file_path, "hello").unwrap();
 
     let err = list_dir(file_path.to_str().unwrap(), 1).await.unwrap_err();
-    assert!(err.to_string().contains("not a directory"));
+    assert!(err.contains("not a directory"));
 }
 
 #[tokio::test]
@@ -76,7 +77,8 @@ async fn test_list_dir_empty_directory() {
     let empty = tmp.path().join("empty");
     fs::create_dir(&empty).unwrap();
 
-    let output = list_dir(empty.to_str().unwrap(), 1).await.unwrap();
+    let result = list_dir(empty.to_str().unwrap(), 1).await.unwrap();
+    let output = parse_output(&result);
 
     assert_eq!(output.total_files, 0);
     assert_eq!(output.total_dirs, 0);
@@ -91,12 +93,11 @@ async fn test_list_dir_sorted_directories_first() {
     fs::write(tmp.path().join("m_file.rs"), "").unwrap();
     fs::create_dir(tmp.path().join("a_dir")).unwrap();
 
-    let output = list_dir(tmp.path().to_str().unwrap(), 1).await.unwrap();
+    let result = list_dir(tmp.path().to_str().unwrap(), 1).await.unwrap();
+    let output = parse_output(&result);
 
-    // Directories first, sorted alphabetically
     assert_eq!(output.entries[0].name, "a_dir");
     assert_eq!(output.entries[1].name, "z_dir");
-    // Then files, sorted alphabetically
     assert_eq!(output.entries[2].name, "a_file.txt");
     assert_eq!(output.entries[3].name, "m_file.rs");
 }
@@ -110,19 +111,19 @@ async fn test_list_dir_deep_nesting() {
     fs::create_dir_all(&l3).unwrap();
     fs::write(l3.join("deep.txt"), "found me").unwrap();
 
-    // Depth 1: only see l1
     let output1 = list_dir(tmp.path().to_str().unwrap(), 1).await.unwrap();
-    assert_eq!(output1.total_dirs, 1);
-    let l1_entry = &output1.entries[0];
-    assert!(l1_entry.children.is_none()); // not recursed
+    let o1 = parse_output(&output1);
+    assert_eq!(o1.total_dirs, 1);
+    let l1_entry = &o1.entries[0];
+    assert!(l1_entry.children.is_none());
 
-    // Depth 3: recurse two levels (see l1, l2, but not inside l3)
     let output3 = list_dir(tmp.path().to_str().unwrap(), 3).await.unwrap();
-    assert_eq!(output3.total_dirs, 3); // l1, l2, l3 counted
-    assert_eq!(output3.total_files, 0); // deep.txt is inside l3, not reached
+    let o3 = parse_output(&output3);
+    assert_eq!(o3.total_dirs, 3);
+    assert_eq!(o3.total_files, 0);
 
-    // Depth 4: recurse three levels — reach deep.txt inside l3
     let output4 = list_dir(tmp.path().to_str().unwrap(), 4).await.unwrap();
-    assert_eq!(output4.total_dirs, 3);
-    assert_eq!(output4.total_files, 1);
+    let o4 = parse_output(&output4);
+    assert_eq!(o4.total_dirs, 3);
+    assert_eq!(o4.total_files, 1);
 }

@@ -1,18 +1,18 @@
 use my_code_agent::core::config::Config;
-use my_code_agent::tools::all_tools;
+use my_code_agent::core::tool::ToolRegistry;
 
 #[test]
 fn test_all_tools_count() {
     let config = Config::default();
-    let tools = all_tools(&config);
+    let tools = ToolRegistry::from_config(&config);
     assert_eq!(tools.len(), 15);
 }
 
 #[test]
 fn test_all_tools_names() {
     let config = Config::default();
-    let tools = all_tools(&config);
-    let names: Vec<String> = tools.iter().map(|t| t.name()).collect();
+    let tools = ToolRegistry::from_config(&config);
+    let names: Vec<String> = tools.iter().map(|t| t.name().to_string()).collect();
     assert!(names.contains(&"file_read".to_string()));
     assert!(names.contains(&"file_outline".to_string()));
     assert!(names.contains(&"file_write".to_string()));

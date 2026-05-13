@@ -1,9 +1,9 @@
+use crate::core::types::ToolDefinition;
 use crate::mcp::McpHttpClient;
-use rig::completion::ToolDefinition as RigToolDefinition;
-use rig::tool::Tool;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use thiserror::Error;
+use async_trait::async_trait;
 
 #[derive(Deserialize, Serialize)]
 pub struct WebSearchArgs {
@@ -20,16 +20,6 @@ pub struct WebFetchArgs {
 #[derive(Serialize)]
 pub struct WebSearchOutput {
     pub results: String,
-}
-
-#[derive(Debug, Error)]
-pub enum WebSearchError {
-    #[error("WebSearch tool not available. Set PARALLEL_API_KEY in config or .env")]
-    NotAvailable,
-    #[error("Web search failed: {0}")]
-    SearchFailed(String),
-    #[error("Search error occurred")]
-    SearchError,
 }
 
 pub struct ParallelWebSearch {
@@ -49,15 +39,15 @@ impl ParallelWebSearch {
     }
 }
 
+#[async_trait]
 impl Tool for ParallelWebSearch {
-    const NAME: &'static str = "web_search";
-    type Error = WebSearchError;
-    type Args = WebSearchArgs;
-    type Output = WebSearchOutput;
+    fn name(&self) -> &str {
+        "web_search"
+    }
 
-    async fn definition(&self, _prompt: String) -> RigToolDefinition {
-        RigToolDefinition {
-            name: Self::NAME.to_string(),
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: self.name().to_string(),
             description: "Search the web using Parallel Search MCP. \
                 Use objective (what to find) and search_queries (keywords)."
                 .to_string(),
@@ -79,8 +69,11 @@ impl Tool for ParallelWebSearch {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let client = self.client.as_ref().ok_or(WebSearchError::NotAvailable)?;
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: WebSearchArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+        let client = self.client.as_ref().ok_or_else(|| {
+            "WebSearch tool not available. Set PARALLEL_API_KEY in config or .env".to_string()
+        })?;
 
         let keywords: Vec<String> = args
             .query
@@ -97,7 +90,7 @@ impl Tool for ParallelWebSearch {
         match client.call_tool("web_search", call_args).await {
             Ok(result) => {
                 if result.is_error {
-                    return Err(WebSearchError::SearchError);
+                    return Err("Search error occurred".to_string());
                 }
                 let mut output = String::new();
                 for content in &result.content {
@@ -106,9 +99,10 @@ impl Tool for ParallelWebSearch {
                         output.push('\n');
                     }
                 }
-                Ok(WebSearchOutput { results: output })
+                serde_json::to_string(&WebSearchOutput { results: output })
+                    .map_err(|e| e.to_string())
             }
-            Err(e) => Err(WebSearchError::SearchFailed(e.to_string())),
+            Err(e) => Err(format!("Web search failed: {}", e)),
         }
     }
 }
@@ -130,15 +124,15 @@ impl ParallelWebFetch {
     }
 }
 
+#[async_trait]
 impl Tool for ParallelWebFetch {
-    const NAME: &'static str = "web_fetch";
-    type Error = WebSearchError;
-    type Args = WebFetchArgs;
-    type Output = WebSearchOutput;
+    fn name(&self) -> &str {
+        "web_fetch"
+    }
 
-    async fn definition(&self, _prompt: String) -> RigToolDefinition {
-        RigToolDefinition {
-            name: Self::NAME.to_string(),
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: self.name().to_string(),
             description: "Extract content from a URL in markdown format.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
@@ -153,8 +147,11 @@ impl Tool for ParallelWebFetch {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let client = self.client.as_ref().ok_or(WebSearchError::NotAvailable)?;
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: WebFetchArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+        let client = self.client.as_ref().ok_or_else(|| {
+            "WebSearch tool not available. Set PARALLEL_API_KEY in config or .env".to_string()
+        })?;
 
         let call_args = serde_json::json!({
             "url": args.url
@@ -163,7 +160,7 @@ impl Tool for ParallelWebFetch {
         match client.call_tool("web_fetch", call_args).await {
             Ok(result) => {
                 if result.is_error {
-                    return Err(WebSearchError::SearchError);
+                    return Err("Search error occurred".to_string());
                 }
                 let mut output = String::new();
                 for content in &result.content {
@@ -172,9 +169,10 @@ impl Tool for ParallelWebFetch {
                         output.push('\n');
                     }
                 }
-                Ok(WebSearchOutput { results: output })
+                serde_json::to_string(&WebSearchOutput { results: output })
+                    .map_err(|e| e.to_string())
             }
-            Err(e) => Err(WebSearchError::SearchFailed(e.to_string())),
+            Err(e) => Err(format!("Web search failed: {}", e)),
         }
     }
 }

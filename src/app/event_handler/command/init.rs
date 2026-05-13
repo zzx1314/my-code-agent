@@ -43,9 +43,11 @@ pub(super) fn handle(app: &mut App) -> bool {
         let mut ctx_mgr = crate::core::context_manager::ContextManager::new(&config_clone);
 
         let result = crate::core::streaming::stream_response(
-            &agent_clone,
+            &agent_clone.client,
+            &agent_clone.system_prompt,
             &prompt,
             &mut chat_history,
+            &agent_clone.tools,
             &mut token_usage,
             &mut interrupt_rx,
             &mut ctx_mgr,

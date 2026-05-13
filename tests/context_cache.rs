@@ -2,7 +2,7 @@ use my_code_agent::core::context_cache::{
     CacheMetrics, TurnCacheStats, global_cache, preamble_cache::PreambleCacheEntry,
     preamble_cache::PreambleCacheKey,
 };
-use rig::completion::Usage;
+use my_code_agent::core::types::Usage;
 
 #[test]
 fn test_preamble_cache_key() {

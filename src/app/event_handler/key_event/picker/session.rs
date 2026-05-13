@@ -35,7 +35,7 @@ pub fn handle_session_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                         app.chat_history = session_data
                             .chat_history
                             .into_iter()
-                            .map(crate::app::conversion::convert_rig_to_app)
+                            .map(|m| (m.role, m.content))
                             .collect();
                         app.token_usage = session_data.token_usage;
                         app.last_reasoning = session_data.last_reasoning;

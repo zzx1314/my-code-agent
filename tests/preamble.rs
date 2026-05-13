@@ -5,7 +5,7 @@
 // that the intended instruction is still communicated to the model. These exist
 // to prevent accidentally removing critical behavioral guidance.
 
-use my_code_agent::preamble::PREAMBLE_TEMPLATE;
+use my_code_agent::core::preamble::PREAMBLE_TEMPLATE;
 
 #[test]
 fn test_preamble_mentions_file_read_truncation() {

@@ -1,6 +1,6 @@
 use crate::core::config::Config;
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
@@ -64,15 +64,15 @@ impl ShellExec {
     }
 }
 
+#[async_trait::async_trait]
 impl Tool for ShellExec {
-    const NAME: &'static str = "shell_exec";
-    type Error = ShellExecError;
-    type Args = ShellExecArgs;
-    type Output = ShellExecOutput;
+    fn name(&self) -> &str {
+        "shell_exec"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Execute a shell command and return its output. \
                 Use this to run build commands, tests, linters, and other CLI tools. \
                 Commands run in bash. Output is truncated if too long."
@@ -102,8 +102,9 @@ impl Tool for ShellExec {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        // Safety check: prompt for confirmation if the command matches a dangerous pattern
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: ShellExecArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
         if !args.auto_approve
             && let Some(pattern) = is_dangerous_shell_command(&args.command)
         {
@@ -114,7 +115,7 @@ impl Tool for ShellExec {
             )
             .await;
             if !approved {
-                return Err(ShellExecError::Cancelled(args.command));
+                return Err(format!("Action cancelled by user: {}", args.command));
             }
         }
 
@@ -132,28 +133,29 @@ impl Tool for ShellExec {
 
         let result = tokio::time::timeout(timeout, cmd.output()).await;
 
-        match result {
+        let output = match result {
             Ok(Ok(output)) => {
                 let stdout = truncate_string(&String::from_utf8_lossy(&output.stdout), 10_000);
                 let stderr = truncate_string(&String::from_utf8_lossy(&output.stderr), 5_000);
 
-                Ok(ShellExecOutput {
+                ShellExecOutput {
                     command: args.command,
                     exit_code: output.status.code(),
                     stdout,
                     stderr,
                     timed_out: false,
-                })
+                }
             }
-            Ok(Err(e)) => Err(ShellExecError::Io(e)),
-            Err(_) => Ok(ShellExecOutput {
+            Ok(Err(e)) => return Err(e.to_string()),
+            Err(_) => ShellExecOutput {
                 command: args.command,
                 exit_code: None,
                 stdout: String::new(),
                 stderr: format!("Command timed out after {:?}", timeout),
                 timed_out: true,
-            }),
-        }
+            },
+        };
+        serde_json::to_string(&output).map_err(|e| e.to_string())
     }
 }
 

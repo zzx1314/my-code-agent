@@ -1,5 +1,5 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -49,15 +49,15 @@ impl GitLog {
     const DEFAULT_MAX_COUNT: usize = 10;
 }
 
+#[async_trait::async_trait]
 impl Tool for GitLog {
-    const NAME: &'static str = "git_log";
-    type Error = GitLogError;
-    type Args = GitLogArgs;
-    type Output = GitLogOutput;
+    fn name(&self) -> &str {
+        "git_log"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Show git commit history in a structured format. \
                 Returns a list of commits with hash, author, date, and message. \
                 Use this instead of `shell_exec` with `git log` for better structured output."
@@ -86,7 +86,8 @@ impl Tool for GitLog {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: GitLogArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
         let max_count = args.max_count.unwrap_or(Self::DEFAULT_MAX_COUNT);
         let cwd = args.cwd.as_deref();
         let format = args.format.as_deref().unwrap_or("oneline");
@@ -116,12 +117,10 @@ impl Tool for GitLog {
         cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        let output = cmd.output().await.map_err(GitLogError::Io)?;
+        let output = cmd.output().await.map_err(|e| e.to_string())?;
 
         if !output.status.success() {
-            return Err(GitLogError::Git(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            ));
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
 
         let log_output = String::from_utf8_lossy(&output.stdout).to_string();
@@ -142,7 +141,6 @@ impl Tool for GitLog {
                     message: parts[4].to_string(),
                 });
             } else if parts.len() >= 3 {
-                // Fallback for simpler formats
                 commits.push(CommitInfo {
                     hash: parts[0].to_string(),
                     short_hash: parts[0][..8.min(parts[0].len())].to_string(),
@@ -154,9 +152,10 @@ impl Tool for GitLog {
         }
 
         let total = commits.len();
-        Ok(GitLogOutput {
+        let result = GitLogOutput {
             commits,
             total_shown: total,
-        })
+        };
+        serde_json::to_string(&result).map_err(|e| e.to_string())
     }
 }

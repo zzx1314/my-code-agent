@@ -1,22 +1,10 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::core::tool_dedup::get_global_tool_dedup;
 use super::undo_history;
-
-#[derive(Debug, thiserror::Error)]
-pub enum FileUpdateError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Old string not found in file: {path}")]
-    NotFound { path: String },
-    #[error(
-        "Old string found multiple times in file: {path} ({count} occurrences). Use `allow_multiple` to replace all."
-    )]
-    MultipleMatches { path: String, count: usize },
-}
 
 #[derive(Deserialize, Serialize)]
 pub struct FileUpdateArgs {
@@ -37,15 +25,15 @@ pub struct FileUpdateOutput {
 #[derive(Debug, Clone, Default)]
 pub struct FileUpdate;
 
+#[async_trait::async_trait]
 impl Tool for FileUpdate {
-    const NAME: &'static str = "file_update";
-    type Error = FileUpdateError;
-    type Args = FileUpdateArgs;
-    type Output = FileUpdateOutput;
+    fn name(&self) -> &str {
+        "file_update"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Make a targeted edit to an existing file by finding and replacing text. \
                 Prefer this over file_write for modifying existing files — it is safer and more precise. \
                 The file is read, the `old` string is located, replaced with `new`, and written back. \
@@ -76,24 +64,26 @@ impl Tool for FileUpdate {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: FileUpdateArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
         if args.old.is_empty() {
-            return Err(FileUpdateError::NotFound { path: args.path });
+            return Err(format!("Old string not found in file: {}", args.path));
         }
 
-        let content = std::fs::read_to_string(&args.path).map_err(FileUpdateError::Io)?;
+        let content = std::fs::read_to_string(&args.path).map_err(|e| e.to_string())?;
 
         let count = content.matches(&args.old).count();
 
         if count == 0 {
-            return Err(FileUpdateError::NotFound { path: args.path });
+            return Err(format!("Old string not found in file: {}", args.path));
         }
 
         if count > 1 && !args.allow_multiple {
-            return Err(FileUpdateError::MultipleMatches {
-                path: args.path,
-                count,
-            });
+            return Err(format!(
+                "Old string found multiple times in file: {} ({} occurrences). Use `allow_multiple` to replace all.",
+                args.path, count
+            ));
         }
 
         let new_content = content.replace(&args.old, &args.new);
@@ -106,7 +96,7 @@ impl Tool for FileUpdate {
             "file_update",
         );
 
-        std::fs::write(&args.path, &new_content).map_err(FileUpdateError::Io)?;
+        std::fs::write(&args.path, &new_content).map_err(|e| e.to_string())?;
 
         // Invalidate dedup cache for this path — file content has changed
         {
@@ -118,11 +108,12 @@ impl Tool for FileUpdate {
         // Build a minimal diff showing the change
         let diff = build_diff(&args.old, &args.new, &content);
 
-        Ok(FileUpdateOutput {
+        serde_json::to_string(&FileUpdateOutput {
             path: args.path,
             replacements: count,
             diff,
         })
+        .map_err(|e| e.to_string())
     }
 }
 

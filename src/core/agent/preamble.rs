@@ -1,12 +1,22 @@
-use rig::client::CompletionClient;
-
-use crate::core::config::Config;
-use crate::tools;
-use crate::tools::confirmation::ConfirmationHandle;
-use rig::providers::openrouter;
-
 use std::sync::OnceLock;
-use std::time::Duration;
+
+use crate::core::client::LlmClient;
+use crate::core::config::Config;
+use crate::core::tool::ToolRegistry;
+
+/// Agent holds the LLM client, system prompt, and tools.
+/// Follows the reference architecture design.
+pub struct Agent {
+    pub client: LlmClient,
+    pub system_prompt: String,
+    pub tools: ToolRegistry,
+}
+
+impl Agent {
+    pub fn new(client: LlmClient, system_prompt: String, tools: ToolRegistry) -> Self {
+        Self { client, system_prompt, tools }
+    }
+}
 
 pub const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with access to tools for reading, writing, searching, and executing code.
 
@@ -152,10 +162,7 @@ Always be concise but thorough.
 
 pub const KNOWLEDGE_FILE: &str = "knowledge.md";
 
-pub type OpenRouterAgent = rig::agent::Agent<openrouter::CompletionModel>;
-
 /// Cache knowledge.md content so the preamble stays consistent throughout the session
-/// This maximizes use of the LLM API's prefix caching (e.g., DeepSeek KV Cache)
 static KNOWLEDGE_CACHE: OnceLock<String> = OnceLock::new();
 
 fn load_knowledge() -> &'static str {
@@ -176,7 +183,7 @@ fn load_knowledge() -> &'static str {
     })
 }
 
-fn build_preamble() -> String {
+pub fn build_preamble() -> String {
     let knowledge = load_knowledge();
     tracing::info!(
         file = KNOWLEDGE_FILE,
@@ -201,7 +208,6 @@ fn check_api_key(provider_name: &str, api_key_env: &str) {
     );
 }
 
-/// Supported LLM providers
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Provider {
     DeepSeek,
@@ -259,24 +265,9 @@ impl Provider {
     }
 }
 
-/// Agent type alias - uses OpenAI Completions API for compatibility with custom endpoints.
-pub enum Agent {
-    OpenAI(rig::agent::Agent<rig::providers::openai::CompletionModel>),
-    OpenRouter(rig::agent::Agent<openrouter::CompletionModel>),
-}
-/// Builds an agent using the configured LLM provider.
-/// Uses OpenAI Completions API client for compatibility with custom endpoints.
-pub fn build_agent(config: &Config, mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>) -> Agent {
-    build_agent_with_confirmation(config, mcp_tools, ConfirmationHandle::disabled())
-}
-
-/// Builds an agent with a confirmation handle for user interaction.
-/// The handle allows tools to request user confirmation for dangerous operations.
-pub fn build_agent_with_confirmation(
-    config: &Config,
-    mcp_tools: Vec<Box<dyn rig::tool::ToolDyn>>,
-    confirmation_handle: ConfirmationHandle,
-) -> Agent {
+/// Build an LLM client from configuration.
+/// Replaces the old `build_agent()` / `build_agent_with_confirmation()`.
+pub fn build_client(config: &Config) -> LlmClient {
     let provider = Provider::from_str(&config.llm.provider).unwrap_or(Provider::DeepSeek);
     let model = config
         .llm
@@ -291,146 +282,34 @@ pub fn build_agent_with_confirmation(
     };
 
     check_api_key(provider.display_name(), api_key_env);
-
-    let preamble = build_preamble();
-    let mut all_tools = tools::all_tools_with_handle(config, confirmation_handle);
-
-    // Add MCP tools
-    for tool in mcp_tools {
-        all_tools.push(tool);
-    }
-
-    match provider {
-        Provider::DeepSeek => {
-            tracing::info!(model = %model, provider = "DeepSeek", "Model selected");
-            create_openai_client(
-                api_key_env,
-                "https://api.deepseek.com/v1",
-                &preamble,
-                &model,
-                all_tools,
-                config.agent.max_turns,
-                config.llm.timeout_secs,
-            )
-        }
-        Provider::OpenRouter => {
-            tracing::info!(model = %model, provider = "OpenRouter", "Model selected");
-            let api_key = std::env::var(api_key_env).unwrap_or_default();
-
-            // Create builder
-            let mut builder = openrouter::Client::builder().api_key(&api_key);
-
-            // Apply timeout if set
-            if config.llm.timeout_secs > 0 {
-                let reqwest_client = reqwest::Client::builder()
-                    .timeout(Duration::from_secs(config.llm.timeout_secs))
-                    .build()
-                    .expect("Failed to create reqwest client");
-                builder = builder.http_client(reqwest_client);
-            }
-
-            let client = builder.build().expect("Failed to create OpenRouter client");
-
-            return Agent::OpenRouter(
-                client
-                    .agent(&model)
-                    .preamble(&preamble)
-                    .tools(all_tools)
-                    .default_max_turns(config.agent.max_turns)
-                    .build(),
-            );
-        }
-        Provider::Custom => {
-            let base_url = match config.llm.base_url.as_ref() {
-                Some(url) => url.clone(),
-                None => {
-                    tracing::error!("Custom provider requires base_url in config.toml");
-                    tracing::error!(
-                        "Example:\n  [llm]\n  provider = \"custom\"\n  model = \"llama3\"\n  base_url = \"http://localhost:11434/v1\""
-                    );
-                    std::process::exit(1);
-                }
-            };
-            tracing::info!(model = %model, base_url = %base_url, provider = "Custom", "Model selected");
-            create_openai_client(
-                api_key_env,
-                &base_url,
-                &preamble,
-                &model,
-                all_tools,
-                config.agent.max_turns,
-                config.llm.timeout_secs,
-            )
-        }
-        _ => {
-            tracing::warn!(provider = %provider.display_name(), "Provider not fully implemented, using DeepSeek");
-            create_openai_client(
-                api_key_env,
-                "https://api.deepseek.com/v1",
-                &preamble,
-                &model,
-                all_tools,
-                config.agent.max_turns,
-                config.llm.timeout_secs,
-            )
-        }
-    }
-}
-
-/// Creates an OpenAI-compatible client using the builder pattern with explicit base_url.
-fn create_openai_client(
-    api_key_env: &str,
-    base_url: &str,
-    preamble: &str,
-    model: &str,
-    all_tools: Vec<Box<dyn rig::tool::ToolDyn>>,
-    max_turns: usize,
-    timeout_secs: u64,
-) -> Agent {
-    // Return your Agent enum
     let api_key = std::env::var(api_key_env).unwrap_or_default();
 
-    // Start building the client
-    let mut builder = rig::providers::openai::CompletionsClient::builder()
-        .api_key(&api_key)
-        .base_url(base_url);
-
-    // Apply timeout if set
-    if timeout_secs > 0 {
-        let reqwest_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(timeout_secs))
-            .build()
-            .expect("Failed to create reqwest client");
-        builder = builder.http_client(reqwest_client);
-    }
-
-    let client = builder.build().expect("Failed to create OpenAI client");
-
-    Agent::OpenAI(
-        // ← wrap into enum
-        client
-            .agent(model)
-            .preamble(preamble)
-            .tools(all_tools)
-            .default_max_turns(max_turns)
-            .build(),
-    )
-}
-
-impl Agent {
-    /// Send a prompt to the agent and get a response (synchronous)
-    pub async fn prompt(&self, prompt: &str) -> Result<String, anyhow::Error> {
-        match self {
-            Agent::OpenAI(inner) => {
-                use rig::completion::Prompt;
-                let response = inner.prompt(prompt).await?;
-                Ok(response)
-            }
-            Agent::OpenRouter(inner) => {
-                use rig::completion::Prompt;
-                let response = inner.prompt(prompt).await?;
-                Ok(response)
-            }
+    let base_url = match provider {
+        Provider::DeepSeek => "https://api.deepseek.com/v1",
+        Provider::Custom => config
+            .llm
+            .base_url
+            .as_deref()
+            .unwrap_or_else(|| {
+                tracing::error!("Custom provider requires base_url in config.toml");
+                std::process::exit(1);
+            }),
+        _ => {
+            tracing::warn!(provider = %provider.display_name(), "Provider not fully implemented, using DeepSeek endpoint");
+            "https://api.deepseek.com/v1"
         }
+    };
+
+    let mut client = LlmClient::new(base_url, &api_key, &model);
+    if config.llm.timeout_secs > 0 {
+        client = client.with_timeout(config.llm.timeout_secs);
     }
+    tracing::info!(
+        model = %model,
+        base_url = %base_url,
+        provider = %provider.display_name(),
+        "LLM client created"
+    );
+
+    client
 }

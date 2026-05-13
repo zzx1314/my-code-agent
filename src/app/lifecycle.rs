@@ -137,26 +137,28 @@ fn shutdown(
     Ok(())
 }
 
-/// Convert app chat_history to rig Message vector (ref version).
-fn to_rig_history_ref(
+/// Convert app chat_history to Message vector for session persistence.
+fn to_session_messages(
     chat_history: &[(String, String)],
-) -> Vec<rig::completion::Message> {
+) -> Vec<crate::core::types::Message> {
     chat_history
         .iter()
-        .map(|(r, c)| match r.as_str() {
-            "user" => rig::completion::Message::user(c.clone()),
-            "assistant" => rig::completion::Message::assistant(c.clone()),
-            _ => rig::completion::Message::user(c.clone()),
+        .map(|(r, c)| crate::core::types::Message {
+            role: r.clone(),
+            content: c.clone(),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: None,
         })
         .collect()
 }
 
 /// Save a timestamped session to .sessions/ and prune old ones.
 fn save_timestamped_session(app: &App) {
-    let rig_history = to_rig_history_ref(&app.chat_history);
+    let history = to_session_messages(&app.chat_history);
     let name = crate::core::session::generate_session_name();
     let data = SessionData::with_name(
-        rig_history,
+        history,
         app.token_usage.clone(),
         app.last_reasoning.clone(),
         name.clone(),
@@ -166,7 +168,6 @@ fn save_timestamped_session(app: &App) {
         Err(e) => tracing::error!(error = %e, "Failed to auto-save session on exit"),
     }
 
-    // Prune old sessions, keeping only the 5 newest
     match SessionData::prune_old_sessions(5) {
         Ok(0) => {}
         Ok(removed) => tracing::info!(removed, "Pruned old session files"),
@@ -176,9 +177,9 @@ fn save_timestamped_session(app: &App) {
 
 /// Save to the default session file for auto-resume next time.
 fn save_default_session(app: &App) {
-    let rig_history = to_rig_history_ref(&app.chat_history);
+    let history = to_session_messages(&app.chat_history);
     let data = SessionData::new(
-        rig_history,
+        history,
         app.token_usage.clone(),
         app.last_reasoning.clone(),
     );

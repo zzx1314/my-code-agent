@@ -3,9 +3,9 @@ use tokio::sync::mpsc;
 
 use crate::app::App;
 use crate::core::context_manager::ContextManager;
+use crate::core::preamble::Agent;
 use crate::core::streaming::StreamEvent;
 
-/// Reset all streaming-related state in the app
 pub fn reset_streaming_state(app: &mut App) {
     app.is_streaming = true;
     app.auto_scroll = true;
@@ -20,16 +20,25 @@ pub fn reset_streaming_state(app: &mut App) {
     app.turn_usage_line = None;
 }
 
-/// Spawn an async LLM streaming task with the given prompt
 pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, prompt: &str) {
-    use rig::completion::Message;
-    use crate::app::conversion::convert_app_to_rig;
     use crate::core::context::expand_file_refs;
     use crate::core::streaming::{StreamResult, stream_response};
+    use crate::core::types::Message;
 
     let expanded = expand_file_refs(prompt, &app.config);
 
-    let mut rig_chat_history = convert_app_to_rig(&app.chat_history);
+    let mut messages: Vec<Message> = app
+        .chat_history
+        .iter()
+        .map(|(role, content)| Message {
+            role: role.clone(),
+            content: content.clone(),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: None,
+        })
+        .collect();
+
     let agent_clone = app.agent.clone();
     let config_clone = app.config.clone();
     let mut token_usage_clone = app.token_usage.clone();
@@ -45,24 +54,21 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
     tokio::spawn(async move {
         let mut interrupt_rx = interrupt_rx;
 
-        // ── Pre-send pruning ──────────────────────────────────────────────
-        // Estimate total tokens: preamble + chat_history + new input.
-        // If too high, prune the chat_history before sending to leave room
-        // for multi-turn tool call results (which rig adds internally).
-        let estimated_new_input = ctx_mgr.estimate_messages_tokens(
-            &[Message::user(&expanded.expanded)],
-            false,
-        );
-        let estimated_total = ctx_mgr.estimate_messages_tokens(&rig_chat_history, true)
-            + estimated_new_input;
+        // Pre-send pruning
+        let estimated_new_input =
+            ctx_mgr.estimate_messages_tokens(&[Message::user(&expanded.expanded)], false);
+        let estimated_total =
+            ctx_mgr.estimate_messages_tokens(&messages, true) + estimated_new_input;
         if ctx_mgr.should_prune_before_send(estimated_total) {
-            rig_chat_history = ctx_mgr.prune_messages(&rig_chat_history);
+            messages = ctx_mgr.prune_messages(&messages);
         }
 
         let result = stream_response(
-            &agent_clone,
+            &agent_clone.client,
+            &agent_clone.system_prompt,
             &expanded.expanded,
-            &mut rig_chat_history,
+            &mut messages,
+            &agent_clone.tools,
             &mut token_usage_clone,
             &mut interrupt_rx,
             &mut ctx_mgr,
@@ -75,20 +81,25 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
     });
 }
 
-/// Rebuild the agent (used for model/provider switching)
 pub fn rebuild_agent(
     config: &crate::core::config::Config,
-) -> anyhow::Result<crate::core::preamble::Agent> {
-    use crate::core::preamble::build_agent;
+) -> anyhow::Result<Agent> {
+    use crate::core::preamble::build_client;
+    use crate::core::preamble::build_preamble;
     use crate::tools::create_mcp_tools;
 
+    let client = build_client(config);
+    let system_prompt = build_preamble();
+    let mut tools = crate::core::tool::ToolRegistry::from_config(config);
     let mcp_tools = futures::executor::block_on(create_mcp_tools(config));
-    Ok(build_agent(config, mcp_tools))
+    for tool in mcp_tools {
+        tools.register_dyn(tool);
+    }
+
+    Ok(Agent::new(client, system_prompt, tools))
 }
 
-/// Process streaming events
 pub fn process_streaming_events(app: &mut App) {
-    // Poll streaming text events for live display
     if let Some(ref mut rx) = app.streaming_events_rx {
         loop {
             match rx.try_recv() {
@@ -104,7 +115,6 @@ pub fn process_streaming_events(app: &mut App) {
                 }
                 Ok(StreamEvent::ReasoningActive(active)) => {
                     if !active {
-                        // Reasoning ended, save content to last_reasoning
                         if !app.streaming_reasoning.is_empty() {
                             app.last_reasoning = app.streaming_reasoning.clone();
                             app.streaming_reasoning.clear();
@@ -125,13 +135,10 @@ pub fn process_streaming_events(app: &mut App) {
     }
 }
 
-/// Check for completed stream result
 pub fn check_stream_result(app: &mut App) {
     if let Some(ref mut rx) = app.response_rx {
         match rx.try_recv() {
             Ok(result) => {
-                // Only process results while still in streaming state
-                // If already force-cleaned by Esc (is_streaming=false), discard old results
                 if app.is_streaming {
                     process_stream_result(app, result);
                 }
@@ -167,7 +174,6 @@ pub fn check_init_result(app: &mut App) {
                     app.agent = Arc::new(new_agent);
                 }
                 app.init_rx = None;
-                // Clean up all streaming state
                 app.is_streaming = false;
                 app.streaming_text.clear();
                 app.streaming_reasoning.clear();
@@ -190,12 +196,9 @@ pub fn check_init_result(app: &mut App) {
     }
 }
 
-/// Process stream result
 fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamResult) {
     app.is_streaming = false;
     app.streaming_text.clear();
-    // Save any remaining reasoning that wasn't already moved to last_reasoning
-    // (ReasoningActive(false) may not have been sent before stream ended)
     if app.last_reasoning.is_empty() && !app.streaming_reasoning.is_empty() {
         app.last_reasoning = std::mem::take(&mut app.streaming_reasoning);
     } else {
@@ -207,24 +210,16 @@ fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamRe
     if !result.full_response.is_empty() {
         app.chat_history
             .push(("assistant".to_string(), result.full_response.clone()));
-        // Mark that reasoning should be rendered inline with this LLM response
         app.show_inline_reasoning = !app.last_reasoning.is_empty();
     }
 
-    // Sync the (potentially pruned) chat history from rig back to app.chat_history.
-    // This prevents cross-turn accumulation: the pruned history (with tool content
-    // stripped and old messages dropped) becomes the base for the next turn,
-    // rather than the ever-growing text-only history.
+    // Sync pruned history back
     if !result.updated_history.is_empty() {
-        use crate::app::conversion::convert_rig_to_app;
         let pruned: Vec<(String, String)> = result
             .updated_history
             .into_iter()
-            .map(convert_rig_to_app)
-            .filter(|(role, text)| {
-                // Skip system messages, placeholders, and empty entries
-                role != "unknown" && !text.is_empty() && text != "[tool content removed]"
-            })
+            .filter(|m| m.role != "system" && !m.content.is_empty())
+            .map(|m| (m.role, m.content))
             .collect();
         if !pruned.is_empty() {
             app.chat_history = pruned;
@@ -241,12 +236,9 @@ fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamRe
     }
 }
 
-/// Process queued messages after streaming completes.
-/// Returns true if there was a queued message and it started sending.
 pub fn process_message_queue(app: &mut App, context_manager: &mut ContextManager) -> bool {
     if !app.is_streaming && !app.message_queue.is_empty() {
         let next_message = app.message_queue.remove(0);
-        // Remove the "[Queued]" entry from chat history since we're now sending the real message
         if let Some(last) = app.chat_history.last() {
             if last.1.starts_with("⏳ [Queued] ") {
                 app.chat_history.pop();

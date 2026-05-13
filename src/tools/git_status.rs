@@ -1,5 +1,5 @@
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -151,15 +151,15 @@ impl GitStatus {
     }
 }
 
+#[async_trait::async_trait]
 impl Tool for GitStatus {
-    const NAME: &'static str = "git_status";
-    type Error = GitStatusError;
-    type Args = GitStatusArgs;
-    type Output = GitStatusOutput;
+    fn name(&self) -> &str {
+        "git_status"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Get the current git repository status in a structured format. \
                 Returns information about modified, added, deleted, untracked files, \
                 and the current branch. Use this instead of `shell_exec` with `git status` \
@@ -177,10 +177,10 @@ impl Tool for GitStatus {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: GitStatusArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
         let cwd = args.cwd.as_deref();
 
-        // Check if it's a git repo
         let mut check_cmd = tokio::process::Command::new("git");
         check_cmd.arg("rev-parse").arg("--git-dir");
         if let Some(cwd) = cwd {
@@ -190,43 +190,41 @@ impl Tool for GitStatus {
         match check_cmd.output().await {
             Ok(output) if output.status.success() => {}
             _ => {
-                return Ok(GitStatusOutput {
+                let result = GitStatusOutput {
                     is_git_repo: false,
                     branch: None,
                     files: vec![],
                     summary: StatusSummary::default(),
                     raw_output: String::new(),
-                });
+                };
+                return serde_json::to_string(&result).map_err(|e| e.to_string());
             }
         }
 
-        // Get branch
         let branch = Self::get_branch(cwd).await;
 
-        // Get porcelain status
         let mut status_cmd = tokio::process::Command::new("git");
         status_cmd.arg("status").arg("--porcelain");
         if let Some(cwd) = cwd {
             status_cmd.current_dir(cwd);
         }
 
-        let output = status_cmd.output().await.map_err(GitStatusError::Io)?;
+        let output = status_cmd.output().await.map_err(|e| e.to_string())?;
 
         if !output.status.success() {
-            return Err(GitStatusError::Git(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            ));
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
 
         let raw_output = String::from_utf8_lossy(&output.stdout).to_string();
         let (files, summary) = Self::parse_porcelain(&raw_output);
 
-        Ok(GitStatusOutput {
+        let result = GitStatusOutput {
             is_git_repo: true,
             branch,
             files,
             summary,
             raw_output,
-        })
+        };
+        serde_json::to_string(&result).map_err(|e| e.to_string())
     }
 }

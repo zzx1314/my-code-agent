@@ -1,7 +1,7 @@
 use crate::core::file_cache::get_global_file_cache;
 use crate::core::parser::ParsedFile;
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -53,15 +53,15 @@ pub struct MatchContext {
 #[derive(Debug, Clone, Default)]
 pub struct CodeSearch;
 
+#[async_trait::async_trait]
 impl Tool for CodeSearch {
-    const NAME: &'static str = "code_search";
-    type Error = CodeSearchError;
-    type Args = CodeSearchArgs;
-    type Output = CodeSearchOutput;
+    fn name(&self) -> &str {
+        "code_search"
+    }
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: Self::NAME.to_string(),
+            name: self.name().to_string(),
             description: "Search for a text pattern in source code files using ripgrep (rg). \
                 Returns matching lines with file paths and line numbers. \
                 Automatically respects .gitignore and skips binary files. \
@@ -96,7 +96,9 @@ impl Tool for CodeSearch {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, CodeSearchError> {
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: CodeSearchArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
         let mut cmd = tokio::process::Command::new("rg");
 
         cmd.arg("-n").arg("--no-heading").arg("--color=never");
@@ -117,16 +119,13 @@ impl Tool for CodeSearch {
             cmd.arg(".");
         }
 
-        let output = cmd.output().await?;
+        let output = cmd.output().await.map_err(|e| e.to_string())?;
 
         let stdout = if output.status.success() || output.status.code() == Some(1) {
             String::from_utf8_lossy(&output.stdout).to_string()
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(CodeSearchError::Io(std::io::Error::other(format!(
-                "rg failed: {}",
-                stderr.trim()
-            ))));
+            return Err(format!("rg failed: {}", stderr.trim()));
         };
 
         let mut matches: Vec<SearchMatch> = Vec::new();
@@ -190,10 +189,11 @@ impl Tool for CodeSearch {
 
         let total_matches = matches.len();
 
-        Ok(CodeSearchOutput {
+        let output = CodeSearchOutput {
             pattern: args.pattern,
             matches,
             total_matches,
-        })
+        };
+        serde_json::to_string(&output).map_err(|e| e.to_string())
     }
 }

@@ -1,17 +1,13 @@
-use rig::completion::Message;
+use crate::core::paths;
+use crate::core::token_usage::TokenUsage;
+use crate::core::types::Message;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::paths;
-use super::token_usage::TokenUsage;
-
 pub const SESSION_DIR: &str = ".sessions";
 pub const DEFAULT_SESSION_FILE: &str = ".session.json";
 
-// ── Structs ────────────────────────────────────────────────────────────────
-
-/// Core session data: chat history, token usage, reasoning, and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionData {
     pub chat_history: Vec<Message>,
@@ -21,7 +17,6 @@ pub struct SessionData {
     pub name: Option<String>,
 }
 
-/// Lightweight session metadata (name, turn count, timestamp, token count).
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
     pub name: String,
@@ -30,7 +25,6 @@ pub struct SessionInfo {
     pub tokens: u64,
 }
 
-/// Result of searching across all sessions for a keyword.
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     pub session_name: String,
@@ -38,15 +32,12 @@ pub struct SearchResult {
     pub matches: Vec<MessageMatch>,
 }
 
-/// A single matching message within a session.
 #[derive(Debug, Clone)]
 pub struct MessageMatch {
-    pub role: String, // "User", "Assistant", or "System"
+    pub role: String,
     pub content_snippet: String,
-    pub line_number: usize, // position in chat_history
+    pub line_number: usize,
 }
-
-// ── Impl blocks ────────────────────────────────────────────────────────────
 
 impl SessionData {
     pub fn new(
@@ -78,8 +69,6 @@ impl SessionData {
         }
     }
 
-    // ── Path helpers ──────────────────────────────────────────────────────
-
     pub fn session_file_path(name: &str) -> String {
         paths::app_file(&format!("{}/{}.json", SESSION_DIR, name))
             .to_string_lossy()
@@ -90,7 +79,6 @@ impl SessionData {
         paths::app_file(SESSION_DIR).to_string_lossy().to_string()
     }
 
-    /// Get the default session file path from config, or use DEFAULT_SESSION_FILE.
     pub fn default_session_file_path(save_file: Option<&str>) -> String {
         save_file
             .filter(|s| !s.is_empty())
@@ -102,13 +90,12 @@ impl SessionData {
             })
     }
 
-    // ── Save / Load / Delete (by file path) ───────────────────────────────
-
     pub fn save_to_file(&self, path: &str) -> Result<(), String> {
-        if let Some(parent) = std::path::Path::new(path).parent() {
+        if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("create dir: {}", e))?;
         }
-        let json = serde_json::to_string_pretty(self).map_err(|e| format!("serialize: {}", e))?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| format!("serialize: {}", e))?;
         std::fs::write(path, json).map_err(|e| format!("write {}: {}", path, e))
     }
 
@@ -117,7 +104,8 @@ impl SessionData {
             Ok(c) => c,
             Err(_) => return None,
         };
-        let result = serde_json::from_str(&content).map_err(|e| format!("parse {}: {}", path, e));
+        let result =
+            serde_json::from_str(&content).map_err(|e| format!("parse {}: {}", path, e));
         Some(result)
     }
 
@@ -128,8 +116,6 @@ impl SessionData {
             Err(e) => Err(format!("delete {}: {}", path, e)),
         }
     }
-
-    // ── Save / Load / Delete (by session name) ─────────────────────────
 
     pub fn save_with_name(&self, name: &str) -> Result<(), String> {
         let path = Self::session_file_path(name);
@@ -146,21 +132,16 @@ impl SessionData {
         Self::delete_file(&path)
     }
 
-    // ── Save / Load / Delete (default) ────────────────────────────────
-
-    /// Save to the default session file (for auto-save/auto-resume).
     pub fn save_default(&self, save_file: Option<&str>) -> Result<(), String> {
         let path = Self::default_session_file_path(save_file);
         self.save_to_file(&path)
     }
 
-    /// Load from the default session file (for auto-resume).
     pub fn load_default(save_file: Option<&str>) -> Option<Result<Self, String>> {
         let path = Self::default_session_file_path(save_file);
         Self::load_from_file(&path)
     }
 
-    /// Delete the default session file (used by /clear command).
     pub fn delete_default(save_file: Option<&str>) -> Result<(), String> {
         let path = Self::default_session_file_path(save_file);
         if Path::new(&path).exists() {
@@ -170,30 +151,28 @@ impl SessionData {
         }
     }
 
-    // ── Session listing & pruning ─────────────────────────────────────────
-
     pub fn list_sessions() -> Vec<SessionInfo> {
         let mut sessions = Vec::new();
-
         let dir_path = paths::app_file(SESSION_DIR);
         if !dir_path.is_dir() {
             return sessions;
         }
-
         if let Ok(entries) = std::fs::read_dir(dir_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().map(|e| e == "json").unwrap_or(false) {
                     if let Some(name) = path.file_stem() {
                         let name_str = name.to_string_lossy().to_string();
-                        if let Some(data) = Self::load_from_file(&path.to_string_lossy()) {
+                        if let Some(data) =
+                            Self::load_from_file(&path.to_string_lossy())
+                        {
                             if let Ok(data) = data {
                                 sessions.push(SessionInfo {
                                     name: name_str,
                                     turns: data
                                         .chat_history
                                         .iter()
-                                        .filter(|m| matches!(m, Message::User { .. }))
+                                        .filter(|m| m.role == "user")
                                         .count(),
                                     saved_at: data.saved_at,
                                     tokens: data.token_usage.total_tokens(),
@@ -204,19 +183,15 @@ impl SessionData {
                 }
             }
         }
-
         sessions.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
         sessions
     }
 
-    /// Remove old sessions, keeping only the `max_count` newest ones.
-    /// Returns the number of sessions removed.
     pub fn prune_old_sessions(max_count: usize) -> Result<usize, String> {
-        let sessions = Self::list_sessions(); // already sorted newest-first
+        let sessions = Self::list_sessions();
         if sessions.len() <= max_count {
             return Ok(0);
         }
-
         let mut removed = 0;
         for session in sessions.iter().skip(max_count) {
             let path = Self::session_file_path(&session.name);
@@ -229,22 +204,14 @@ impl SessionData {
         Ok(removed)
     }
 
-    // ── Search ────────────────────────────────────────────────────────────
-
-    /// Search for keyword in this session's chat history
     pub fn search_in_session(&self, keyword: &str) -> Vec<MessageMatch> {
         let mut matches = Vec::new();
         let keyword_lower = keyword.to_lowercase();
-
         for (idx, message) in self.chat_history.iter().enumerate() {
-            let (role, content) = match message {
-                Message::User { content, .. } => ("User", format!("{:?}", content)),
-                Message::Assistant { content, .. } => ("Assistant", format!("{:?}", content)),
-                Message::System { content, .. } => ("System", format!("{:?}", content)),
-            };
-
+            let role = &message.role;
+            let content = &message.content;
             if content.to_lowercase().contains(&keyword_lower) {
-                let snippet = extract_snippet(&content, keyword, 100);
+                let snippet = extract_snippet(content, keyword, 100);
                 matches.push(MessageMatch {
                     role: role.to_string(),
                     content_snippet: snippet,
@@ -252,18 +219,13 @@ impl SessionData {
                 });
             }
         }
-
         matches
     }
 }
 
-// ── Free functions ────────────────────────────────────────────────────────
-
-/// Generate a session file name from the current clock time.
 pub fn generate_session_name() -> String {
     let secs = unix_epoch_secs();
     let timestamp = format_timestamp(secs);
-    // Convert "YYYY-MM-DD HH:MM:SS" to "session_YYYYMMDD_HHMMSS"
     format!("session_{}", timestamp.replace(&['-', ':', ' '][..], "_"))
 }
 
@@ -274,7 +236,6 @@ fn unix_epoch_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Format a unix timestamp into a human-readable date-time string.
 pub fn format_timestamp(secs: u64) -> String {
     let gnu = std::process::Command::new("date")
         .arg(format!("-d@{}", secs))
@@ -297,12 +258,11 @@ pub fn format_timestamp(secs: u64) -> String {
     format!("epoch:{}", secs)
 }
 
-/// Build a saved-confirmation message string.
 pub fn format_saved_confirmation(path: &str, data: &SessionData) -> String {
     let turns = data
         .chat_history
         .iter()
-        .filter(|m| matches!(m, Message::User { .. }))
+        .filter(|m| m.role == "user")
         .count();
     format!(
         "💾 session saved to {} ({} turns, {} tokens)",
@@ -312,27 +272,24 @@ pub fn format_saved_confirmation(path: &str, data: &SessionData) -> String {
     )
 }
 
-/// Print saved confirmation (for non-TUI usage).
 pub fn print_saved_confirmation(path: &str, data: &SessionData) {
     println!("  {}", format_saved_confirmation(path, data));
 }
 
-/// Search all sessions for a keyword.
 pub fn search_sessions(keyword: &str) -> Vec<SearchResult> {
     let mut results = Vec::new();
-    let dir_path = std::path::Path::new(SESSION_DIR);
-
+    let dir_path = Path::new(SESSION_DIR);
     if !dir_path.is_dir() {
         return results;
     }
-
     if let Ok(entries) = std::fs::read_dir(dir_path) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().map(|e| e == "json").unwrap_or(false) {
                 if let Some(name) = path.file_stem() {
                     let name_str = name.to_string_lossy().to_string();
-                    if let Some(load_result) = SessionData::load_from_file(&path.to_string_lossy())
+                    if let Some(load_result) =
+                        SessionData::load_from_file(&path.to_string_lossy())
                     {
                         if let Ok(session_data) = load_result {
                             let matches = session_data.search_in_session(keyword);
@@ -349,20 +306,14 @@ pub fn search_sessions(keyword: &str) -> Vec<SearchResult> {
             }
         }
     }
-
-    // Sort by save time, newest first
     results.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
     results
 }
 
-/// Extract a snippet of content around the keyword (up to context_size chars).
 fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String {
     let content_lower = content.to_lowercase();
     let keyword_lower = keyword.to_lowercase();
-
     if let Some(byte_pos) = content_lower.find(&keyword_lower) {
-        // Convert byte position to character boundary-safe position
-        // Find the keyword's character position in the original content
         let char_pos = content
             .char_indices()
             .enumerate()
@@ -374,13 +325,9 @@ fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String 
                 }
             })
             .unwrap_or(0);
-
-        // Calculate character-based start and end
         let char_start = char_pos.saturating_sub(context_size / 2);
-        let char_end =
-            (char_pos + keyword.chars().count() + context_size / 2).min(content.chars().count());
-
-        // Convert back to byte indices safely
+        let char_end = (char_pos + keyword.chars().count() + context_size / 2)
+            .min(content.chars().count());
         let start_byte = content
             .char_indices()
             .nth(char_start)
@@ -391,7 +338,6 @@ fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String 
             .nth(char_end)
             .map(|(i, _)| i)
             .unwrap_or(content.len());
-
         let mut snippet = String::new();
         if char_start > 0 {
             snippet.push_str("...");
@@ -400,10 +346,8 @@ fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String 
         if char_end < content.chars().count() {
             snippet.push_str("...");
         }
-
         snippet
     } else {
-        // Fallback: return first context_size chars
         content.chars().take(context_size).collect()
     }
 }
