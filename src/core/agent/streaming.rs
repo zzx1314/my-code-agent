@@ -51,6 +51,7 @@ async fn process_sse_stream(
     let mut acc_tool_calls: Vec<AccumToolCall> = Vec::new();
     let mut usage: Option<crate::core::types::Usage> = None;
     let mut after_tool_call = false;
+    let mut reasoning_active = false;
 
     loop {
         let chunk = tokio::select! {
@@ -74,7 +75,8 @@ async fn process_sse_stream(
             let delta = &choice.delta;
 
             if let Some(ref rt) = delta.reasoning_content {
-                if display_mode != "hidden" {
+                if !rt.is_empty() && display_mode != "hidden" {
+                    reasoning_active = true;
                     reasoning.append(rt);
                     send_event(StreamEvent::ReasoningActive(true));
                     send_event(StreamEvent::ReasoningDelta(rt.clone()));
@@ -82,19 +84,22 @@ async fn process_sse_stream(
             }
 
             if let Some(ref text) = delta.content {
-                if reasoning.is_reasoning() {
-                    reasoning.end_segment();
-                    send_event(StreamEvent::ReasoningActive(false));
+                if !text.is_empty() {
+                    if reasoning_active || reasoning.is_reasoning() {
+                        reasoning_active = false;
+                        reasoning.end_segment();
+                        send_event(StreamEvent::ReasoningActive(false));
+                    }
+                    let out = if after_tool_call {
+                        after_tool_call = false;
+                        format!("\n{}", text)
+                    } else {
+                        text.clone()
+                    };
+                    send_event(StreamEvent::Text(out.clone()));
+                    response_text.push_str(&out);
+                    *running_approx += ContextManager::estimate_text_tokens(text);
                 }
-                let out = if after_tool_call {
-                    after_tool_call = false;
-                    format!("\n{}", text)
-                } else {
-                    text.clone()
-                };
-                send_event(StreamEvent::Text(out.clone()));
-                response_text.push_str(&out);
-                *running_approx += ContextManager::estimate_text_tokens(text);
             }
 
             if let Some(ref tcds) = delta.tool_calls {

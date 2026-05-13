@@ -61,7 +61,16 @@ impl ReasoningTracker {
         if !self.is_reasoning {
             self.is_reasoning = true;
         }
-        self.reasoning_buf.push_str(text);
+        // Some API providers (e.g., OpenAI-compatible / ChatGPT-format endpoints)
+        // return the FULL accumulated reasoning content in each SSE chunk rather
+        // than incremental deltas. Detect this: if the new text starts with what
+        // we already have, replace the buffer instead of appending — otherwise
+        // the content grows exponentially.
+        if text.starts_with(self.reasoning_buf.as_str()) {
+            self.reasoning_buf = text.to_string();
+        } else {
+            self.reasoning_buf.push_str(text);
+        }
     }
 
     pub fn end_segment(&mut self) {
