@@ -131,9 +131,17 @@ impl ContextManager {
     ///   "An assistant message with 'tool_calls' must be followed by tool
     ///    messages responding to each 'tool_call_id'."
     ///
-    /// This method scans for broken chains and strips `tool_calls` from
-    /// any assistant whose tool responses are missing or altered.
+    /// This method handles both directions:
+    ///   1. Forward pass: strips `tool_calls` from any assistant whose tool
+    ///      responses are missing or altered.
+    ///   2. Backward pass: converts orphaned `tool` messages (those whose
+    ///      corresponding assistant had `tool_calls` stripped or was removed
+    ///      entirely) to `user` messages. Without this, DeepSeek rejects
+    ///      tool messages that have no preceding assistant with matching
+    ///      `tool_call_id`.
     fn ensure_tool_chain_consistency(messages: &mut Vec<Message>) {
+        // Forward pass: strip tool_calls from assistants whose tool results
+        // are missing or have been converted.
         let mut i = 0;
         while i < messages.len() {
             if let Some(ref calls) = messages[i].tool_calls.clone() {
@@ -149,6 +157,26 @@ impl ContextManager {
                 }
             }
             i += 1;
+        }
+
+        // Backward pass: collect valid tool_call_ids from assistants that
+        // still have tool_calls, then convert orphaned tool messages (whose
+        // tool_call_id doesn't match any preceding assistant) to user messages.
+        let mut valid_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for msg in messages.iter() {
+            if let Some(ref calls) = msg.tool_calls {
+                for tc in calls {
+                    valid_ids.insert(tc.id.clone());
+                }
+            }
+        }
+        for msg in messages.iter_mut() {
+            if msg.role == "tool" {
+                let is_orphan = msg.tool_call_id.as_ref().map_or(true, |id| !valid_ids.contains(id));
+                if is_orphan {
+                    *msg = Message::user("[tool content removed]");
+                }
+            }
         }
     }
 

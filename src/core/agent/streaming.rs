@@ -209,7 +209,11 @@ pub async fn stream_response(
     let mut running_approx = context_manager.estimate_messages_tokens(chat_history, true)
         + ContextManager::estimate_message_tokens(&Message::user(input));
 
+    let max_turns = agent_config.max_turns;
+    let mut turn_count: usize = 0;
+
     loop {
+        turn_count += 1;
         context_manager.trim(&mut messages);
 
         let mut api_messages = vec![Message::system(system_prompt)];
@@ -365,6 +369,32 @@ pub async fn stream_response(
                     };
                 }
 
+                // Enforce max_turns: if we've reached the limit, stop executing
+                // more tools and return the accumulated response text.
+                if turn_count >= max_turns {
+                    status_messages.push(format!(
+                        "⚠ Max turns ({}) reached — stopping further tool execution. Response may be incomplete.",
+                        max_turns,
+                    ));
+                    let assistant_msg = if has_reasoning {
+                        Message::assistant_with_reasoning(&response_text, &reasoning_text)
+                    } else {
+                        Message::assistant(&response_text)
+                    };
+                    messages.push(assistant_msg);
+                    *chat_history = messages;
+                    return StreamResult {
+                        full_response: response_text,
+                        interrupted: false,
+                        should_exit: false,
+                        last_reasoning: reasoning.into_total_reasoning(),
+                        status_messages,
+                        turn_usage_line,
+                        session_usage: session_usage.clone(),
+                        updated_history: chat_history.clone(),
+                    };
+                }
+
                 let assistant_msg = if has_reasoning {
                     Message::assistant_with_tool_calls_and_reasoning(
                         &response_text,
@@ -408,7 +438,14 @@ impl ContextManager {
                 .position(|m| m.role == "user")
                 .map(|i| pos + 1 + i)
                 .unwrap_or(pos + 2);
-            messages.drain(pos..end.min(messages.len()));
+            // Extend past any tool messages that belong to the removed
+            // assistant, to avoid leaving orphaned tool messages which
+            // DeepSeek rejects.
+            let mut actual_end = end.min(messages.len());
+            while actual_end < messages.len() && messages[actual_end].role == "tool" {
+                actual_end += 1;
+            }
+            messages.drain(pos..actual_end);
         }
     }
 }

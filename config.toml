@@ -57,7 +57,7 @@ critical_threshold_percent = 90
 [agent]
 # Maximum number of tool-call turns per response.
 # Default: 10
-# max_turns = 10
+max_turns = 10
 
 # ── Plan Confirmation Settings ──
 [plan]
