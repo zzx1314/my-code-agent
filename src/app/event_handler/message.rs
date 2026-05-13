@@ -3,7 +3,7 @@ use tui_textarea::TextArea;
 use crate::app::App;
 use crate::core::context_manager::ContextManager;
 
-use super::streaming::{reset_streaming_state, spawn_llm_stream};
+use super::stream_handler::{reset_streaming_state, spawn_llm_stream};
 
 /// Send a message to the LLM (extracted for reuse by message queue)
 pub fn send_message_to_llm(

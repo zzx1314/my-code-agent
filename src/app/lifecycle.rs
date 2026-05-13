@@ -57,7 +57,7 @@ pub async fn run_app(
         app::event_handler::check_stream_result(&mut app);
         app::event_handler::check_init_result(&mut app);
 
-        terminal.draw(|f| app::ui::ui(f, &mut app))?;
+        terminal.draw(|f| crate::ui::ui(f, &mut app))?;
 
         app::event_handler::process_message_queue(&mut app, &mut context_manager);
 

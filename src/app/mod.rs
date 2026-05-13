@@ -26,7 +26,6 @@ pub struct InitResult {
 pub mod conversion;
 pub mod event_handler;
 pub mod lifecycle;
-pub mod ui;
 
 /// A single entry in the chat history, preserving reasoning content and tool
 /// metadata for DeepSeek reasoning models across user turns.

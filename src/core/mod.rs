@@ -24,7 +24,7 @@ pub mod tool;
 // agent submodules re-exported at top level
 pub use agent::connection;
 pub use agent::preamble;
-pub use agent::streaming;
+pub use agent::stream_response as streaming;
 
 // context submodules re-exported at top level
 pub use context::context_cache;
