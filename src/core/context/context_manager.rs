@@ -114,7 +114,42 @@ impl ContextManager {
             kept.push(messages.last().unwrap().clone());
         }
 
+        // Ensure tool call chain consistency — DeepSeek rejects requests
+        // where an assistant with tool_calls lacks its tool responses.
+        Self::ensure_tool_chain_consistency(&mut kept);
+
         kept
+    }
+
+    /// Ensure tool call chain consistency after pruning.
+    ///
+    /// DeepSeek (OpenAI-compatible) requires that every assistant message
+    /// with `tool_calls` is immediately followed by the corresponding tool
+    /// result messages. If pruning strips/converts those tool results (e.g.
+    /// `strip_tool_content` converts them to user messages), the API
+    /// rejects the request with:
+    ///   "An assistant message with 'tool_calls' must be followed by tool
+    ///    messages responding to each 'tool_call_id'."
+    ///
+    /// This method scans for broken chains and strips `tool_calls` from
+    /// any assistant whose tool responses are missing or altered.
+    fn ensure_tool_chain_consistency(messages: &mut Vec<Message>) {
+        let mut i = 0;
+        while i < messages.len() {
+            if let Some(ref calls) = messages[i].tool_calls.clone() {
+                let num_calls = calls.len();
+                let chain_ok = (0..num_calls).all(|offset| {
+                    let idx = i + 1 + offset;
+                    idx < messages.len()
+                        && messages[idx].role == "tool"
+                        && messages[idx].tool_call_id.as_deref() == Some(&calls[offset].id)
+                });
+                if !chain_ok {
+                    messages[i].tool_calls = None;
+                }
+            }
+            i += 1;
+        }
     }
 
     /// Strip tool-related content from a message.

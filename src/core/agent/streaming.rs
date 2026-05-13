@@ -323,7 +323,11 @@ pub async fn stream_response(
                         let pruned = context_manager.prune_messages(&messages);
                         let pruned_count = messages.len().saturating_sub(pruned.len());
                         messages = pruned;
-                        context_manager.set_prune_triggered(true);
+                        // Reset the one-shot flag — it was set during SSE
+                        // streaming to signal pruning for THIS turn. Keeping
+                        // it true would re-enter this block every subsequent
+                        // turn, spamming the user with unnecessary messages.
+                        context_manager.set_prune_triggered(false);
                         context_manager.increment_compact_count();
                         status_messages.push(format!("✓ Pruned {} old messages ({} remaining)", pruned_count, messages.len()));
                         let pruned_estimate = context_manager.estimate_messages_tokens(&messages, true);
