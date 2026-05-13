@@ -26,7 +26,6 @@ pub struct InitResult {
     pub new_agent: Option<Agent>,
 }
 
-pub mod conversion;
 pub mod event_handler;
 pub mod lifecycle;
 
