@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use my_code_agent::app::lifecycle::run_app;
-use my_code_agent::core::bootstrap::init_app;
+use my_code_agent::app::bootstrap::init_app;
 
 #[tokio::main]
 async fn main() -> Result<()> {

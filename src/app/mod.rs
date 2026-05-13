@@ -7,6 +7,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
+// App initialization & project knowledge (/init command)
+pub mod bootstrap;
+
 /// Represents a pending confirmation request from a tool.
 pub struct PendingConfirmation {
     /// The reason for the confirmation (e.g. "dangerous command")

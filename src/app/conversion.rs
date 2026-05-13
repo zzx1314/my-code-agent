@@ -10,8 +10,8 @@ pub fn convert_app_to_messages(chat_history: &[ChatEntry]) -> Vec<Message> {
             role: entry.role.clone(),
             content: entry.content.clone(),
             reasoning_content: entry.reasoning_content.clone(),
-            tool_calls: None,
-            tool_call_id: None,
+            tool_calls: entry.tool_calls.clone(),
+            tool_call_id: entry.tool_call_id.clone(),
         })
         .collect()
 }

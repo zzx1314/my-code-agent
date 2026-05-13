@@ -14,9 +14,6 @@ pub mod parser;
 // Session persistence
 pub mod session;
 
-// App initialization & project knowledge (/init command)
-pub mod bootstrap;
-
 // Core types, tool trait
 pub mod types;
 pub mod tool;
