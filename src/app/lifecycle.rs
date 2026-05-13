@@ -26,7 +26,7 @@ pub async fn run_app(
     interrupt_tx: tokio::sync::broadcast::Sender<()>,
     confirmation_rx: Option<
         tokio::sync::mpsc::UnboundedReceiver<
-            crate::tools::confirmation::ConfirmationRequest,
+            crate::tools::exec::confirmation::ConfirmationRequest,
         >,
     >,
     mut context_manager: ContextManager,
@@ -110,7 +110,7 @@ fn shutdown(
 
     // Clean up undo history for current session if configured
     if app.config.session.cleanup_undo_history {
-        match crate::tools::undo_history::clear_current_session_entries() {
+        match crate::tools::infra::undo_history::clear_current_session_entries() {
             Ok(cleared) if cleared > 0 => {
                 tracing::info!(
                     cleared,

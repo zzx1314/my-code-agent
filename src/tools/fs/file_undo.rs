@@ -3,7 +3,7 @@ use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::undo_history::{UndoEntry, current_session_history_len, pop_current_session_entries};
+use crate::tools::infra::undo_history::{UndoEntry, current_session_history_len, pop_current_session_entries};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileUndoError {

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::core::context::tool_dedup::get_global_tool_dedup;
-use super::undo_history;
+use crate::tools::infra::undo_history;
 
 #[derive(Deserialize, Serialize)]
 pub struct FileUpdateArgs {

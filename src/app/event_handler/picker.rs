@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::app::App;
 use crate::core::agent::stream::rebuild_agent;
 use crate::core::session::SessionData;
-use crate::tools::undo_history::set_session_id;
+use crate::tools::infra::undo_history::set_session_id;
 use crate::core::context::tool_dedup::get_global_tool_dedup;
 
 /// Handle model picker key events. Returns true if the event was consumed.

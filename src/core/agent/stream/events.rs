@@ -9,7 +9,7 @@ pub fn process_streaming_events(app: &mut App) {
             match rx.try_recv() {
                 Ok(crate::core::agent::stream_response::StreamEvent::Text(delta)) => {
                     if app.current_tool_call.is_some() {
-                        app.streaming_text.push_str("\n\n");
+                        app.streaming_text.push_str("\n");
                         app.current_tool_call = None;
                     }
                     app.streaming_text.push_str(&delta);

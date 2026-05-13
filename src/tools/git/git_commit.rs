@@ -3,8 +3,8 @@ use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::confirmation::ConfirmationHandle;
-use super::safety::confirm_action;
+use crate::tools::exec::confirmation::ConfirmationHandle;
+use crate::tools::exec::safety::confirm_action;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GitCommitError {

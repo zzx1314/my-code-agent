@@ -2,7 +2,7 @@ use crate::core::config::Config;
 use crate::core::agent::preamble::Agent;
 use crate::core::agent::stream_response::{StreamEvent, StreamResult};
 use crate::core::context::token_usage::TokenUsage;
-use crate::tools::confirmation::ConfirmationRequest;
+use crate::tools::exec::confirmation::ConfirmationRequest;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;

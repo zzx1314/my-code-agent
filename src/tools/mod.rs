@@ -1,48 +1,28 @@
-pub mod code_review;
-pub mod code_search;
-pub mod confirmation;
-pub mod file_delete;
-pub mod file_outline;
-pub mod file_read;
-pub mod file_undo;
-pub mod file_update;
-pub mod file_write;
-pub mod git_commit;
-pub mod git_diff;
-pub mod git_log;
-pub mod git_status;
-pub mod glob;
-pub mod list_dir;
-pub mod safety;
-pub mod shell_exec;
-pub mod undo_history;
-pub mod web_search;
+// ── Sub-modules by category ─────────────────────────────────────────────────
+pub mod exec;
+pub mod fs;
+pub mod git;
+pub mod infra;
+pub mod search;
 
-pub use code_review::CodeReview;
-pub use code_search::CodeSearch;
-pub use file_delete::FileDelete;
-pub use file_outline::FileOutline;
-pub use file_read::FileRead;
-pub use file_undo::FileUndo;
-pub use file_update::FileUpdate;
-pub use file_update::build_diff;
-pub use file_write::FileWrite;
-pub use git_commit::GitCommit;
-pub use git_diff::GitDiff;
-pub use git_log::GitLog;
-pub use git_status::GitStatus;
-pub use glob::GlobSearch;
-pub use list_dir::ListDir;
-pub use safety::{
+// ── Re-exports from sub-modules ─────────────────────────────────────────────
+pub use exec::*;
+pub use fs::*;
+pub use git::*;
+pub use infra::*;
+pub use search::*;
+
+// Re-export specific items that need special handling
+pub use exec::confirmation::ConfirmationHandle;
+pub use exec::safety::{
     is_dangerous_deletion, is_dangerous_git_command, is_dangerous_shell_command,
     is_dangerous_snippet_deletion,
 };
-pub use shell_exec::ShellExec;
 
 use crate::core::config::Config;
 use crate::core::tool::ToolRegistry as CoreToolRegistry;
 use crate::core::types::ToolDefinition;
-use crate::tools::confirmation::ConfirmationHandle;
+use crate::tools::exec::confirmation::ConfirmationHandle as _ConfirmationHandle;
 
 /// Our own Tool trait for tool implementations.
 /// Replaces `rig::tool::Tool` / `rig::tool::ToolDyn`.
@@ -82,7 +62,7 @@ impl CoreToolRegistry {
     }
 
     /// Create a new ToolRegistry with all built-in tools and a confirmation handle.
-    pub fn from_config_and_handle(config: &Config, handle: ConfirmationHandle) -> Self {
+    pub fn from_config_and_handle(config: &Config, handle: _ConfirmationHandle) -> Self {
         let mut registry = CoreToolRegistry::new();
 
         let tools: Vec<Box<dyn Tool>> = vec![
@@ -133,13 +113,13 @@ pub async fn create_mcp_tools(config: &Config) -> Vec<Box<dyn Tool>> {
         .cloned()
         .unwrap_or_else(|| std::env::var("PARALLEL_API_KEY").unwrap_or_default());
 
-    let search_tool = crate::tools::web_search::ParallelWebSearch::new(&key);
+    let search_tool = crate::tools::search::web_search::ParallelWebSearch::new(&key);
     if search_tool.is_available() {
         tracing::info!("web_search tool added");
         mcp_tools.push(Box::new(search_tool));
     }
 
-    let fetch_tool = crate::tools::web_search::ParallelWebFetch::new(&key);
+    let fetch_tool = crate::tools::search::web_search::ParallelWebFetch::new(&key);
     if fetch_tool.is_available() {
         tracing::info!("web_fetch tool added");
         mcp_tools.push(Box::new(fetch_tool));

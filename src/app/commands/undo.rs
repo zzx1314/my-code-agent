@@ -1,8 +1,8 @@
 use crate::app::App;
 
 pub fn handle(app: &mut App) -> bool {
-    use crate::tools::file_undo;
-    use crate::tools::undo_history::{current_session_history_len, pop_current_session_entries};
+    use crate::tools::fs::file_undo;
+    use crate::tools::infra::undo_history::{current_session_history_len, pop_current_session_entries};
 
     app.chat_history.push(crate::app::ChatEntry::user("/undo".to_string()));
     app.show_banner = false;

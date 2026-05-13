@@ -9,7 +9,7 @@ use crate::core::context::context_manager::ContextManager;
 use crate::core::agent::preamble::{Agent, build_client, build_preamble};
 use crate::core::session::SessionData;
 use crate::core::context::token_usage::TokenUsage;
-use crate::tools::confirmation::{ConfirmationHandle, ConfirmationRequest};
+use crate::tools::exec::confirmation::{ConfirmationHandle, ConfirmationRequest};
 use crate::tools::create_mcp_tools;
 
 pub struct InitState {
@@ -57,7 +57,7 @@ pub async fn init_app() -> Result<InitState> {
             .unwrap_or_default()
             .as_nanos()
     );
-    crate::tools::undo_history::set_session_id(session_id.clone());
+    crate::tools::infra::undo_history::set_session_id(session_id.clone());
     tracing::info!(session_id = %session_id, "Initialized session ID for undo tracking");
 
     // ── 5. Restore session ──────────────────────────────────────────────────

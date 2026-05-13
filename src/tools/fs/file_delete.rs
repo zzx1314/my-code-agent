@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::core::context::tool_dedup::get_global_tool_dedup;
-use super::confirmation::ConfirmationHandle;
-use super::safety::{confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion};
-use super::undo_history;
+use crate::tools::exec::confirmation::ConfirmationHandle;
+use crate::tools::exec::safety::{confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion};
+use crate::tools::infra::undo_history;
 
 #[derive(Deserialize, Serialize)]
 pub struct FileDeleteArgs {
