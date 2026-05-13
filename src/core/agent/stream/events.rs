@@ -33,7 +33,12 @@ pub fn process_streaming_events(app: &mut App) {
                     } else {
                         app.streaming_reasoning.push_str(&delta);
                     }
-                    app.current_tool_call = None;
+                    // NOTE: Do NOT clear current_tool_call here.
+                    // Reasoning deltas from a new SSE turn (after tool execution) would
+                    // clear the tool-call flag, preventing the subsequent Text event from
+                    // inserting the `\n\n` paragraph separator between turns.
+                    // This specifically affects reasoning models (e.g. DeepSeek Reasoner)
+                    // where a tool call is followed by reasoning + text in the next turn.
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
