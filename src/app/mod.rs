@@ -28,9 +28,65 @@ pub mod event_handler;
 pub mod lifecycle;
 pub mod ui;
 
+/// A single entry in the chat history, preserving reasoning content and tool
+/// metadata for DeepSeek reasoning models across user turns.
+#[derive(Debug, Clone)]
+pub struct ChatEntry {
+    pub role: String,
+    pub content: String,
+    pub reasoning_content: Option<String>,
+    pub tool_calls: Option<Vec<crate::core::types::ToolCall>>,
+    pub tool_call_id: Option<String>,
+}
+
+impl ChatEntry {
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: "user".into(),
+            content: content.into(),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: "assistant".into(),
+            content: content.into(),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+
+    pub fn assistant_with_reasoning(content: impl Into<String>, reasoning: impl Into<String>) -> Self {
+        let r = reasoning.into();
+        Self {
+            role: "assistant".into(),
+            content: content.into(),
+            reasoning_content: if r.is_empty() { None } else { Some(r) },
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+
+    /// Convert from a core `Message`, preserving all fields.
+    pub fn from_message(m: crate::core::types::Message) -> Self {
+        Self {
+            role: m.role,
+            content: m.content,
+            reasoning_content: m.reasoning_content,
+            tool_calls: m.tool_calls,
+            tool_call_id: m.tool_call_id,
+        }
+    }
+}
+
 /// Application state
 pub struct App {
-    pub chat_history: Vec<(String, String)>,
+    pub chat_history: Vec<ChatEntry>,
     pub current_response: String,
     pub input: TextArea<'static>,
     pub scroll: u16,
@@ -129,7 +185,7 @@ pub struct App {
 impl App {
     /// Create a new App instance
     pub fn new(
-        chat_history: Vec<(String, String)>,
+        chat_history: Vec<ChatEntry>,
         token_usage: TokenUsage,
         last_reasoning: String,
         config: Config,

@@ -46,8 +46,7 @@ pub fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
 
         // Queue the message for processing after current response completes
         app.message_queue.push(input_text.clone());
-        app.chat_history
-            .push(("user".to_string(), format!("⏳ [Queued] {}", input_text)));
+        app.chat_history.push(crate::app::ChatEntry::user(format!("⏳ [Queued] {}", input_text)));
         reset_input(app);
         app.auto_scroll = true;
     }

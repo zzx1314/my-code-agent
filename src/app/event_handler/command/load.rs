@@ -7,12 +7,8 @@ pub(super) fn handle(app: &mut App) -> bool {
         .take(5)
         .collect();
     if sessions.is_empty() {
-        app.chat_history
-            .push(("user".to_string(), "/load".to_string()));
-        app.chat_history.push((
-            "assistant".to_string(),
-            "No saved sessions found. Use /save to save a session first.".to_string(),
-        ));
+        app.chat_history.push(crate::app::ChatEntry::user("/load".to_string()));
+        app.chat_history.push(crate::app::ChatEntry::assistant("No saved sessions found. Use /save to save a session first.".to_string(),));
         app.show_banner = false;
         app.auto_scroll = true;
     } else {

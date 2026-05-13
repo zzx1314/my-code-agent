@@ -4,21 +4,17 @@ pub(super) fn handle(app: &mut App) -> bool {
     use crate::tools::file_undo;
     use crate::tools::undo_history::{current_session_history_len, pop_current_session_entries};
 
-    app.chat_history
-        .push(("user".to_string(), "/undo".to_string()));
+    app.chat_history.push(crate::app::ChatEntry::user("/undo".to_string()));
     app.show_banner = false;
     app.auto_scroll = true;
 
     let available = current_session_history_len().unwrap_or(0);
     if available == 0 {
-        app.chat_history.push(("assistant".to_string(), "No undo history for current session. Undo history is recorded when AI tools modify files during this session.".to_string()));
+        app.chat_history.push(crate::app::ChatEntry::assistant("No undo history for current session. Undo history is recorded when AI tools modify files during this session.".to_string()));
     } else {
         match pop_current_session_entries() {
             Ok(entries) if entries.is_empty() => {
-                app.chat_history.push((
-                    "assistant".to_string(),
-                    "No undo history for current session.".to_string(),
-                ));
+                app.chat_history.push(crate::app::ChatEntry::assistant("No undo history for current session.".to_string(),));
             }
             Ok(entries) => {
                 let mut details = Vec::new();
@@ -44,11 +40,10 @@ pub(super) fn handle(app: &mut App) -> bool {
                         msg.push_str(&format!("  • {}\n", e));
                     }
                 }
-                app.chat_history.push(("assistant".to_string(), msg));
+                app.chat_history.push(crate::app::ChatEntry::assistant(msg));
             }
             Err(e) => {
-                app.chat_history
-                    .push(("assistant".to_string(), format!("❌ Undo failed: {}", e)));
+                app.chat_history.push(crate::app::ChatEntry::assistant(format!("❌ Undo failed: {}", e)));
             }
         }
     }

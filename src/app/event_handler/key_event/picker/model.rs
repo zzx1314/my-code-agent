@@ -30,22 +30,15 @@ pub fn handle_model_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
             if !app.model_options.is_empty() {
                 let selected_model = app.model_options[app.model_selected].clone();
                 app.config.llm.model = Some(selected_model.clone());
-                app.chat_history
-                    .push(("user".to_string(), format!("/model {}", selected_model)));
+                app.chat_history.push(crate::app::ChatEntry::user(format!("/model {}", selected_model)));
 
                 if let Ok(new_agent) =
                     crate::app::event_handler::streaming::rebuild_agent(&app.config)
                 {
                     app.agent = Arc::new(new_agent);
-                    app.chat_history.push((
-                        "assistant".to_string(),
-                        format!("Model switched to: {}", selected_model),
-                    ));
+                    app.chat_history.push(crate::app::ChatEntry::assistant(format!("Model switched to: {}", selected_model),));
                 } else {
-                    app.chat_history.push((
-                        "assistant".to_string(),
-                        "Failed to switch model. Please check API key and try again.".to_string(),
-                    ));
+                    app.chat_history.push(crate::app::ChatEntry::assistant("Failed to switch model. Please check API key and try again.".to_string(),));
                 }
             }
             app.show_model_picker = false;

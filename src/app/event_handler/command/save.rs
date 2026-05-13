@@ -8,12 +8,12 @@ pub(super) fn handle(app: &mut App) -> bool {
     let history: Vec<Message> = app
         .chat_history
         .iter()
-        .map(|(r, c)| Message {
-            role: r.clone(),
-            content: c.clone(),
-            reasoning_content: None,
-            tool_calls: None,
-            tool_call_id: None,
+        .map(|entry| Message {
+            role: entry.role.clone(),
+            content: entry.content.clone(),
+            reasoning_content: entry.reasoning_content.clone(),
+            tool_calls: entry.tool_calls.clone(),
+            tool_call_id: entry.tool_call_id.clone(),
         })
         .collect();
 
@@ -27,9 +27,8 @@ pub(super) fn handle(app: &mut App) -> bool {
         Ok(()) => {
             let path = SessionData::session_file_path(&session_name);
             let msg = format_saved_confirmation(&path, &data);
-            app.chat_history
-                .push(("user".to_string(), "/save".to_string()));
-            app.chat_history.push(("assistant".to_string(), msg));
+            app.chat_history.push(crate::app::ChatEntry::user("/save".to_string()));
+            app.chat_history.push(crate::app::ChatEntry::assistant(msg));
 
             // Prune old sessions, keeping only the 5 newest
             if let Ok(removed) = SessionData::prune_old_sessions(5) {
@@ -39,12 +38,8 @@ pub(super) fn handle(app: &mut App) -> bool {
             }
         }
         Err(e) => {
-            app.chat_history
-                .push(("user".to_string(), "/save".to_string()));
-            app.chat_history.push((
-                "assistant".to_string(),
-                format!("❌ Failed to save session: {}", e),
-            ));
+            app.chat_history.push(crate::app::ChatEntry::user("/save".to_string()));
+            app.chat_history.push(crate::app::ChatEntry::assistant(format!("❌ Failed to save session: {}", e),));
         }
     }
 

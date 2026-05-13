@@ -16,12 +16,8 @@ pub fn handle_shell_command(app: &mut App, input_text: &str) {
     // Handle shell mode exit commands
     if cmd == "exit" || cmd == "!exit" {
         app.shell_mode = false;
-        app.chat_history
-            .push(("user".to_string(), input_text.to_string()));
-        app.chat_history.push((
-            "assistant".to_string(),
-            "🐚 Shell mode deactivated.".to_string(),
-        ));
+        app.chat_history.push(crate::app::ChatEntry::user(input_text.to_string()));
+        app.chat_history.push(crate::app::ChatEntry::assistant("🐚 Shell mode deactivated.".to_string(),));
         reset_input(app);
         return;
     }
@@ -50,35 +46,27 @@ pub fn handle_shell_command(app: &mut App, input_text: &str) {
         } else {
             target
         };
-        app.chat_history
-            .push(("user".to_string(), format!("$ {}", cmd)));
+        app.chat_history.push(crate::app::ChatEntry::user(format!("$ {}", cmd)));
         match std::env::set_current_dir(&target) {
             Ok(()) => {
                 let cwd = std::env::current_dir()
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|_| "?".to_string());
-                app.chat_history.push((
-                    "assistant".to_string(),
-                    format!("Changed directory to {}", cwd),
-                ));
+                app.chat_history.push(crate::app::ChatEntry::assistant(format!("Changed directory to {}", cwd),));
             }
             Err(e) => {
-                app.chat_history
-                    .push(("assistant".to_string(), format!("❌ cd: {}: {}", target, e)));
+                app.chat_history.push(crate::app::ChatEntry::assistant(format!("❌ cd: {}: {}", target, e)));
             }
         }
         reset_input(app);
         return;
     }
 
-    app.chat_history.push((
-        "user".to_string(),
-        if app.shell_mode {
-            format!("$ {}", cmd)
-        } else {
-            input_text.to_string()
-        },
-    ));
+    app.chat_history.push(crate::app::ChatEntry::user(if app.shell_mode {
+        format!("$ {}", cmd)
+    } else {
+        input_text.to_string()
+    },));
 
     // Execute shell command
     let output = std::process::Command::new("bash")
@@ -107,13 +95,10 @@ pub fn handle_shell_command(app: &mut App, input_text: &str) {
             if result.is_empty() {
                 result = "(no output)".to_string();
             }
-            app.chat_history.push(("assistant".to_string(), result));
+            app.chat_history.push(crate::app::ChatEntry::assistant(result));
         }
         Err(e) => {
-            app.chat_history.push((
-                "assistant".to_string(),
-                format!("❌ Failed to execute command: {}", e),
-            ));
+            app.chat_history.push(crate::app::ChatEntry::assistant(format!("❌ Failed to execute command: {}", e),));
         }
     }
 

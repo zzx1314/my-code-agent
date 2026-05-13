@@ -18,7 +18,7 @@ use crate::core::token_usage::TokenUsage;
 /// After the loop exits, performs all shutdown cleanup:
 /// terminal teardown, undo-history cleanup, session auto-save.
 pub async fn run_app(
-    chat_history: Vec<(String, String)>,
+    chat_history: Vec<crate::app::ChatEntry>,
     token_usage: TokenUsage,
     last_reasoning: String,
     config: crate::core::config::Config,
@@ -138,17 +138,19 @@ fn shutdown(
 }
 
 /// Convert app chat_history to Message vector for session persistence.
+/// Preserves `reasoning_content` and tool metadata for DeepSeek reasoning
+/// models.
 fn to_session_messages(
-    chat_history: &[(String, String)],
+    chat_history: &[crate::app::ChatEntry],
 ) -> Vec<crate::core::types::Message> {
     chat_history
         .iter()
-        .map(|(r, c)| crate::core::types::Message {
-            role: r.clone(),
-            content: c.clone(),
-            reasoning_content: None,
-            tool_calls: None,
-            tool_call_id: None,
+        .map(|entry| crate::core::types::Message {
+            role: entry.role.clone(),
+            content: entry.content.clone(),
+            reasoning_content: entry.reasoning_content.clone(),
+            tool_calls: entry.tool_calls.clone(),
+            tool_call_id: entry.tool_call_id.clone(),
         })
         .collect()
 }

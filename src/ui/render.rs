@@ -101,6 +101,12 @@ impl ReasoningTracker {
     pub fn total_reasoning(&self) -> &str {
         &self.total_reasoning
     }
+
+    /// Reset the accumulated total reasoning (e.g. after capturing it for a
+    /// tool-call assistant message, so the next loop iteration starts fresh).
+    pub fn reset_total(&mut self) {
+        self.total_reasoning.clear();
+    }
 }
 
 impl Default for ReasoningTracker {

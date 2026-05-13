@@ -35,7 +35,7 @@ pub fn handle_session_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                         app.chat_history = session_data
                             .chat_history
                             .into_iter()
-                            .map(|m| (m.role, m.content))
+                            .map(crate::app::ChatEntry::from_message)
                             .collect();
                         app.token_usage = session_data.token_usage;
                         app.last_reasoning = session_data.last_reasoning;
@@ -56,31 +56,19 @@ pub fn handle_session_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                             guard.reset();
                         }
 
-                        app.chat_history
-                            .push(("user".to_string(), format!("/load {}", session_name)));
-                        app.chat_history.push((
-                            "assistant".to_string(),
-                            format!(
-                                "Session '{}' loaded ({} turns, {} tokens)",
-                                session_name, selected_session.turns, selected_session.tokens
-                            ),
-                        ));
+                        app.chat_history.push(crate::app::ChatEntry::user(format!("/load {}", session_name)));
+                        app.chat_history.push(crate::app::ChatEntry::assistant(format!(
+                            "Session '{}' loaded ({} turns, {} tokens)",
+                            session_name, selected_session.turns, selected_session.tokens
+                        ),));
                     }
                     Some(Err(e)) => {
-                        app.chat_history
-                            .push(("user".to_string(), format!("/load {}", session_name)));
-                        app.chat_history.push((
-                            "assistant".to_string(),
-                            format!("Failed to load session '{}': {}", session_name, e),
-                        ));
+                        app.chat_history.push(crate::app::ChatEntry::user(format!("/load {}", session_name)));
+                        app.chat_history.push(crate::app::ChatEntry::assistant(format!("Failed to load session '{}': {}", session_name, e),));
                     }
                     None => {
-                        app.chat_history
-                            .push(("user".to_string(), format!("/load {}", session_name)));
-                        app.chat_history.push((
-                            "assistant".to_string(),
-                            format!("Session '{}' not found", session_name),
-                        ));
+                        app.chat_history.push(crate::app::ChatEntry::user(format!("/load {}", session_name)));
+                        app.chat_history.push(crate::app::ChatEntry::assistant(format!("Session '{}' not found", session_name),));
                     }
                 }
             }

@@ -393,6 +393,13 @@ pub async fn stream_response(
                     };
                 }
 
+                // Reset the per-turn reasoning tracker so the next loop
+                // iteration starts fresh. Without this, total_reasoning
+                // accumulates across every tool-call turn, causing each
+                // subsequent assistant message to carry ALL prior turns'
+                // reasoning_content — both incorrect and wasteful.
+                reasoning.reset_total();
+
                 let assistant_msg = if has_reasoning {
                     Message::assistant_with_tool_calls_and_reasoning(
                         &response_text,

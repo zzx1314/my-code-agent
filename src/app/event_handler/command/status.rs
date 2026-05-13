@@ -1,8 +1,7 @@
 use crate::app::App;
 
 pub(super) fn handle(app: &mut App) -> bool {
-    app.chat_history
-        .push(("user".to_string(), "/status".to_string()));
+    app.chat_history.push(crate::app::ChatEntry::user("/status".to_string()));
     let status = format!(
         "Session enabled: {}\nModel: {}\nProvider: {}\nTotal tokens used: {}",
         app.config.session.enabled,
@@ -10,7 +9,7 @@ pub(super) fn handle(app: &mut App) -> bool {
         app.config.llm.provider,
         app.token_usage.total_tokens()
     );
-    app.chat_history.push(("assistant".to_string(), status));
+    app.chat_history.push(crate::app::ChatEntry::assistant(status));
     app.show_banner = false;
     app.auto_scroll = true;
     true

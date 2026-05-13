@@ -30,12 +30,12 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
     let mut messages: Vec<Message> = app
         .chat_history
         .iter()
-        .map(|(role, content)| Message {
-            role: role.clone(),
-            content: content.clone(),
-            reasoning_content: None,
-            tool_calls: None,
-            tool_call_id: None,
+        .map(|entry| Message {
+            role: entry.role.clone(),
+            content: entry.content.clone(),
+            reasoning_content: entry.reasoning_content.clone(),
+            tool_calls: entry.tool_calls.clone(),
+            tool_call_id: entry.tool_call_id.clone(),
         })
         .collect();
 
@@ -186,8 +186,7 @@ pub fn check_init_result(app: &mut App) {
     if let Some(ref mut rx) = app.init_rx {
         match rx.try_recv() {
             Ok(result) => {
-                app.chat_history
-                    .push(("assistant".to_string(), result.message));
+                app.chat_history.push(crate::app::ChatEntry::assistant(result.message));
                 if let Some(new_agent) = result.new_agent {
                     app.agent = Arc::new(new_agent);
                 }
@@ -236,19 +235,16 @@ fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamRe
     // Sync the full backend history first. This replaces the entire chat
     // history with the pruned message list from the streaming response.
     if !result.updated_history.is_empty() {
-        let pruned: Vec<(String, String)> = result
+        // Keep all non-system messages including tool-call assistants and
+        // tool results — they carry `reasoning_content` that must be echoed
+        // back to DeepSeek reasoning models on subsequent turns.  Tool
+        // messages are rendered invisibly in the TUI but still provide the
+        // LLM with the full execution context.
+        let pruned: Vec<crate::app::ChatEntry> = result
             .updated_history
             .into_iter()
-            .filter(|m| {
-                if m.role == "tool" {
-                    return false;
-                }
-                if m.role == "assistant" && m.tool_calls.is_some() {
-                    return false;
-                }
-                m.role != "system" && !m.content.is_empty()
-            })
-            .map(|m| (m.role, m.content))
+            .filter(|m| m.role != "system" && !m.content.is_empty())
+            .map(crate::app::ChatEntry::from_message)
             .collect();
         if !pruned.is_empty() {
             app.chat_history = pruned;
@@ -259,19 +255,19 @@ fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamRe
     // content field, making the same thinking appear both in the reasoning
     // block and in the assistant message. Strip the overlapping prefix from
     // the last assistant message after the history sync.
-    let has_assistant = app.chat_history.last().map(|(r, _)| r.as_str()) == Some("assistant");
+    let has_assistant = app.chat_history.last().map(|e| e.role.as_str()) == Some("assistant");
     if has_assistant {
         let last = app.chat_history.last_mut().unwrap();
-        let deduped = build_response_display(&last.1, &app.last_reasoning);
-        last.1 = deduped;
+        let deduped = build_response_display(&last.content, &app.last_reasoning);
+        last.content = deduped;
     } else {
         // No assistant message yet (no content from model). If there's
         // reasoning, add a placeholder so the conversation shows progress.
         let display_text = build_response_display(&result.full_response, &app.last_reasoning);
         if !display_text.is_empty() {
-            app.chat_history.push(("assistant".to_string(), display_text));
+            app.chat_history.push(crate::app::ChatEntry::assistant(display_text));
         } else if !app.last_reasoning.is_empty() {
-            app.chat_history.push(("assistant".to_string(), "_(thinking)_".to_string()));
+            app.chat_history.push(crate::app::ChatEntry::assistant("_(thinking)_".to_string()));
         }
     }
     app.show_inline_reasoning = !app.last_reasoning.is_empty();
@@ -317,7 +313,7 @@ pub fn process_message_queue(app: &mut App, context_manager: &mut ContextManager
     if !app.is_streaming && !app.message_queue.is_empty() {
         let next_message = app.message_queue.remove(0);
         if let Some(last) = app.chat_history.last() {
-            if last.1.starts_with("⏳ [Queued] ") {
+            if last.content.starts_with("⏳ [Queued] ") {
                 app.chat_history.pop();
             }
         }

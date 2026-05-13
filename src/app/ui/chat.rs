@@ -114,12 +114,12 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
     let last_assistant_idx = app
         .chat_history
         .iter()
-        .rposition(|(role, _)| role == "assistant");
+        .rposition(|entry| entry.role == "assistant");
     let split_idx = last_assistant_idx.unwrap_or(app.chat_history.len());
 
     // Messages before the last assistant message
-    for (role, content) in &app.chat_history[..split_idx] {
-        render_message(lines, role, content, max_width);
+    for entry in &app.chat_history[..split_idx] {
+        render_message(lines, &entry.role, &entry.content, max_width);
     }
 
     // Reasoning block
@@ -128,7 +128,7 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
 
     // The last assistant message
     if let Some(idx) = last_assistant_idx {
-        let (_role, content) = &app.chat_history[idx];
+        let content = &app.chat_history[idx].content;
         let md = render_full(content, max_width);
         lines.extend(md);
         lines.push(Line::default());
@@ -137,8 +137,8 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
 
 /// Render all chat messages in order.
 fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &App, max_width: Option<usize>) {
-    for (role, content) in &app.chat_history {
-        render_message(lines, role, content, max_width);
+    for entry in &app.chat_history {
+        render_message(lines, &entry.role, &entry.content, max_width);
     }
 }
 

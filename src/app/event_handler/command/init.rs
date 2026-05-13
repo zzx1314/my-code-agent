@@ -5,17 +5,13 @@ pub(super) fn handle(app: &mut App) -> bool {
     let is_update = std::path::Path::new(&knowledge_file).exists();
     let prompt = build_init_prompt(is_update);
 
-    app.chat_history
-        .push(("user".to_string(), "/init".to_string()));
-    app.chat_history.push((
-        "assistant".to_string(),
-        if is_update {
-            "⏳ Updating knowledge file — exploring project..."
-        } else {
-            "⏳ Creating knowledge file — exploring project..."
-        }
-        .to_string(),
-    ));
+    app.chat_history.push(crate::app::ChatEntry::user("/init".to_string()));
+    app.chat_history.push(crate::app::ChatEntry::assistant(if is_update {
+        "⏳ Updating knowledge file — exploring project..."
+    } else {
+        "⏳ Creating knowledge file — exploring project..."
+    }
+    .to_string(),));
     app.show_banner = false;
     app.auto_scroll = true;
     app.scroll = u16::MAX;

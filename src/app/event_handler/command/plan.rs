@@ -6,20 +6,16 @@ use super::super::streaming::{reset_streaming_state, spawn_llm_stream};
 /// Handle the /plan command: analyze task and create implementation plan without executing
 pub(super) fn handle(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {
     let task = input.trim().strip_prefix("/plan").unwrap_or("").trim();
-    app.chat_history
-        .push(("user".to_string(), input.to_string()));
+    app.chat_history.push(crate::app::ChatEntry::user(input.to_string()));
     app.show_banner = false;
 
     if task.is_empty() {
-        app.chat_history.push((
-            "assistant".to_string(),
-            "📋 **Plan Mode**\n\n\
-                    Usage: `/plan <task description>`\n\n\
-                    Example: `/plan Add user authentication with JWT tokens`\n\n\
-                    In plan mode, I will analyze your task and create a detailed plan \
-                    without executing any actions. You can review the plan before proceeding."
-                .to_string(),
-        ));
+        app.chat_history.push(crate::app::ChatEntry::assistant("📋 **Plan Mode**\n\n\
+                Usage: `/plan <task description>`\n\n\
+                Example: `/plan Add user authentication with JWT tokens`\n\n\
+                In plan mode, I will analyze your task and create a detailed plan \
+                without executing any actions. You can review the plan before proceeding."
+            .to_string(),));
         app.auto_scroll = true;
         return true;
     }

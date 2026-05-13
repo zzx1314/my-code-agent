@@ -14,7 +14,7 @@ use crate::tools::create_mcp_tools;
 
 pub struct InitState {
     pub config: Config,
-    pub chat_history: Vec<(String, String)>,
+    pub chat_history: Vec<crate::app::ChatEntry>,
     pub token_usage: TokenUsage,
     pub last_reasoning: String,
     pub agent: Arc<Agent>,
@@ -61,7 +61,7 @@ pub async fn init_app() -> Result<InitState> {
     tracing::info!(session_id = %session_id, "Initialized session ID for undo tracking");
 
     // ── 5. Restore session ──────────────────────────────────────────────────
-    let mut chat_history: Vec<(String, String)> = Vec::new();
+    let mut chat_history: Vec<crate::app::ChatEntry> = Vec::new();
     let mut token_usage = TokenUsage::with_config(&config);
     let mut last_reasoning = String::new();
 
@@ -69,15 +69,16 @@ pub async fn init_app() -> Result<InitState> {
         if let Some(Ok(data)) =
             SessionData::load_default(config.session.save_file.as_deref())
         {
-            // Convert session Messages back to simple (role, text) pairs
+            // Restore from session Messages, preserving reasoning_content
+            // and tool metadata for subsequent API round-trips.
             chat_history = data
                 .chat_history
                 .into_iter()
-                .map(|m| (m.role, m.content))
+                .map(crate::app::ChatEntry::from_message)
                 .collect();
             token_usage = data.token_usage;
             last_reasoning = data.last_reasoning;
-            let turns = chat_history.iter().filter(|(r, _)| r == "user").count();
+            let turns = chat_history.iter().filter(|e| e.role == "user").count();
             tracing::info!(
                 turns,
                 tokens = token_usage.total_tokens(),

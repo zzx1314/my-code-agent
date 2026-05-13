@@ -12,8 +12,7 @@ pub fn send_message_to_llm(
     input_text: String,
 ) {
     app.show_banner = false; // Hide startup banner
-    app.chat_history
-        .push(("user".to_string(), input_text.clone()));
+    app.chat_history.push(crate::app::ChatEntry::user(input_text.clone()));
     app.input = {
         let mut ta = TextArea::default();
         ta.set_block(

@@ -46,29 +46,20 @@ pub fn handle_provider_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                     app.model_selected = 0;
                 }
 
-                app.chat_history.push((
-                    "user".to_string(),
-                    format!("/connect {}", selected_provider),
-                ));
+                app.chat_history.push(crate::app::ChatEntry::user(format!("/connect {}", selected_provider),));
 
                 if let Ok(new_agent) =
                     crate::app::event_handler::streaming::rebuild_agent(&app.config)
                 {
                     app.agent = Arc::new(new_agent);
-                    app.chat_history.push((
-                        "assistant".to_string(),
-                        format!(
-                            "Provider switched to: {} (model: {})",
-                            selected_provider,
-                            app.config.llm.model.as_deref().unwrap_or("default")
-                        ),
-                    ));
+                    app.chat_history.push(crate::app::ChatEntry::assistant(format!(
+                        "Provider switched to: {} (model: {})",
+                        selected_provider,
+                        app.config.llm.model.as_deref().unwrap_or("default")
+                    ),));
                 } else {
-                    app.chat_history.push((
-                        "assistant".to_string(),
-                        "Failed to switch provider. Please check API key and try again."
-                            .to_string(),
-                    ));
+                    app.chat_history.push(crate::app::ChatEntry::assistant("Failed to switch provider. Please check API key and try again."
+                        .to_string(),));
                 }
             }
             app.show_provider_picker = false;
