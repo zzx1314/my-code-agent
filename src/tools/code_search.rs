@@ -1,4 +1,4 @@
-use crate::core::file_cache::get_global_file_cache;
+use crate::core::context::file_cache::get_global_file_cache;
 use crate::core::parser::ParsedFile;
 use crate::core::types::ToolDefinition;
 use crate::tools::Tool;

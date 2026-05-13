@@ -1,8 +1,8 @@
 use tokio::sync::mpsc;
 
 use crate::app::App;
-use crate::core::context_manager::ContextManager;
-use crate::core::preamble::Agent;
+use crate::core::context::context_manager::ContextManager;
+use crate::core::agent::preamble::Agent;
 
 use super::state::reset_streaming_state;
 
@@ -33,7 +33,7 @@ pub fn send_message_to_llm(
 /// Spawn an LLM streaming response
 pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, prompt: &str) {
     use crate::core::context::expand_file_refs;
-    use crate::core::streaming::{StreamResult, stream_response};
+    use crate::core::agent::stream_response::{StreamResult, stream_response};
     use crate::core::types::Message;
 
     let expanded = expand_file_refs(prompt, &app.config);
@@ -55,7 +55,7 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
     let mut token_usage_clone = app.token_usage.clone();
     let interrupt_rx = app.interrupt_tx.subscribe();
     let (response_tx, response_rx) = mpsc::channel::<StreamResult>(1);
-    let (event_tx, event_rx) = mpsc::unbounded_channel::<crate::core::streaming::StreamEvent>();
+    let (event_tx, event_rx) = mpsc::unbounded_channel::<crate::core::agent::stream_response::StreamEvent>();
 
     let mut ctx_mgr = context_manager.clone();
     let prompt_owned = prompt.to_string();
@@ -106,8 +106,8 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
 pub fn rebuild_agent(
     config: &crate::core::config::Config,
 ) -> anyhow::Result<Agent> {
-    use crate::core::preamble::build_client;
-    use crate::core::preamble::build_preamble;
+    use crate::core::agent::preamble::build_client;
+    use crate::core::agent::preamble::build_preamble;
     use crate::tools::create_mcp_tools;
 
     let client = build_client(config);

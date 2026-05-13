@@ -1,7 +1,7 @@
 use crate::core::config::Config;
-use crate::core::file_cache::get_global_file_cache;
+use crate::core::context::file_cache::get_global_file_cache;
 use crate::core::parser::ParsedFile;
-use crate::core::tool_dedup::get_global_tool_dedup;
+use crate::core::context::tool_dedup::get_global_tool_dedup;
 use crate::core::types::ToolDefinition;
 use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
@@ -126,7 +126,7 @@ impl Tool for FileRead {
             let dedup = get_global_tool_dedup();
             let mut dedup_guard = dedup.lock().unwrap();
             match dedup_guard.check_file_read(&args.path, offset, limit) {
-                crate::core::tool_dedup::DedupAction::ShortCircuit(info) => {
+                crate::core::context::tool_dedup::DedupAction::ShortCircuit(info) => {
                     let msg = info.format_message();
                     return serde_json::to_string(&FileReadOutput {
                         path: args.path,
@@ -137,7 +137,7 @@ impl Tool for FileRead {
                         truncated: false,
                     }).map_err(|e| e.to_string());
                 }
-                crate::core::tool_dedup::DedupAction::Allow => {}
+                crate::core::context::tool_dedup::DedupAction::Allow => {}
             }
         }
 

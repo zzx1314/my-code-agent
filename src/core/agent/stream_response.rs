@@ -2,8 +2,8 @@ use tokio::sync::mpsc;
 
 use crate::core::agent::client::LlmClient;
 use crate::core::config::AgentConfig;
-use crate::core::context_manager::ContextManager;
-use crate::core::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
+use crate::core::context::context_manager::ContextManager;
+use crate::core::context::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::core::tool::ToolRegistry;
 use crate::core::types::{Message, ToolCall};
 use crate::ui::render::ReasoningTracker;
@@ -302,7 +302,7 @@ pub async fn stream_response(
                     );
                     turn_usage_line = Some(format_turn_usage(&usage));
                     session_usage.add(usage);
-                    crate::core::context_cache::global_cache().record_turn(&usage);
+                    crate::core::context::context_cache::global_cache().record_turn(&usage);
 
                     let input_tokens = session_usage.last_turn_input_tokens();
                     let api_at_limit = context_manager.should_compact(input_tokens);

@@ -1,5 +1,5 @@
-use my_code_agent::config::Config;
-use my_code_agent::context::{AttachStatus, expand_file_refs, parse_file_refs};
+use my_code_agent::core::config::Config;
+use my_code_agent::core::context::{AttachStatus, expand_file_refs, parse_file_refs};
 use std::fs;
 
 // ── parse_file_refs unit tests (moved from src/core/context.rs) ──

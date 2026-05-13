@@ -1,5 +1,5 @@
 use crate::core::config::Config;
-use crate::core::file_cache::FileCache;
+use crate::core::context::file_cache::FileCache;
 use std::path::Path;
 
 /// A parsed `@file` reference found in user input.

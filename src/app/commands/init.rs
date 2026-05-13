@@ -1,7 +1,7 @@
 use crate::app::App;
 
 pub fn handle(app: &mut App) -> bool {
-    let knowledge_file = crate::core::preamble::KNOWLEDGE_FILE.to_string();
+    let knowledge_file = crate::core::agent::preamble::KNOWLEDGE_FILE.to_string();
     let is_update = std::path::Path::new(&knowledge_file).exists();
     let prompt = build_init_prompt(is_update);
 
@@ -18,7 +18,7 @@ pub fn handle(app: &mut App) -> bool {
 
     // Set up streaming channels
     let (event_tx, event_rx) =
-        tokio::sync::mpsc::unbounded_channel::<crate::core::streaming::StreamEvent>();
+        tokio::sync::mpsc::unbounded_channel::<crate::core::agent::stream_response::StreamEvent>();
     app.streaming_events_rx = Some(event_rx);
     app.is_streaming = true;
     app.streaming_text.clear();
@@ -34,11 +34,11 @@ pub fn handle(app: &mut App) -> bool {
 
     tokio::spawn(async move {
         let mut chat_history = Vec::new();
-        let mut token_usage = crate::core::token_usage::TokenUsage::with_config(&config_clone);
+        let mut token_usage = crate::core::context::token_usage::TokenUsage::with_config(&config_clone);
         let mut interrupt_rx = interrupt_rx;
-        let mut ctx_mgr = crate::core::context_manager::ContextManager::new(&config_clone);
+        let mut ctx_mgr = crate::core::context::context_manager::ContextManager::new(&config_clone);
 
-        let result = crate::core::streaming::stream_response(
+        let result = crate::core::agent::stream_response::stream_response(
             &agent_clone.client,
             &agent_clone.system_prompt,
             &prompt,
@@ -82,7 +82,7 @@ pub fn handle(app: &mut App) -> bool {
 pub fn build_init_prompt(is_update: bool) -> String {
     if is_update {
         let existing_content =
-            std::fs::read_to_string(crate::core::preamble::KNOWLEDGE_FILE).unwrap_or_default();
+            std::fs::read_to_string(crate::core::agent::preamble::KNOWLEDGE_FILE).unwrap_or_default();
         format!(
             r#"You are a technical documentation expert. Your task is to UPDATE the project knowledge document.
 

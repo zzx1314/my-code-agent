@@ -7,17 +7,17 @@ pub fn process_streaming_events(app: &mut App) {
     if let Some(ref mut rx) = app.streaming_events_rx {
         loop {
             match rx.try_recv() {
-                Ok(crate::core::streaming::StreamEvent::Text(delta)) => {
+                Ok(crate::core::agent::stream_response::StreamEvent::Text(delta)) => {
                     if app.current_tool_call.is_some() {
                         app.streaming_text.push_str("\n\n");
                         app.current_tool_call = None;
                     }
                     app.streaming_text.push_str(&delta);
                 }
-                Ok(crate::core::streaming::StreamEvent::ToolCall(name)) => {
+                Ok(crate::core::agent::stream_response::StreamEvent::ToolCall(name)) => {
                     app.current_tool_call = Some(name);
                 }
-                Ok(crate::core::streaming::StreamEvent::ReasoningActive(active)) => {
+                Ok(crate::core::agent::stream_response::StreamEvent::ReasoningActive(active)) => {
                     if !active {
                         if !app.streaming_reasoning.is_empty() {
                             app.last_reasoning = app.streaming_reasoning.clone();
@@ -25,7 +25,7 @@ pub fn process_streaming_events(app: &mut App) {
                         }
                     }
                 }
-                Ok(crate::core::streaming::StreamEvent::ReasoningDelta(delta)) => {
+                Ok(crate::core::agent::stream_response::StreamEvent::ReasoningDelta(delta)) => {
                     // Some API providers send FULL accumulated reasoning_content
                     // in each SSE chunk rather than incremental deltas.
                     if delta.starts_with(&app.streaming_reasoning) {

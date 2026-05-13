@@ -26,7 +26,7 @@ pub fn check_stream_result(app: &mut App) {
 }
 
 /// Process the final result of a streaming response
-fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamResult) {
+fn process_stream_result(app: &mut App, result: crate::core::agent::stream_response::StreamResult) {
     app.is_streaming = false;
     app.streaming_text.clear();
 

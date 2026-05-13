@@ -21,7 +21,7 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
         ));
         // Show per-turn cache hit rate if available
         if let Some(cache_line) =
-            crate::core::context_cache::global_cache().format_turn_cache_line()
+            crate::core::context::context_cache::global_cache().format_turn_cache_line()
         {
             spans.push(Span::styled(
                 format!(" | {}", cache_line),

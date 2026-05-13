@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::core::agent::stream::{reset_streaming_state, spawn_llm_stream};
-use crate::core::context_manager::ContextManager;
+use crate::core::context::context_manager::ContextManager;
 
 /// Handle the /plan command: analyze task and create implementation plan without executing
 pub fn handle(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {

@@ -9,9 +9,9 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use crate::app;
 use crate::app::App;
 use crate::app::PendingConfirmation;
-use crate::core::context_manager::ContextManager;
+use crate::core::context::context_manager::ContextManager;
 use crate::core::session::SessionData;
-use crate::core::token_usage::TokenUsage;
+use crate::core::context::token_usage::TokenUsage;
 
 /// Run the main event loop until the user exits.
 ///
@@ -22,7 +22,7 @@ pub async fn run_app(
     token_usage: TokenUsage,
     last_reasoning: String,
     config: crate::core::config::Config,
-    agent: Arc<crate::core::preamble::Agent>,
+    agent: Arc<crate::core::agent::preamble::Agent>,
     interrupt_tx: tokio::sync::broadcast::Sender<()>,
     confirmation_rx: Option<
         tokio::sync::mpsc::UnboundedReceiver<

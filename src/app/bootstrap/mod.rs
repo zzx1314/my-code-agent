@@ -5,10 +5,10 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::core::config::Config;
-use crate::core::context_manager::ContextManager;
-use crate::core::preamble::{Agent, build_client, build_preamble};
+use crate::core::context::context_manager::ContextManager;
+use crate::core::agent::preamble::{Agent, build_client, build_preamble};
 use crate::core::session::SessionData;
-use crate::core::token_usage::TokenUsage;
+use crate::core::context::token_usage::TokenUsage;
 use crate::tools::confirmation::{ConfirmationHandle, ConfirmationRequest};
 use crate::tools::create_mcp_tools;
 

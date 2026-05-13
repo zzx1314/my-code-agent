@@ -3,7 +3,7 @@ use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::core::tool_dedup::get_global_tool_dedup;
+use crate::core::context::tool_dedup::get_global_tool_dedup;
 use super::undo_history;
 
 #[derive(Deserialize, Serialize)]

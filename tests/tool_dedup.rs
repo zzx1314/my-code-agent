@@ -1,4 +1,4 @@
-use my_code_agent::core::tool_dedup::{DedupAction, ToolCallDedup};
+use my_code_agent::core::context::tool_dedup::{DedupAction, ToolCallDedup};
 use std::fs;
 use tempfile::TempDir;
 

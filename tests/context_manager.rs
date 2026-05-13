@@ -1,5 +1,5 @@
 use my_code_agent::core::config::Config;
-use my_code_agent::core::context_manager::ContextManager;
+use my_code_agent::core::context::context_manager::ContextManager;
 use my_code_agent::core::types::Message;
 
 fn make_user_message(content: &str) -> Message {

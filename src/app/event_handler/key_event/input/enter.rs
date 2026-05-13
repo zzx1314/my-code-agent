@@ -3,7 +3,7 @@ use super::shell::handle_shell_command;
 use crate::app::App;
 use crate::app::commands::handle_command;
 use crate::core::agent::stream::send_message_to_llm;
-use crate::core::context_manager::ContextManager;
+use crate::core::context::context_manager::ContextManager;
 
 /// Handle Enter key press (send message)
 pub fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {

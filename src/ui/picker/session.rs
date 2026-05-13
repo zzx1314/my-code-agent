@@ -51,7 +51,7 @@ pub fn handle_session_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
 
                         // Reset tool dedup cache — stale reads from previous session are invalid
                         {
-                            let dedup = crate::core::tool_dedup::get_global_tool_dedup();
+                            let dedup = crate::core::context::tool_dedup::get_global_tool_dedup();
                             let mut guard = dedup.lock().unwrap();
                             guard.reset();
                         }

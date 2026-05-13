@@ -16,6 +16,7 @@ pub mod list_dir;
 pub mod safety;
 pub mod shell_exec;
 pub mod undo_history;
+pub mod web_search;
 
 pub use code_review::CodeReview;
 pub use code_search::CodeSearch;
@@ -132,13 +133,13 @@ pub async fn create_mcp_tools(config: &Config) -> Vec<Box<dyn Tool>> {
         .cloned()
         .unwrap_or_else(|| std::env::var("PARALLEL_API_KEY").unwrap_or_default());
 
-    let search_tool = crate::mcp::web_search_tool::ParallelWebSearch::new(&key);
+    let search_tool = crate::tools::web_search::ParallelWebSearch::new(&key);
     if search_tool.is_available() {
         tracing::info!("web_search tool added");
         mcp_tools.push(Box::new(search_tool));
     }
 
-    let fetch_tool = crate::mcp::web_search_tool::ParallelWebFetch::new(&key);
+    let fetch_tool = crate::tools::web_search::ParallelWebFetch::new(&key);
     if fetch_tool.is_available() {
         tracing::info!("web_fetch tool added");
         mcp_tools.push(Box::new(fetch_tool));

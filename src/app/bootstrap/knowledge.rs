@@ -6,7 +6,7 @@
 //! - Writing knowledge files and rebuilding the agent
 
 use crate::app::InitResult;
-use crate::core::preamble::Agent;
+use crate::core::agent::preamble::Agent;
 use crate::tools::create_mcp_tools;
 
 // ── Response cleaning ────────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ pub fn build_init_result(
 
 /// Rebuild the agent (used for /init)
 fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> {
-    use crate::core::preamble::{build_client, build_preamble};
+    use crate::core::agent::preamble::{build_client, build_preamble};
     use crate::core::tool::ToolRegistry;
     let client = build_client(config);
     let system_prompt = build_preamble();

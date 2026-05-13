@@ -1,4 +1,4 @@
-use my_code_agent::core::file_cache::FileCache;
+use my_code_agent::core::context::file_cache::FileCache;
 use std::io::Write;
 use tempfile::NamedTempFile;
 

@@ -1,16 +1,20 @@
 mod completion;
 mod input;
+mod mouse;
+mod paste;
 
 use ratatui::crossterm::event::{self, KeyCode, KeyModifiers};
 
 use crate::app::App;
-use crate::core::context_manager::ContextManager;
+use crate::core::context::context_manager::ContextManager;
 use completion::{
     apply_completion, get_cursor_position, hide_completion, trigger_completion,
     update_completion_query,
 };
 use input::handle_enter_key;
 use input::{history_down, history_up};
+pub use mouse::handle_mouse_event;
+pub use paste::handle_paste_event;
 use crate::ui::picker::{handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key};
 
 /// Handle key events

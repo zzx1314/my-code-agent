@@ -1,5 +1,5 @@
 use my_code_agent::core::config::Config;
-use my_code_agent::mcp::web_search_tool::{ParallelWebFetch, ParallelWebSearch};
+use my_code_agent::tools::web_search::{ParallelWebFetch, ParallelWebSearch};
 
 #[tokio::test]
 async fn test_parallel_web_search_no_api_key() {

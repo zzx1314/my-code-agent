@@ -1,5 +1,5 @@
 use crate::app::App;
-use crate::core::context_manager::ContextManager;
+use crate::core::context::context_manager::ContextManager;
 
 use super::spawn::send_message_to_llm;
 

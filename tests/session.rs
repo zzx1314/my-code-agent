@@ -1,5 +1,5 @@
 use my_code_agent::core::session::{SessionData, format_timestamp};
-use my_code_agent::core::token_usage::TokenUsage;
+use my_code_agent::core::context::token_usage::TokenUsage;
 use my_code_agent::core::types::Message;
 
 // ── Helpers ──

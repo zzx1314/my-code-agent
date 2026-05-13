@@ -14,7 +14,7 @@ mod tokens;
 mod undo;
 
 use crate::app::App;
-use crate::core::context_manager::ContextManager;
+use crate::core::context::context_manager::ContextManager;
 
 /// Handle commands (input starting with /)
 /// Returns true if the command was handled, false if it should be sent to the LLM
