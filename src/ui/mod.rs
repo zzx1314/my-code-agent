@@ -6,6 +6,7 @@ mod chat;
 mod input;
 mod overlays;
 mod status;
+pub mod picker;
 
 use ratatui::prelude::*;
 

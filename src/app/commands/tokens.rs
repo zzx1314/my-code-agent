@@ -1,6 +1,6 @@
 use crate::app::App;
 
-pub(super) fn handle(app: &mut App) -> bool {
+pub fn handle(app: &mut App) -> bool {
     app.chat_history.push(crate::app::ChatEntry::user("/tokens".to_string()));
     let mut report = app.token_usage.format_session_report();
     // Append session-wide cache metrics

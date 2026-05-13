@@ -32,7 +32,7 @@ pub async fn run_app(
     mut context_manager: ContextManager,
 ) -> Result<()> {
     // Enter alternate screen
-    let mut terminal = app::event_handler::enter_terminal()?;
+    let mut terminal = app::terminal::enter_terminal()?;
 
     // Build the App
     let mut app = App::new(
@@ -53,13 +53,13 @@ pub async fn run_app(
             app.marquee_frame = 0;
         }
 
-        app::event_handler::process_streaming_events(&mut app);
-        app::event_handler::check_stream_result(&mut app);
-        app::event_handler::check_init_result(&mut app);
+        crate::core::agent::stream::process_streaming_events(&mut app);
+        crate::core::agent::stream::check_stream_result(&mut app);
+        crate::core::agent::stream::check_init_result(&mut app);
 
         terminal.draw(|f| crate::ui::ui(f, &mut app))?;
 
-        app::event_handler::process_message_queue(&mut app, &mut context_manager);
+        crate::core::agent::stream::process_message_queue(&mut app, &mut context_manager);
 
         // Check for confirmation requests from tools
         if app.pending_confirmation.is_none() {
@@ -106,7 +106,7 @@ fn shutdown(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
 ) -> Result<()> {
     // Leave alternate screen
-    app::event_handler::leave_terminal(terminal)?;
+    app::terminal::leave_terminal(terminal)?;
 
     // Clean up undo history for current session if configured
     if app.config.session.cleanup_undo_history {

@@ -1,10 +1,9 @@
 use crate::app::App;
+use crate::core::agent::stream::{reset_streaming_state, spawn_llm_stream};
 use crate::core::context_manager::ContextManager;
 
-use super::super::stream::{reset_streaming_state, spawn_llm_stream};
-
 /// Handle the /plan command: analyze task and create implementation plan without executing
-pub(super) fn handle(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {
+pub fn handle(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {
     let task = input.trim().strip_prefix("/plan").unwrap_or("").trim();
     app.chat_history.push(crate::app::ChatEntry::user(input.to_string()));
     app.show_banner = false;

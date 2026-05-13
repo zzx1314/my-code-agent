@@ -1,6 +1,6 @@
 use crate::app::App;
 
-pub(super) fn handle(app: &mut App) -> bool {
+pub fn handle(app: &mut App) -> bool {
     app.shell_mode = !app.shell_mode;
     app.chat_history.push(crate::app::ChatEntry::user("/shell".to_string()));
     if app.shell_mode {

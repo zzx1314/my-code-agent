@@ -1,6 +1,6 @@
 use crate::app::App;
 
-pub(super) fn handle(app: &mut App) -> bool {
+pub fn handle(app: &mut App) -> bool {
     let knowledge_file = crate::core::preamble::KNOWLEDGE_FILE.to_string();
     let is_update = std::path::Path::new(&knowledge_file).exists();
     let prompt = build_init_prompt(is_update);
@@ -133,4 +133,3 @@ The document should include these sections:
 - The response should be valid Markdown that can be directly saved as a file"#.to_string()
     }
 }
-

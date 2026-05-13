@@ -1,6 +1,5 @@
 mod completion;
 mod input;
-mod picker;
 
 use ratatui::crossterm::event::{self, KeyCode, KeyModifiers};
 
@@ -12,7 +11,7 @@ use completion::{
 };
 use input::handle_enter_key;
 use input::{history_down, history_up};
-use picker::{handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key};
+use crate::ui::picker::{handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key};
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {

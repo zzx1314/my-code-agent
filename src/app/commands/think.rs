@@ -1,6 +1,6 @@
 use crate::app::App;
 
-pub(super) fn handle(app: &mut App) -> bool {
+pub fn handle(app: &mut App) -> bool {
     app.chat_history.push(crate::app::ChatEntry::user("/think".to_string()));
 
     if !app.last_reasoning.is_empty() {

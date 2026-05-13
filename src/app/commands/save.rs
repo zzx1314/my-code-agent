@@ -1,6 +1,6 @@
 use crate::app::App;
 
-pub(super) fn handle(app: &mut App) -> bool {
+pub fn handle(app: &mut App) -> bool {
     use crate::core::session::{SessionData, format_saved_confirmation, generate_session_name};
     use crate::core::types::Message;
 

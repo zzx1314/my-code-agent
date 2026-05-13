@@ -18,7 +18,7 @@ use crate::core::context_manager::ContextManager;
 
 /// Handle commands (input starting with /)
 /// Returns true if the command was handled, false if it should be sent to the LLM
-pub(super) fn handle_command(
+pub fn handle_command(
     app: &mut App,
     input: &str,
     context_manager: &mut ContextManager,

@@ -9,6 +9,8 @@ use tui_textarea::TextArea;
 
 // App initialization & project knowledge (/init command)
 pub mod bootstrap;
+pub mod commands;
+pub mod terminal;
 
 /// Represents a pending confirmation request from a tool.
 pub struct PendingConfirmation {

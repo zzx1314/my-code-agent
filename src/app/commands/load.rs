@@ -1,6 +1,6 @@
 use crate::app::App;
 
-pub(super) fn handle(app: &mut App) -> bool {
+pub fn handle(app: &mut App) -> bool {
     // Get the list of available sessions (latest 5)
     let sessions: Vec<_> = crate::core::session::SessionData::list_sessions()
         .into_iter()

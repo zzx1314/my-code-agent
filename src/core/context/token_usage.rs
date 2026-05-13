@@ -189,6 +189,11 @@ impl TokenUsage {
     pub fn usage(&self) -> &Usage {
         &self.usage
     }
+
+    pub fn reset(&mut self) {
+        self.usage = Usage::default();
+        self.last_turn_input_tokens = 0;
+    }
 }
 
 impl Default for TokenUsage {

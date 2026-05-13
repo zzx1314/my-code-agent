@@ -1,6 +1,6 @@
 use crate::app::App;
 
-pub(super) fn handle(app: &mut App) -> bool {
+pub fn handle(app: &mut App) -> bool {
     // Open provider picker
     app.show_provider_picker = true;
     // Find the position of the current provider in the options

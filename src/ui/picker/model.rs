@@ -33,7 +33,7 @@ pub fn handle_model_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                 app.chat_history.push(crate::app::ChatEntry::user(format!("/model {}", selected_model)));
 
                 if let Ok(new_agent) =
-                    crate::app::event_handler::stream::rebuild_agent(&app.config)
+                    crate::core::agent::stream::rebuild_agent(&app.config)
                 {
                     app.agent = Arc::new(new_agent);
                     app.chat_history.push(crate::app::ChatEntry::assistant(format!("Model switched to: {}", selected_model),));

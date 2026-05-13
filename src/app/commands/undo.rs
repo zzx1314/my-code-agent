@@ -1,6 +1,6 @@
 use crate::app::App;
 
-pub(super) fn handle(app: &mut App) -> bool {
+pub fn handle(app: &mut App) -> bool {
     use crate::tools::file_undo;
     use crate::tools::undo_history::{current_session_history_len, pop_current_session_entries};
 

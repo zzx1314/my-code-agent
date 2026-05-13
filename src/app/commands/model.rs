@@ -1,6 +1,6 @@
 use crate::app::App;
 
-pub(super) fn handle(app: &mut App) -> bool {
+pub fn handle(app: &mut App) -> bool {
     // Open model picker, ensuring the model list corresponds to the current provider
     if app.config.llm.provider == "custom" {
         // Custom provider: use model from config file
