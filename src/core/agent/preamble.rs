@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use crate::core::client::LlmClient;
+use crate::core::agent::client::LlmClient;
 use crate::core::config::Config;
 use crate::core::tool::ToolRegistry;
 

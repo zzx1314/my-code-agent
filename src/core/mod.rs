@@ -14,16 +14,12 @@ pub mod parser;
 // Session persistence
 pub mod session;
 
-// App initialization
-pub mod init;
+// App initialization & project knowledge (/init command)
+pub mod bootstrap;
 
-// Knowledge file generation (/init command)
-pub mod knowledge;
-
-// Core types, tool trait, and HTTP client (replaces rig-core)
+// Core types, tool trait
 pub mod types;
 pub mod tool;
-pub mod client;
 
 // agent submodules re-exported at top level
 pub use agent::connection;

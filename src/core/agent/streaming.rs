@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 
-use crate::core::client::LlmClient;
+use crate::core::agent::client::LlmClient;
 use crate::core::config::AgentConfig;
 use crate::core::context_manager::ContextManager;
 use crate::core::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
@@ -36,7 +36,7 @@ struct AccumToolCall {
 }
 
 async fn process_sse_stream(
-    chat_stream: &mut crate::core::client::ChatStream,
+    chat_stream: &mut crate::core::agent::client::ChatStream,
     reasoning: &mut ReasoningTracker,
     send_event: &impl Fn(StreamEvent),
     display_mode: &str,
