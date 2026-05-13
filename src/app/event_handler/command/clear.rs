@@ -6,6 +6,15 @@ pub(super) fn handle(app: &mut App) -> bool {
     app.show_banner = true;
     app.auto_scroll = true;
     app.scroll = 0;
+    app.last_reasoning.clear();
+    app.streaming_reasoning.clear();
+    app.streaming_text.clear();
+    app.current_response.clear();
+    app.show_inline_reasoning = false;
+    app.current_tool_call = None;
+    app.status_messages.clear();
+    app.turn_usage_line = None;
+    app.streaming_events_rx = None;
     // Delete session file
     if app.config.session.enabled {
         if let Some(save_file) = &app.config.session.save_file {
