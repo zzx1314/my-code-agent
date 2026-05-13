@@ -129,7 +129,8 @@ pub struct Message {
     pub content: String,
     /// DeepSeek reasoning content — must be echoed back to the API in
     /// subsequent requests when using reasoning models.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Also accepts `reasoning` (OpenRouter / vLLM) as an alias during deserialization.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "reasoning")]
     pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
@@ -252,6 +253,10 @@ pub struct StreamDelta {
     /// DeepSeek reasoning content (non-standard OpenAI extension)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
+    /// Alternate `reasoning` field used by OpenRouter / vLLM / newer providers
+    /// instead of `reasoning_content`. Both are checked during SSE parsing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<StreamToolCallDelta>>,
 }

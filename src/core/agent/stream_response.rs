@@ -78,6 +78,13 @@ async fn process_sse_stream(
                     send_event(StreamEvent::ReasoningActive(true));
                     send_event(StreamEvent::ReasoningDelta(rt.clone()));
                 }
+            } else if let Some(ref rt) = delta.reasoning {
+                if !rt.is_empty() && display_mode != "hidden" {
+                    reasoning_active = true;
+                    reasoning.append(rt);
+                    send_event(StreamEvent::ReasoningActive(true));
+                    send_event(StreamEvent::ReasoningDelta(rt.clone()));
+                }
             }
 
             if let Some(ref text) = delta.content {

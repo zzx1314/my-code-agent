@@ -52,6 +52,9 @@ impl LlmClient {
         let auth_value = HeaderValue::from_str(&format!("Bearer {}", self.api_key))
             .context("Invalid API key format")?;
         headers.insert(AUTHORIZATION, auth_value);
+        // Optional headers for OpenRouter — other providers silently ignore them.
+        headers.insert("HTTP-Referer", HeaderValue::from_static("https://github.com/my-code-agent"));
+        headers.insert("X-OpenRouter-Title", HeaderValue::from_static("My Code Agent"));
         Ok(headers)
     }
 
