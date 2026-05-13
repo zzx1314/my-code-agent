@@ -48,7 +48,6 @@ async fn process_sse_stream(
     let mut response_text = String::new();
     let mut acc_tool_calls: Vec<AccumToolCall> = Vec::new();
     let mut usage: Option<crate::core::types::Usage> = None;
-    let mut after_tool_call = false;
     let mut reasoning_active = false;
 
     loop {
@@ -88,14 +87,8 @@ async fn process_sse_stream(
                         reasoning.end_segment();
                         send_event(StreamEvent::ReasoningActive(false));
                     }
-                    let out = if after_tool_call {
-                        after_tool_call = false;
-                        format!("\n{}", text)
-                    } else {
-                        text.clone()
-                    };
-                    send_event(StreamEvent::Text(out.clone()));
-                    response_text.push_str(&out);
+                    send_event(StreamEvent::Text(text.clone()));
+                    response_text.push_str(text);
                     *running_approx += ContextManager::estimate_text_tokens(text);
                 }
             }
@@ -123,7 +116,6 @@ async fn process_sse_stream(
                         send_event(StreamEvent::ToolCall(acc.name.clone().unwrap_or_else(|| "tool".to_string())));
                     }
                 }
-                after_tool_call = true;
                 if context_manager.should_compact(*running_approx) && !context_manager.is_prune_triggered() {
                     context_manager.set_prune_triggered(true);
                     status_messages.push("📝 Context window nearly full — will compact after this turn".to_string());

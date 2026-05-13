@@ -116,9 +116,9 @@ pub fn process_streaming_events(app: &mut App) {
                 Ok(StreamEvent::Text(delta)) => {
                     if app.current_tool_call.is_some() {
                         app.streaming_text.push_str("\n\n");
+                        app.current_tool_call = None;
                     }
                     app.streaming_text.push_str(&delta);
-                    app.current_tool_call = None;
                 }
                 Ok(StreamEvent::ToolCall(name)) => {
                     app.current_tool_call = Some(name);
