@@ -49,7 +49,7 @@ fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamRe
             .into_iter()
             .filter(|m| {
                 m.role != "system"
-                    && (!m.content.is_empty() || m.tool_calls.is_some() || m.tool_call_id.is_some())
+                    && (!m.content.is_empty() || m.reasoning_content.is_some() || m.tool_calls.is_some() || m.tool_call_id.is_some())
             })
             .map(crate::app::ChatEntry::from_message)
             .collect();
@@ -69,7 +69,14 @@ fn process_stream_result(app: &mut App, result: crate::core::streaming::StreamRe
         if !display_text.is_empty() {
             app.chat_history.push(crate::app::ChatEntry::assistant(display_text));
         } else if !app.last_reasoning.is_empty() {
-            app.chat_history.push(crate::app::ChatEntry::assistant("_(thinking)_".to_string()));
+            app.chat_history.push(crate::app::ChatEntry::assistant_with_reasoning(
+                "",
+                &app.last_reasoning,
+            ));
+        } else {
+            app.chat_history.push(crate::app::ChatEntry::assistant(
+                "_(no response)_",
+            ));
         }
     }
     app.show_inline_reasoning = !app.last_reasoning.is_empty();

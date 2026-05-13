@@ -289,6 +289,7 @@ pub async fn stream_response(
             } => {
                 if reasoning.is_reasoning() && display_mode != "hidden" {
                     reasoning.end_segment();
+                    send_event(StreamEvent::ReasoningActive(false));
                 }
 
                 if let Some(usage) = usage {
