@@ -162,6 +162,12 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, role: &str, content: &st
             lines.extend(md);
             lines.push(Line::default());
         }
+        "tool" => {
+            // Tool messages contain raw JSON output from tool execution.
+            // They are kept in chat_history for LLM context in subsequent turns,
+            // but not displayed to avoid cluttering the UI with raw data.
+            // The LLM's follow-up response will summarize the tool result.
+        }
         _ => {
             lines.push(Line::from(format!("{}: {}", role, content)));
             lines.push(Line::default());
