@@ -47,6 +47,7 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
     let (event_tx, event_rx) = mpsc::unbounded_channel::<StreamEvent>();
 
     let mut ctx_mgr = context_manager.clone();
+    let prompt_owned = prompt.to_string();
 
     app.response_rx = Some(response_rx);
     app.streaming_events_rx = Some(event_rx);
@@ -76,6 +77,15 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
             Some(event_tx),
         )
         .await;
+
+        // Restore original @filename in updated_history — stream_response
+        // overwrote the last user message with expanded file content for the
+        // LLM, but chat_history syncs this back to the display, which should
+        // show the user's original @reference, not raw file text.
+        let mut result = result;
+        if let Some(last_user) = result.updated_history.iter_mut().rfind(|m| m.role == "user") {
+            last_user.content = prompt_owned;
+        }
 
         response_tx.send(result).await.ok();
     });
