@@ -309,8 +309,93 @@ pub fn render_queue_display(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-/// Render the input textarea into the given area.
+/// Type alias for (r, g, b) tuples used in cursor color math.
+type RgbTuple = (u8, u8, u8);
+
+/// Duration of one full breathing pulse in milliseconds (~2 seconds).
+/// The cursor smoothly oscillates between vibrant and faded/pastel using a
+/// continuous sine wave — no hard on/off transitions.
+const CURSOR_PULSE_MS: u128 = 2000;
+
+/// Vibrant block cursor palette, stored as raw RGB tuples for math.
+const CURSOR_PALETTE: [RgbTuple; 6] = [
+    (255, 120, 0),    // warm orange
+    (255, 60, 60),    // coral red
+    (255, 180, 0),    // gold
+    (0, 200, 255),    // cyan
+    (0, 255, 120),    // spring green
+    (200, 100, 255),  // purple
+];
+
+/// Compute the "light" (faded) version of a color — each channel lifted to ≥ 200.
+/// This gives a pastel/airy look with no dark or black tones.
+fn light_version(c: RgbTuple) -> RgbTuple {
+    (c.0.max(200), c.1.max(200), c.2.max(200))
+}
+
+/// Linear interpolation between two RGB tuples.
+fn lerp_rgb(a: RgbTuple, b: RgbTuple, t: f64) -> RgbTuple {
+    let t = t.clamp(0.0, 1.0);
+    (
+        (a.0 as f64 * (1.0 - t) + b.0 as f64 * t).round() as u8,
+        (a.1 as f64 * (1.0 - t) + b.1 as f64 * t).round() as u8,
+        (a.2 as f64 * (1.0 - t) + b.2 as f64 * t).round() as u8,
+    )
+}
+
+/// Build a cursor style with white bold text on the given background.
+fn build_cursor_style(bg: RgbTuple) -> Style {
+    Style::new()
+        .fg(Color::White)
+        .bg(Color::Rgb(bg.0, bg.1, bg.2))
+        .add_modifier(Modifier::BOLD)
+}
+
+/// Build a cursor `Style` for a given elapsed time, using a continuous
+/// sinusoidal breathing pulse.
+///
+/// The cursor oscillates smoothly between vibrant (breath peak) and a
+/// pastel/airy version (breath trough) using a sine wave — no hidden phase,
+/// no hard transitions. The colour advances to the next palette entry every
+/// `CURSOR_PULSE_MS` milliseconds.
+///
+/// Uses wall-clock elapsed milliseconds so the animation speed is consistent
+/// regardless of frame-rate fluctuations.
+fn cursor_breath(elapsed_ms: u128) -> Style {
+    let cycle_num = elapsed_ms / CURSOR_PULSE_MS;
+    let pos = elapsed_ms % CURSOR_PULSE_MS;
+    let phase = pos as f64 / CURSOR_PULSE_MS as f64;
+
+    let color_index = (cycle_num as usize) % CURSOR_PALETTE.len();
+    let bright = CURSOR_PALETTE[color_index];
+    let faded = light_version(bright);
+
+    // Sine wave oscillation: breath_t ∈ [0, 1]
+    //   0 → faded/pastel (trough), 1 → vibrant (peak)
+    let breath_t = ((2.0 * std::f64::consts::PI * phase).sin() + 1.0) / 2.0;
+
+    let bg = lerp_rgb(faded, bright, breath_t);
+    build_cursor_style(bg)
+}
+
+/// Render the input textarea into the given area, with a smooth breathing
+/// cursor that pulses between vibrant and pastel using a continuous sine wave.
 pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     update_input_style(app);
+
+    if !app.is_streaming && !app.shell_mode {
+        let elapsed_ms = app.cursor_anim_start.elapsed().as_millis();
+        let style = cursor_breath(elapsed_ms);
+        app.input.set_cursor_style(style);
+    } else {
+        // Static visible style during streaming/shell
+        app.input.set_cursor_style(
+            Style::new()
+                .fg(Color::White)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+
     f.render_widget(&app.input, area);
 }

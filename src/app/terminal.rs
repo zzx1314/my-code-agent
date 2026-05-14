@@ -2,6 +2,7 @@ use ratatui::{
     Terminal,
     backend::CrosstermBackend,
     crossterm::{
+        cursor::Show,
         execute,
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
@@ -38,10 +39,12 @@ pub fn leave_terminal(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
 ) -> anyhow::Result<()> {
     // Disable mouse tracking and bracketed paste
+    // Ensure the terminal cursor is visible before leaving alternate screen
     let _ = write!(std::io::stdout(), "\x1b[?1000l\x1b[?1006l");
     let _ = write!(std::io::stdout(), "\x1b[?2004l");
     let _ = std::io::stdout().flush();
     disable_raw_mode()?;
+    execute!(terminal.backend_mut(), Show)?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
 }

@@ -4,6 +4,7 @@ use crate::core::agent::stream_response::{StreamEvent, StreamResult};
 use crate::core::context::token_usage::TokenUsage;
 use crate::tools::exec::confirmation::ConfirmationRequest;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
@@ -183,6 +184,8 @@ pub struct App {
     /// Set to true when an LLM response with reasoning completes, false when a local
     /// command pushes a non-LLM assistant message.
     pub show_inline_reasoning: bool,
+    /// Cursor animation start time — drives smooth breathing via wall-clock elapsed.
+    pub cursor_anim_start: Instant,
     // === Input history ===
     /// History of previously sent input texts (newest last)
     pub input_history: Vec<String>,
@@ -292,6 +295,7 @@ impl App {
             input_history: Vec::new(),
             history_index: None,
             history_draft: String::new(),
+            cursor_anim_start: Instant::now(),
             collapsed_sections: std::collections::HashSet::new(),
             collapsed_toggles: Vec::new(),
         }
