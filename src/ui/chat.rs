@@ -480,7 +480,7 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
             // Use a special high index for streaming section IDs — only one
             // streaming tool result exists at a time, so section IDs won't clash.
             if try_render_file_tool_result(lines, content, usize::MAX, app).is_none()
-                && try_render_shell_exec_result(lines, content, usize::MAX, app).is_none()
+                && try_render_shell_exec_result(lines, content, usize::MAX, app, app.config.agent.show_tool_details).is_none()
                 && try_render_file_outline(lines, content, usize::MAX, app).is_none()
             {
                 if app.config.agent.show_tool_calls && app.config.agent.show_tool_details {
@@ -627,6 +627,7 @@ fn try_render_shell_exec_result(
     content: &str,
     entry_idx: usize,
     app: &mut App,
+    show_tool_details: bool,
 ) -> Option<()> {
     let value: serde_json::Value = serde_json::from_str(content).ok()?;
     let cmd = value.get("command")?.as_str()?;
@@ -662,33 +663,46 @@ fn try_render_shell_exec_result(
         }
     }
 
-    if let Some(stdout) = value.get("stdout").and_then(|s| s.as_str()) {
-        if !stdout.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  ─── stdout ───",
-                Style::default().fg(Color::DarkGray),
-            )));
-            let stdout_lines: Vec<Line> = stdout
-                .lines()
-                .map(|l| Line::from(format!("  {}", l)))
-                .collect();
-            let section_id = format!("so_{}", entry_idx);
-            render_collapsible_block(lines, app, &section_id, stdout_lines);
+    // Only show stdout/stderr when show_tool_details is enabled
+    if show_tool_details {
+        if let Some(stdout) = value.get("stdout").and_then(|s| s.as_str()) {
+            if !stdout.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "  ─── stdout ───",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                let stdout_lines: Vec<Line> = stdout
+                    .lines()
+                    .map(|l| Line::from(format!("  {}", l)))
+                    .collect();
+                let section_id = format!("so_{}", entry_idx);
+                render_collapsible_block(lines, app, &section_id, stdout_lines);
+            }
         }
-    }
 
-    if let Some(stderr) = value.get("stderr").and_then(|s| s.as_str()) {
-        if !stderr.is_empty() {
+        if let Some(stderr) = value.get("stderr").and_then(|s| s.as_str()) {
+            if !stderr.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "  ─── stderr ───",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
+                )));
+                let stderr_lines: Vec<Line> = stderr
+                    .lines()
+                    .map(|l| Line::from(format!("  {}", l)))
+                    .collect();
+                let section_id = format!("se_{}", entry_idx);
+                render_collapsible_block(lines, app, &section_id, stderr_lines);
+            }
+        }
+    } else {
+        // When details are hidden, show a brief note about output
+        let has_stdout = value.get("stdout").and_then(|s| s.as_str()).map_or(false, |s| !s.is_empty());
+        let has_stderr = value.get("stderr").and_then(|s| s.as_str()).map_or(false, |s| !s.is_empty());
+        if has_stdout || has_stderr {
             lines.push(Line::from(Span::styled(
-                "  ─── stderr ───",
-                Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
+                "  (output hidden — enable show_tool_details to view)",
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
             )));
-            let stderr_lines: Vec<Line> = stderr
-                .lines()
-                .map(|l| Line::from(format!("  {}", l)))
-                .collect();
-            let section_id = format!("se_{}", entry_idx);
-            render_collapsible_block(lines, app, &section_id, stderr_lines);
         }
     }
 
