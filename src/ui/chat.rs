@@ -487,6 +487,12 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
             "⏳ Generating response...",
             Style::default().fg(Color::Yellow),
         )));
+    } else {
+        // Reasoning is active but no text/tool call yet — avoid blank content area
+        lines.push(Line::from(Span::styled(
+            "💭 Thinking...",
+            Style::default().fg(Color::Yellow),
+        )));
     }
 }
 
