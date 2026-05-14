@@ -36,6 +36,9 @@ pub struct FileDeleteOutput {
     /// Diff showing what was removed (only for snippet mode)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diff: Option<String>,
+    /// Git diff showing what changed (None if file is untracked or not in a git repo)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_diff: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -174,11 +177,14 @@ impl Tool for FileDelete {
 
             let diff = super::build_diff(&snippet, "", &content);
 
+            let git_diff = super::run_git_diff(&args.path).await;
+
             return serde_json::to_string(&FileDeleteOutput {
                 path: args.path,
                 deleted_type: "snippet".to_string(),
                 deletions: Some(count),
                 diff: Some(diff),
+                git_diff,
             })
             .map_err(|e| e.to_string());
         }
@@ -206,20 +212,23 @@ impl Tool for FileDelete {
             }
         }
 
-        let deleted_type = if path.is_dir() {
+        let (deleted_type, git_diff) = if path.is_dir() {
             if args.recursive {
+                let git_diff = super::run_git_diff(&args.path).await;
                 std::fs::remove_dir_all(path).map_err(|e| e.to_string())?;
-                "directory".to_string()
+                ("directory".to_string(), git_diff)
             } else {
                 std::fs::remove_dir(path).map_err(|e| e.to_string())?;
-                "directory".to_string()
+                ("directory".to_string(), None)
             }
         } else if path.is_file() {
+            // Run git diff before deletion
+            let git_diff = super::run_git_diff(&args.path).await;
             // Record file content for undo before deletion
             let old_content = std::fs::read_to_string(path).ok();
             let _ = undo_history::record_change(&args.path, old_content, None, "file_delete");
             std::fs::remove_file(path).map_err(|e| e.to_string())?;
-            "file".to_string()
+            ("file".to_string(), git_diff)
         } else {
             return Err(format!("Path is not a file or directory: {}", args.path));
         };
@@ -236,6 +245,7 @@ impl Tool for FileDelete {
             deleted_type,
             deletions: None,
             diff: None,
+            git_diff,
         })
         .map_err(|e| e.to_string())
     }

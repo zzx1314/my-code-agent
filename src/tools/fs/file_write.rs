@@ -18,6 +18,9 @@ pub struct FileWriteArgs {
 pub struct FileWriteOutput {
     pub path: String,
     pub bytes_written: usize,
+    /// Git diff showing what changed (None if file is untracked or not in a git repo)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_diff: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -85,9 +88,13 @@ impl Tool for FileWrite {
             guard.invalidate_path(&args.path);
         }
 
+        // Run git diff to show what changed
+        let git_diff = super::run_git_diff(&args.path).await;
+
         serde_json::to_string(&FileWriteOutput {
             path: args.path,
             bytes_written,
+            git_diff,
         })
         .map_err(|e| e.to_string())
     }

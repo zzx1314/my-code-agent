@@ -20,6 +20,9 @@ pub struct FileUpdateOutput {
     pub path: String,
     pub replacements: usize,
     pub diff: String,
+    /// Git diff showing what changed (None if file is untracked or not in a git repo)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_diff: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -117,10 +120,14 @@ impl Tool for FileUpdate {
         // Build a minimal diff showing the change
         let diff = build_diff(&args.old, &args.new, &content);
 
+        // Run git diff to show what changed
+        let git_diff = super::run_git_diff(&args.path).await;
+
         serde_json::to_string(&FileUpdateOutput {
             path: args.path,
             replacements: count,
             diff,
+            git_diff,
         })
         .map_err(|e| e.to_string())
     }
