@@ -154,17 +154,16 @@ impl Tool for FileRead {
             }
         };
 
-        let parsed = ParsedFile::parse_with_path(content.clone(), &args.path);
-
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
-
+        let total_lines = content.lines().count();
         let start = offset.min(total_lines);
         let end = (start + limit).min(total_lines);
         let truncated = end < total_lines;
 
+        // Only parse with tree-sitter when actually truncated and smart_read is needed.
+        // This avoids the cost of building a full AST for the common case (small files
+        // or targeted reads within the requested range).
         let (adjusted_end, structure_note) = if truncated {
-            if let Some(ref parsed) = parsed {
+            if let Some(parsed) = ParsedFile::parse_with_path(content.clone(), &args.path) {
                 let result = parsed.smart_read(start, limit, total_lines);
                 let note = result.extended_structure.map(|s| {
                     format!(
@@ -181,27 +180,23 @@ impl Tool for FileRead {
             (end, None)
         };
 
-        let mut output = if adjusted_end > start {
-            format!(
-                "[{}: lines {}-{} of {}]",
+        // Build output using iterator — avoids allocating Vec<String> for all lines
+        let mut output = String::new();
+        if adjusted_end > start {
+            output.push_str(&format!(
+                "[{}: lines {}-{} of {}]\n",
                 args.path,
                 start + 1,
                 adjusted_end,
                 total_lines
-            )
-        } else {
-            String::new()
-        };
-        if adjusted_end > start {
-            output.push('\n');
+            ));
+            for (i, line) in content.lines().skip(start).take(adjusted_end - start).enumerate() {
+                if i > 0 {
+                    output.push('\n');
+                }
+                output.push_str(&format!("{:>6} | {}", start + i + 1, line));
+            }
         }
-        let selected_lines: Vec<String> = lines[start..adjusted_end]
-            .iter()
-            .enumerate()
-            .map(|(i, line)| format!("{:>6} | {}", start + i + 1, line))
-            .collect();
-
-        output.push_str(&selected_lines.join("\n"));
         if let Some(note) = structure_note {
             output.push_str(&format!("\n{}", note));
         }
