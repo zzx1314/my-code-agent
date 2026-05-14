@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use tokio::sync::mpsc;
 
 use crate::core::agent::client::LlmClient;
@@ -7,6 +8,109 @@ use crate::core::context::token_usage::{TokenUsage, format_context_warning, form
 use crate::core::tool::ToolRegistry;
 use crate::core::types::{Message, ToolCall};
 use crate::ui::render::ReasoningTracker;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tool call history — detects repeated identical calls to break loops
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Tracks recent tool calls to detect when the model repeats itself.
+struct ToolCallHistory {
+    /// Recent (name, normalized_args) pairs. Most recent at the back.
+    calls: VecDeque<(String, String)>,
+    /// Max entries to keep.
+    max_len: usize,
+}
+
+impl ToolCallHistory {
+    fn new() -> Self {
+        Self {
+            calls: VecDeque::with_capacity(4),
+            max_len: 4,
+        }
+    }
+
+    /// Record a tool call.
+    fn record(&mut self, name: &str, args: &str) {
+        let normalized = Self::normalize(args);
+        self.calls.push_back((name.to_string(), normalized));
+        while self.calls.len() > self.max_len {
+            self.calls.pop_front();
+        }
+    }
+
+    /// Check if this call is identical to the previous one.
+    fn is_repeat_of_last(&self, name: &str, args: &str) -> bool {
+        let normalized = Self::normalize(args);
+        self.calls.back().map_or(false, |(n, a)| n == name && a == &normalized)
+    }
+
+    /// Normalize arguments: sort keys so semantically identical JSON matches.
+    fn normalize(args: &str) -> String {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            // Sort object keys for deterministic comparison
+            if let serde_json::Value::Object(map) = v {
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                let sorted: Vec<String> = keys
+                    .iter()
+                    .map(|k| {
+                        let val = &map[*k];
+                        format!("\"{}\":{}", k, val)
+                    })
+                    .collect();
+                return format!("{{{}}}", sorted.join(","));
+            }
+        }
+        args.to_string()
+    }
+
+    /// Check if this call has been made multiple times in a row (for the status message).
+    fn consecutive_repeat_count(&self, name: &str, args: &str) -> usize {
+        let normalized = Self::normalize(args);
+        let mut count = 0;
+        for (n, a) in self.calls.iter().rev() {
+            if n == name && a == &normalized {
+                count += 1;
+            } else {
+                break;
+            }
+        }
+        count
+    }
+
+    /// Count how many consecutive calls have been made to the same tool,
+    /// regardless of argument differences. This catches trial-and-error loops
+    /// where the model calls e.g. `file_update` repeatedly with slightly
+    /// different `old` strings.
+    fn consecutive_same_tool_count(&self, name: &str) -> usize {
+        let mut count = 0;
+        for (n, _) in self.calls.iter().rev() {
+            if n == name {
+                count += 1;
+            } else {
+                break;
+            }
+        }
+        count
+    }
+
+    /// Build a diagnostic message explaining the loop pattern to the model.
+    fn build_loop_message(&self, name: &str) -> Option<String> {
+        let same_tool_count = self.consecutive_same_tool_count(name);
+        if same_tool_count >= 2 {
+            Some(format!(
+                "[LOOP DETECTED] You have called `{}` {} times in a row (with different arguments each time). \
+                 The previous calls did not produce the expected result. \
+                 Stop and reassess: re-read the file to see its current state, \
+                 then try a different approach.",
+                name,
+                same_tool_count + 1,
+            ))
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct StreamResult {
@@ -210,6 +314,7 @@ pub async fn stream_response(
 
     let max_turns = agent_config.max_turns;
     let mut turn_count: usize = 0;
+    let mut loop_detector = ToolCallHistory::new();
 
     loop {
         turn_count += 1;
@@ -419,6 +524,49 @@ pub async fn stream_response(
                         name: tc.function.name.clone(),
                         arguments: tc.function.arguments.clone(),
                     });
+
+                    // ── Loop detection ─────────────────────────────────
+                    // Two patterns are detected:
+                    // 1. Exact repeat: same tool + same args (e.g. file_read
+                    //    with same offset/limit).
+                    // 2. Same-tool spiral: same tool called 3+ times in a
+                    //    row with different args (e.g. file_update with
+                    //    slightly different `old` strings each time).
+                    if loop_detector.is_repeat_of_last(&tc.function.name, &tc.function.arguments) {
+                        let repeat_count =
+                            loop_detector.consecutive_repeat_count(&tc.function.name, &tc.function.arguments)
+                            + 1;
+                        let content = format!(
+                            "[LOOP DETECTED] You've called `{}` with the same arguments {} times in a row. \
+                             The previous result is still in the conversation. \
+                             Review it and proceed with the next step — do NOT repeat this call.",
+                            tc.function.name,
+                            repeat_count,
+                        );
+                        let tr = Message::tool(&tc.id, content);
+                        messages.push(tr);
+                        status_messages.push(format!(
+                            "⚠ Loop detected: repeated `{}` call — injected guidance message",
+                            tc.function.name,
+                        ));
+                        loop_detector.record(&tc.function.name, &tc.function.arguments);
+                        continue;
+                    }
+
+                    // Check for same-tool spiral: same tool 3+ times
+                    if let Some(msg) = loop_detector.build_loop_message(&tc.function.name) {
+                        let tr = Message::tool(&tc.id, msg);
+                        messages.push(tr);
+                        status_messages.push(format!(
+                            "⚠ Loop detected: {} consecutive `{}` calls with varying args — injected guidance",
+                            loop_detector.consecutive_same_tool_count(&tc.function.name) + 1,
+                            tc.function.name,
+                        ));
+                        loop_detector.record(&tc.function.name, &tc.function.arguments);
+                        continue;
+                    }
+                    loop_detector.record(&tc.function.name, &tc.function.arguments);
+
                     let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
                         .unwrap_or(serde_json::Value::Null);
                     let result = tools.execute(&tc.function.name, args).await;

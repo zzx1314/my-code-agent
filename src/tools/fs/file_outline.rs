@@ -1,3 +1,4 @@
+use crate::core::context::tool_dedup::get_global_tool_dedup;
 use crate::core::parser::ParsedFile;
 use crate::core::types::ToolDefinition;
 use crate::tools::Tool;
@@ -30,9 +31,10 @@ impl Tool for FileOutline {
             name: self.name().to_string(),
             description: "Show the structure outline of a source file. \
                 Returns a tree view of all functions, structs, enums, impls, traits, and modules \
-                with their line ranges. Supports Rust, JavaScript/JSX, HTML, and Vue files. \
-                Use this BEFORE file_read to understand the file structure \
-                and decide which parts to read. This helps avoid reading unnecessary code."
+                with their line ranges. Supports Rust, JavaScript/JSX, TypeScript/TSX, Java, HTML, \
+                and Vue files. Use this before file_read on unfamiliar files to understand \
+                the file structure and decide which parts to read. \
+                Check context first — if you already have the outline, don't re-read it."
                 .to_string(),
             parameters: json!({
                 "type": "object",
@@ -50,6 +52,22 @@ impl Tool for FileOutline {
     async fn call(&self, args: serde_json::Value) -> Result<String, String> {
         let args: FileOutlineArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
+        // ── Dedup check ───────────────────────────────────────────────
+        {
+            let dedup = get_global_tool_dedup();
+            let mut dedup_guard = dedup.lock().unwrap();
+            match dedup_guard.check_file_outline(&args.path) {
+                crate::core::context::tool_dedup::DedupAction::ShortCircuit(info) => {
+                    return serde_json::to_string(&FileOutlineOutput {
+                        path: args.path,
+                        total_lines: info.total_lines,
+                        outline: info.format_message(),
+                    }).map_err(|e| e.to_string());
+                }
+                crate::core::context::tool_dedup::DedupAction::Allow => {}
+            }
+        }
+
         let content = std::fs::read_to_string(&args.path).map_err(|e| e.to_string())?;
         let total_lines = content.lines().count();
 
@@ -59,6 +77,13 @@ impl Tool for FileOutline {
         } else {
             format!("(unable to parse file - not a supported language)")
         };
+
+        // ── Record in dedup cache ────────────────────────────────────
+        {
+            let dedup = get_global_tool_dedup();
+            let mut dedup_guard = dedup.lock().unwrap();
+            dedup_guard.record_file_outline(&args.path, total_lines);
+        }
 
         serde_json::to_string(&FileOutlineOutput {
             path: args.path,

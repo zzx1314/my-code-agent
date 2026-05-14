@@ -76,13 +76,22 @@ impl Tool for FileUpdate {
         let count = content.matches(&args.old).count();
 
         if count == 0 {
-            return Err(format!("Old string not found in file: {}", args.path));
+            return Err(format!(
+                "Old string not found in file: {}. \
+                 Possible reasons: the text was already replaced by a previous update, or there's a \
+                 whitespace/indentation mismatch. \
+                 Suggestion: re-read the file with `file_read` to see the current exact content, \
+                 then retry with the exact text from the file.",
+                args.path
+            ));
         }
 
         if count > 1 && !args.allow_multiple {
             return Err(format!(
-                "Old string found multiple times in file: {} ({} occurrences). Use `allow_multiple` to replace all.",
-                args.path, count
+                "Old string found {} times in file: {}. Use `allow_multiple: true` to replace all. \
+                 If you intended to replace only one occurrence, make the `old` string more specific \
+                 (include surrounding context) so it matches exactly once.",
+                count, args.path
             ));
         }
 
