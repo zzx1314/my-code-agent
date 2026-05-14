@@ -271,7 +271,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
         "tool" => {
             // File tool results (file_write, file_update, file_delete) with git_diff
             // are ALWAYS shown — they contain substantive code changes.
-            if try_render_file_tool_result(lines, &entry.content, entry_idx, app).is_some() {
+            if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true).is_some() {
                 lines.push(Line::default());
                 return;
             }
@@ -479,7 +479,7 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
             // Try rendering as file tool result (git diff) first
             // Use a special high index for streaming section IDs — only one
             // streaming tool result exists at a time, so section IDs won't clash.
-            if try_render_file_tool_result(lines, content, usize::MAX, app).is_none()
+            if try_render_file_tool_result(lines, content, usize::MAX, app, false).is_none()
                 && try_render_shell_exec_result(lines, content, usize::MAX, app, app.config.agent.show_tool_details).is_none()
                 && try_render_file_outline(lines, content, usize::MAX, app).is_none()
             {
@@ -526,7 +526,6 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
     }
 }
 
-/// Try to parse tool content as a file tool result (file_write, file_update, file_delete)
 /// and render it with a collapsible git diff display.
 /// Returns Some(()) if the content contained a git_diff field.
 fn try_render_file_tool_result(
@@ -534,6 +533,7 @@ fn try_render_file_tool_result(
     content: &str,
     entry_idx: usize,
     app: &mut App,
+    show_git_diff: bool,
 ) -> Option<()> {
     let value: serde_json::Value = serde_json::from_str(content).ok()?;
 
@@ -580,7 +580,7 @@ fn try_render_file_tool_result(
     ]));
 
     // Show the git diff (collapsible)
-    if !git_diff.is_empty() {
+    if show_git_diff && !git_diff.is_empty() {
         lines.push(Line::from(Span::styled(
             "  ─── git diff ───",
             Style::default().fg(Color::Green),
