@@ -12,7 +12,7 @@ use ratatui::prelude::*;
 use crate::app::App;
 
 use chat::render_chat_area;
-use input::{apply_input_wrap, calculate_input_height, render_input};
+use input::{apply_input_wrap, calculate_input_height, calculate_queue_height, render_input};
 use overlays::{
     render_completion_menu, render_confirmation_dialog, render_model_picker,
     render_provider_picker, render_session_picker,
@@ -35,21 +35,39 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     apply_input_wrap(app, text_width);
 
     let input_height = calculate_input_height(app, area.width);
+    let queue_height = calculate_queue_height(app);
+
+    let mut constraints = vec![
+        Constraint::Min(1),                                      // chat area
+    ];
+    if queue_height > 0 {
+        constraints.push(Constraint::Length(queue_height));      // queue display
+    }
+    constraints.push(Constraint::Length(input_height));          // input area
+    constraints.push(Constraint::Length(1));                     // status bar
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(1),
-            Constraint::Length(input_height),
-            Constraint::Length(1),
-        ])
+        .constraints(constraints)
         .split(area);
 
     let chat_chunk_index = 0;
-    let input_chunk_index = 1;
-    let status_chunk_index = 2;
+    let mut next_index = 1;
+    let queue_chunk_index = if queue_height > 0 {
+        let idx = next_index;
+        next_index += 1;
+        Some(idx)
+    } else {
+        None
+    };
+    let input_chunk_index = next_index;
+    let status_chunk_index = next_index + 1;
 
     render_chat_area(f, app, chunks[chat_chunk_index]);
+
+    if let Some(qi) = queue_chunk_index {
+        input::render_queue_display(f, app, chunks[qi]);
+    }
 
     render_input(f, app, chunks[input_chunk_index]);
 

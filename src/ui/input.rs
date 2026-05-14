@@ -9,6 +9,7 @@ use crate::app::App;
 
 const MIN_INPUT_HEIGHT: u16 = 4;
 const MAX_INPUT_HEIGHT: u16 = 14;
+const MAX_QUEUE_DISPLAY_LINES: usize = 4;
 
 /// Update the input textarea's visual style based on the current app state.
 ///
@@ -190,6 +191,122 @@ pub fn calculate_input_height(app: &App, area_width: u16) -> u16 {
         .line_count(text_width) as u16;
     let height = visual_lines + 2;
     height.min(MAX_INPUT_HEIGHT).max(MIN_INPUT_HEIGHT)
+}
+
+/// Calculate the height needed for the queue display above the input.
+/// Shows up to `MAX_QUEUE_DISPLAY_LINES` items, capped at a reasonable visual height.
+pub fn calculate_queue_height(app: &App) -> u16 {
+    if app.message_queue.is_empty() {
+        return 0;
+    }
+    let display_count = app.message_queue.len().min(MAX_QUEUE_DISPLAY_LINES);
+    // 2 lines for top/bottom border + separator + optional overflow indicator
+    (display_count as u16) + 2
+}
+
+/// Spinner characters for the queue animation when streaming.
+const QUEUE_SPINNER: &[char] = &['▰', '▱', '◉', '○'];
+
+/// Color palette for the queue badge numbering — cycles through these per item.
+const QUEUE_BADGE_COLORS: [Color; 4] = [
+    Color::Rgb(255, 160, 50),   // warm orange
+    Color::Rgb(255, 100, 100),  // coral red
+    Color::Rgb(100, 200, 255),  // sky blue
+    Color::Rgb(180, 130, 255),  // lavender
+];
+
+/// Render a single queue line with styled badge and message preview.
+fn render_queue_line(index: usize, msg: &str) -> ratatui::text::Line<'static> {
+    let badge_color = QUEUE_BADGE_COLORS[index % QUEUE_BADGE_COLORS.len()];
+
+    // Truncate long messages for display
+    let display_text = if msg.len() > 60 {
+        let truncated: String = msg.chars().take(57).collect();
+        format!("{}…", truncated)
+    } else {
+        msg.to_string()
+    };
+
+    ratatui::text::Line::from(vec![
+        // Badge number
+        ratatui::text::Span::styled(
+            format!("  {:>2} ", index + 1),
+            Style::default()
+                .fg(badge_color)
+                .bg(Color::Rgb(20, 15, 25))
+                .add_modifier(Modifier::BOLD),
+        ),
+        // Separator dot
+        ratatui::text::Span::styled(
+            " ▶ ",
+            Style::default().fg(Color::DarkGray),
+        ),
+        // Message text — bright white for emphasis
+        ratatui::text::Span::styled(
+            display_text,
+            Style::default()
+                .fg(Color::Rgb(240, 240, 255))
+                .add_modifier(Modifier::BOLD),
+        ),
+    ])
+}
+
+/// Render the queued messages above the input box.
+pub fn render_queue_display(f: &mut Frame, app: &App, area: Rect) {
+    if app.message_queue.is_empty() {
+        return;
+    }
+
+    let queue_count = app.message_queue.len();
+    let display_count = queue_count.min(MAX_QUEUE_DISPLAY_LINES);
+
+    // Animated spinner character when streaming
+    let spinner = if app.is_streaming {
+        let frame = (app.marquee_frame as usize / 3) % QUEUE_SPINNER.len();
+        QUEUE_SPINNER[frame]
+    } else {
+        '◉'
+    };
+
+    let title = format!(" {} Queued ({}) ", spinner, queue_count);
+
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    for (i, msg) in app.message_queue.iter().take(display_count).enumerate() {
+        lines.push(render_queue_line(i, msg));
+    }
+
+    if queue_count > MAX_QUEUE_DISPLAY_LINES {
+        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
+            format!("  … and {} more in queue", queue_count - MAX_QUEUE_DISPLAY_LINES),
+            Style::default()
+                .fg(Color::Rgb(150, 150, 180))
+                .add_modifier(Modifier::ITALIC),
+        )));
+    }
+
+    // Vibrant gradient border: top/left in warm orange, bottom/right in purple
+    let border_color = if app.is_streaming {
+        Color::Rgb(255, 130, 40)  // bright orange when streaming
+    } else {
+        Color::Rgb(230, 100, 60)  // warm amber when idle with queue
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(Color::Rgb(255, 200, 80))
+                .add_modifier(Modifier::BOLD),
+        ))
+        .border_type(ratatui::widgets::BorderType::Thick);
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .style(Style::default().bg(Color::Rgb(25, 20, 30)));
+
+    f.render_widget(paragraph, area);
 }
 
 /// Render the input textarea into the given area.
