@@ -277,6 +277,40 @@ enum ProcessResult {
     Interrupted,
 }
 
+/// Generate a concise summary of old conversation messages using a non-streaming
+/// LLM call. Called during context compaction on the first compaction event to
+/// preserve semantic content while saving tokens.
+///
+/// Returns the summary text on success. The caller should fall back to
+/// [`ContextManager::prune_messages`] if this function fails.
+async fn generate_context_summary(
+    client: &LlmClient,
+    old_messages: &[Message],
+) -> anyhow::Result<String> {
+    let summary_prompt = Message::user(
+        "Please provide a concise summary of the above conversation. \
+         Focus on: user goals, decisions made, files changed, key findings, \
+         and any important context that would help continue the work. \
+         Keep the summary under 300 words and write in the same language as the conversation."
+    );    let mut api_messages = vec![
+            Message::system(
+                "You are a helpful assistant that summarizes technical conversations concisely. \
+                 Preserve all important context, decisions, and file paths."
+            ),
+        ];
+    api_messages.extend_from_slice(old_messages);
+    api_messages.push(summary_prompt);
+
+    let response = client.chat(&api_messages, &[]).await?;
+
+    let content = response["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No content in summary response"))?
+        .to_string();
+
+    Ok(content)
+}
+
 pub async fn stream_response(
     client: &LlmClient,
     system_prompt: &str,
@@ -426,20 +460,47 @@ pub async fn stream_response(
 
                     if api_at_limit || estimated_at_limit {
                         if api_at_limit {
-                            status_messages.push("📝 Context window full - pruning old messages...".to_string());
+                            status_messages.push("📝 Context window full - compacting old messages...".to_string());
                         } else {
-                            status_messages.push("📝 Tool-heavy turn - pruning to maintain context headroom...".to_string());
+                            status_messages.push("📝 Tool-heavy turn - compacting to maintain context headroom...".to_string());
                         }
-                        let pruned = context_manager.prune_messages(&messages);
-                        let pruned_count = messages.len().saturating_sub(pruned.len());
-                        messages = pruned;
+
+                        // Try LLM summarization on FIRST compaction to preserve
+                        // semantic content; fall back to pruning on subsequent
+                        // compactions or if the LLM call fails.
+                        let mut compacted = false;
+                        if context_manager.compact_count() == 0 {
+                            if let Some(compact_point) = context_manager.find_compact_point(&messages) {
+                                match generate_context_summary(client, &messages[..compact_point]).await {
+                                    Ok(summary) => {
+                                        messages = context_manager.compact_messages(&messages, &summary);
+                                        compacted = true;
+                                        status_messages.push(format!(
+                                            "✓ Summarized {} old messages into a compact summary ({} remaining)",
+                                            compact_point,
+                                            messages.len(),
+                                        ));
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "Summarization failed, falling back to pruning");
+                                    }
+                                }
+                            }
+                        }
+
+                        if !compacted {
+                            let pruned = context_manager.prune_messages(&messages);
+                            let pruned_count = messages.len().saturating_sub(pruned.len());
+                            messages = pruned;
+                            status_messages.push(format!("✓ Pruned {} old messages ({} remaining)", pruned_count, messages.len()));
+                        }
+
                         // Reset the one-shot flag — it was set during SSE
                         // streaming to signal pruning for THIS turn. Keeping
                         // it true would re-enter this block every subsequent
                         // turn, spamming the user with unnecessary messages.
                         context_manager.set_prune_triggered(false);
                         context_manager.increment_compact_count();
-                        status_messages.push(format!("✓ Pruned {} old messages ({} remaining)", pruned_count, messages.len()));
                         let pruned_estimate = context_manager.estimate_messages_tokens(&messages, true);
                         running_approx = pruned_estimate;
                         session_usage.update_pruned_estimate(pruned_estimate);
