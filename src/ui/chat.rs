@@ -461,27 +461,24 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
             }
         }
 
-        // Display completed tool result (e.g. git diff) — always shown for file tools
-        if let Some((ref name, ref content)) = app.streaming_tool_result.clone() {
-            // Try rendering as file tool result with git diff first
-            // Use a special high index for streaming section IDs
-            if try_render_file_tool_result(lines, &content, usize::MAX, app).is_none() {
-                // Non-file tool results: only show if show_tool_calls is enabled
+        // Display completed tool result with collapsible multi-line content
+        if let Some((ref _name, ref content)) = app.streaming_tool_result.clone() {
+            // Try rendering as file tool result (git diff) first
+            // Use a special high index for streaming section IDs — only one
+            // streaming tool result exists at a time, so section IDs won't clash.
+            if try_render_file_tool_result(lines, &content, usize::MAX, app).is_none()
+                && try_render_shell_exec_result(lines, &content, usize::MAX, app).is_none()
+                && try_render_file_outline(lines, &content, usize::MAX, app).is_none()
+            {
+                // Non-file, non-shell, non-outline tool result: show raw content with collapsible
                 if app.config.agent.show_tool_calls {
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            "⚙️ ",
-                            Style::default().fg(Color::Yellow),
-                        ),
-                        Span::styled(
-                            format!("{}", name),
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(
-                            " completed",
-                            Style::default().fg(Color::DarkGray),
-                        ),
-                    ]));
+                    let raw_lines: Vec<Line> = content.lines()
+                        .map(|l| Line::from(l.to_string()))
+                        .collect();
+                    if !raw_lines.is_empty() {
+                        let section_id = format!("tr_{}", usize::MAX);
+                        render_collapsible_block(lines, app, &section_id, raw_lines);
+                    }
                 }
             }
         }
@@ -581,6 +578,82 @@ fn try_render_file_tool_result(
 
         let section_id = format!("gd_{}", entry_idx);
         render_collapsible_block(lines, app, &section_id, diff_lines);
+    }
+
+    Some(())
+}
+
+/// Try to parse tool content as a shell exec result and render it with collapsible
+/// stdout/stderr blocks.
+/// Returns Some(()) if the content was successfully rendered as a shell exec result.
+fn try_render_shell_exec_result(
+    lines: &mut Vec<ratatui::text::Line>,
+    content: &str,
+    entry_idx: usize,
+    app: &mut App,
+) -> Option<()> {
+    let value: serde_json::Value = serde_json::from_str(content).ok()?;
+    let cmd = value.get("command")?.as_str()?;
+
+    // Header
+    lines.push(Line::from(vec![
+        Span::styled("⚙️ ", Style::default().fg(Color::Yellow)),
+        Span::styled(
+            "Shell Exec",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(format!("  Command: {}", cmd)));
+
+    if let Some(exit_code) = value.get("exit_code") {
+        let color = if exit_code.as_i64() == Some(0) {
+            Color::Green
+        } else {
+            Color::Red
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  Exit Code: ", Style::default()),
+            Span::styled(format!("{}", exit_code), Style::default().fg(color)),
+        ]));
+    }
+
+    if let Some(timed_out) = value.get("timed_out").and_then(|t| t.as_bool()) {
+        if timed_out {
+            lines.push(Line::from(Span::styled(
+                "  ⚠ Timed out",
+                Style::default().fg(Color::Red),
+            )));
+        }
+    }
+
+    if let Some(stdout) = value.get("stdout").and_then(|s| s.as_str()) {
+        if !stdout.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  ─── stdout ───",
+                Style::default().fg(Color::DarkGray),
+            )));
+            let stdout_lines: Vec<Line> = stdout
+                .lines()
+                .map(|l| Line::from(format!("  {}", l)))
+                .collect();
+            let section_id = format!("so_{}", entry_idx);
+            render_collapsible_block(lines, app, &section_id, stdout_lines);
+        }
+    }
+
+    if let Some(stderr) = value.get("stderr").and_then(|s| s.as_str()) {
+        if !stderr.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  ─── stderr ───",
+                Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
+            )));
+            let stderr_lines: Vec<Line> = stderr
+                .lines()
+                .map(|l| Line::from(format!("  {}", l)))
+                .collect();
+            let section_id = format!("se_{}", entry_idx);
+            render_collapsible_block(lines, app, &section_id, stderr_lines);
+        }
     }
 
     Some(())
