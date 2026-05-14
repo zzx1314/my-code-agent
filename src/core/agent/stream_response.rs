@@ -23,7 +23,7 @@ pub struct StreamResult {
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
     Text(String),
-    ToolCall(String),
+    ToolCall { name: String, arguments: String },
     ReasoningActive(bool),
     ReasoningDelta(String),
 }
@@ -120,7 +120,10 @@ async fn process_sse_stream(
                         acc.arguments.push_str(args);
                     }
                     if acc.name.is_some() {
-                        send_event(StreamEvent::ToolCall(acc.name.clone().unwrap_or_else(|| "tool".to_string())));
+                        send_event(StreamEvent::ToolCall {
+                            name: acc.name.clone().unwrap_or_else(|| "tool".to_string()),
+                            arguments: acc.arguments.clone(),
+                        });
                     }
                 }
                 if context_manager.should_compact(*running_approx) && !context_manager.is_prune_triggered() {
@@ -412,7 +415,10 @@ pub async fn stream_response(
                 messages.push(assistant_msg);
 
                 for tc in &tool_calls {
-                    send_event(StreamEvent::ToolCall(tc.function.name.clone()));
+                    send_event(StreamEvent::ToolCall {
+                        name: tc.function.name.clone(),
+                        arguments: tc.function.arguments.clone(),
+                    });
                     let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
                         .unwrap_or(serde_json::Value::Null);
                     let result = tools.execute(&tc.function.name, args).await;

@@ -23,6 +23,12 @@ pub struct PendingConfirmation {
 }
 
 /// Result from async /init command
+/// Represents a tool call currently being executed during streaming.
+pub struct CurrentToolCall {
+    pub name: String,
+    pub arguments: String,
+}
+
 pub struct InitResult {
     pub message: String,
     pub new_agent: Option<Agent>,
@@ -103,8 +109,8 @@ pub struct App {
     pub streaming_events_rx: Option<mpsc::UnboundedReceiver<StreamEvent>>,
     pub streaming_text: String,
     pub streaming_reasoning: String,
-    /// Currently executing tool name (displayed inline, replaces previous)
-    pub current_tool_call: Option<String>,
+    /// Currently executing tool call (displayed inline, replaces previous)
+    pub current_tool_call: Option<CurrentToolCall>,
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
     /// Agent for processing requests

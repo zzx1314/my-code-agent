@@ -14,8 +14,11 @@ pub fn process_streaming_events(app: &mut App) {
                     }
                     app.streaming_text.push_str(&delta);
                 }
-                Ok(crate::core::agent::stream_response::StreamEvent::ToolCall(name)) => {
-                    app.current_tool_call = Some(name);
+                Ok(crate::core::agent::stream_response::StreamEvent::ToolCall { name, arguments }) => {
+                    // Don't clear or add newline here — ToolCall events for the same
+                    // tool may arrive in multiple chunks with progressively more complete
+                    // arguments. Just update the current tool call info.
+                    app.current_tool_call = Some(crate::app::CurrentToolCall { name, arguments });
                 }
                 Ok(crate::core::agent::stream_response::StreamEvent::ReasoningActive(active)) => {
                     if !active {
