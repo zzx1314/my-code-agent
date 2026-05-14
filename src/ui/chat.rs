@@ -198,7 +198,14 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_w
             }
         }
         "tool" => {
-            // Tool results are only shown when show_tool_calls is enabled
+            // File tool results (file_write, file_update, file_delete) with git_diff
+            // are ALWAYS shown — they contain substantive code changes.
+            if try_render_file_tool_result(lines, &entry.content).is_some() {
+                lines.push(Line::default());
+                return;
+            }
+
+            // Other tool results are only shown when show_tool_calls is enabled
             if show_tool_calls {
                 // Parse the tool result (ShellExecOutput JSON) for nice display
                 if let Ok(output) = serde_json::from_str::<serde_json::Value>(&entry.content) {
@@ -390,6 +397,84 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &App, max
             Style::default().fg(Color::Yellow),
         )));
     }
+}
+
+/// Try to parse tool content as a file tool result (file_write, file_update, file_delete)
+/// and render it with a git diff display.
+/// Returns Some(()) if the content contained a git_diff field.
+fn try_render_file_tool_result(lines: &mut Vec<ratatui::text::Line>, content: &str) -> Option<()> {
+    let value: serde_json::Value = serde_json::from_str(content).ok()?;
+
+    // Check if this is a file tool result by looking for a path field
+    let path = value.get("path")?.as_str()?;
+    let git_diff = value.get("git_diff")?.as_str()?;
+
+    // Determine the action type
+    let action = if value.get("bytes_written").is_some() {
+        "File Write"
+    } else if value.get("replacements").is_some() {
+        "File Update"
+    } else if let Some(deleted_type) = value.get("deleted_type").and_then(|t| t.as_str()) {
+        match deleted_type {
+            "file" => "File Delete",
+            "directory" => "Directory Delete",
+            "snippet" => "Snippet Delete",
+            _ => "File Operation",
+        }
+    } else {
+        "File Operation"
+    };
+
+    // Header
+    lines.push(Line::from(vec![
+        Span::styled(
+            "📝 ",
+            Style::default().fg(Color::Cyan),
+        ),
+        Span::styled(
+            action,
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "  File: ",
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::styled(
+            path.to_string(),
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    // Show the git diff
+    lines.push(Line::from(Span::styled(
+        "  ─── git diff ───",
+        Style::default().fg(Color::Green),
+    )));
+    for line in git_diff.lines() {
+        let line = line.trim_end();
+        if line.starts_with('+') && !line.starts_with("+++") {
+            lines.push(Line::from(Span::styled(
+                format!("  {}", line),
+                Style::default().fg(Color::Green),
+            )));
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            lines.push(Line::from(Span::styled(
+                format!("  {}", line),
+                Style::default().fg(Color::Red),
+            )));
+        } else if line.starts_with("@@") {
+            lines.push(Line::from(Span::styled(
+                format!("  {}", line),
+                Style::default().fg(Color::Cyan),
+            )));
+        } else {
+            lines.push(Line::from(format!("  {}", line)));
+        }
+    }
+
+    Some(())
 }
 
 /// Try to parse tool content as a file_outline result and render it with colored spans.
