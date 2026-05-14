@@ -309,93 +309,61 @@ pub fn render_queue_display(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-/// Type alias for (r, g, b) tuples used in cursor color math.
-type RgbTuple = (u8, u8, u8);
 
-/// Duration of one full breathing pulse in milliseconds (~2 seconds).
-/// The cursor smoothly oscillates between vibrant and faded/pastel using a
-/// continuous sine wave — no hard on/off transitions.
-const CURSOR_PULSE_MS: u128 = 2000;
-
-/// Vibrant block cursor palette, stored as raw RGB tuples for math.
-const CURSOR_PALETTE: [RgbTuple; 6] = [
-    (255, 120, 0),    // warm orange
-    (255, 60, 60),    // coral red
-    (255, 180, 0),    // gold
-    (0, 200, 255),    // cyan
-    (0, 255, 120),    // spring green
-    (200, 100, 255),  // purple
-];
-
-/// Compute the "light" (faded) version of a color — each channel lifted to ≥ 200.
-/// This gives a pastel/airy look with no dark or black tones.
-fn light_version(c: RgbTuple) -> RgbTuple {
-    (c.0.max(200), c.1.max(200), c.2.max(200))
-}
-
-/// Linear interpolation between two RGB tuples.
-fn lerp_rgb(a: RgbTuple, b: RgbTuple, t: f64) -> RgbTuple {
-    let t = t.clamp(0.0, 1.0);
-    (
-        (a.0 as f64 * (1.0 - t) + b.0 as f64 * t).round() as u8,
-        (a.1 as f64 * (1.0 - t) + b.1 as f64 * t).round() as u8,
-        (a.2 as f64 * (1.0 - t) + b.2 as f64 * t).round() as u8,
-    )
-}
-
-/// Build a cursor style with white bold text on the given background.
-fn build_cursor_style(bg: RgbTuple) -> Style {
-    Style::new()
-        .fg(Color::White)
-        .bg(Color::Rgb(bg.0, bg.1, bg.2))
-        .add_modifier(Modifier::BOLD)
-}
-
-/// Build a cursor `Style` for a given elapsed time, using a continuous
-/// sinusoidal breathing pulse.
+/// Render the input textarea into the given area.
 ///
-/// The cursor oscillates smoothly between vibrant (breath peak) and a
-/// pastel/airy version (breath trough) using a sine wave — no hidden phase,
-/// no hard transitions. The colour advances to the next palette entry every
-/// `CURSOR_PULSE_MS` milliseconds.
-///
-/// Uses wall-clock elapsed milliseconds so the animation speed is consistent
-/// regardless of frame-rate fluctuations.
-fn cursor_breath(elapsed_ms: u128) -> Style {
-    let cycle_num = elapsed_ms / CURSOR_PULSE_MS;
-    let pos = elapsed_ms % CURSOR_PULSE_MS;
-    let phase = pos as f64 / CURSOR_PULSE_MS as f64;
-
-    let color_index = (cycle_num as usize) % CURSOR_PALETTE.len();
-    let bright = CURSOR_PALETTE[color_index];
-    let faded = light_version(bright);
-
-    // Sine wave oscillation: breath_t ∈ [0, 1]
-    //   0 → faded/pastel (trough), 1 → vibrant (peak)
-    let breath_t = ((2.0 * std::f64::consts::PI * phase).sin() + 1.0) / 2.0;
-
-    let bg = lerp_rgb(faded, bright, breath_t);
-    build_cursor_style(bg)
-}
-
-/// Render the input textarea into the given area, with a smooth breathing
-/// cursor that pulses between vibrant and pastel using a continuous sine wave.
+/// Uses the terminal's native cursor positioned at the correct display column,
+/// accounting for CJK wide characters (char index ≠ display width).
+/// tui-textarea's internal cursor rendering is disabled to avoid position
+/// conflicts with the native cursor.
 pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     update_input_style(app);
 
-    if !app.is_streaming && !app.shell_mode {
-        let elapsed_ms = app.cursor_anim_start.elapsed().as_millis();
-        let style = cursor_breath(elapsed_ms);
-        app.input.set_cursor_style(style);
-    } else {
-        // Static visible style during streaming/shell
-        app.input.set_cursor_style(
-            Style::new()
-                .fg(Color::White)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        );
+    // Disable tui-textarea's internal cursor — we position the native cursor
+    // ourselves at the correct display column.
+    app.input.set_cursor_style(Style::default());
+
+    // Set the cursor line style based on state
+    if app.is_streaming || app.shell_mode {
+        app.input.set_cursor_line_style(Style::default());
     }
 
     f.render_widget(&app.input, area);
+
+    // Position the native cursor at the textarea's cursor position
+    // +1 for border offset on each axis
+    if !app.is_streaming {
+        let (cursor_row, cursor_col) = app.input.cursor();
+        // Convert character index to display width (CJK chars are 2 columns wide)
+        let display_col: usize = app
+            .input
+            .lines()
+            .get(cursor_row)
+            .map(|line| line.chars().take(cursor_col).map(|c| c.width().unwrap_or(0)).sum())
+            .unwrap_or(cursor_col);
+        let cursor_x = area.x + 1 + display_col as u16;
+        let cursor_y = area.y + 1 + cursor_row as u16;
+
+        // Clamp to area bounds (inside borders)
+        let max_x = area.x + area.width.saturating_sub(2);
+        let max_y = area.y + area.height.saturating_sub(2);
+        if cursor_x <= max_x && cursor_y <= max_y {
+            f.set_cursor_position((cursor_x, cursor_y));
+            // Use thin (bar) cursor style via ANSI escape sequence.
+            // Show cursor explicitly: \x1b[?25h
+            // \x1b[5 q = blinking bar cursor (thin vertical line)
+            // \x1b[6 q = steady bar cursor
+            let _ = std::io::Write::write_fmt(
+                &mut std::io::stdout(),
+                format_args!("\x1b[?25h\x1b[5 q"),
+            );
+        }
+    } else {
+        // Hide cursor during streaming — prevent it from appearing
+        // at the wrong position (e.g. on the border).
+        let _ = std::io::Write::write_fmt(
+            &mut std::io::stdout(),
+            format_args!("\x1b[?25l"),
+        );
+    }
 }
