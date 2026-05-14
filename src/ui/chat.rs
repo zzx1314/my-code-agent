@@ -88,12 +88,18 @@ fn render_paragraph_with_scroll(f: &mut Frame, app: &mut App, lines: Vec<ratatui
     app.total_lines = actual_lines;
     app.chat_area_height = area.height;
 
+    let max_scroll = actual_lines.saturating_sub(area.height);
+
     if app.auto_scroll {
         // Use max() to prevent scroll from decreasing (monotonic),
         // which avoids visual jumping when line_count fluctuates due to word-wrap reflow.
-        let new_scroll = actual_lines.saturating_sub(area.height);
-        app.scroll = app.scroll.max(new_scroll);
+        app.scroll = app.scroll.max(max_scroll);
     }
+
+    // Clamp scroll to valid range. Without this, layout transitions
+    // (streaming→done, collapse toggle) can leave scroll pointing past
+    // the end of the new smaller content, resulting in a blank screen.
+    app.scroll = app.scroll.min(max_scroll);
 
     let paragraph = Paragraph::new(lines)
         .scroll((app.scroll, 0))
