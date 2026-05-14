@@ -129,6 +129,9 @@ pub enum StreamEvent {
     Text(String),
     ToolCall { name: String, arguments: String },
     ToolResult { name: String, content: String },
+    /// Status update for inter-turn waiting periods (e.g. "Waiting for model...")
+    /// Clears the previous streaming_tool_result so the UI doesn't render heavy content.
+    Status(String),
     ReasoningActive(bool),
     ReasoningDelta(String),
 }
@@ -635,6 +638,12 @@ pub async fn stream_response(
                     let tr = Message::tool(&tc.id, content);
                     messages.push(tr);
                 }
+
+                // After all tools have executed and their results sent, signal
+                // the UI to clear the heavy tool result content and show a
+                // waiting indicator while the model processes the results.
+                send_event(StreamEvent::Status("⏳ Waiting for model response...".to_string()));
+
             }
         }
     }

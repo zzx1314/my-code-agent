@@ -23,6 +23,7 @@ pub fn handle(app: &mut App) -> bool {
     app.is_streaming = true;
     app.streaming_text.clear();
     app.streaming_reasoning.clear();
+    app.streaming_status.clear();
     app.current_tool_call = None;
 
     let agent_clone = app.agent.clone();

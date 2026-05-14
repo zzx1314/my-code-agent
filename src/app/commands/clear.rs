@@ -8,6 +8,7 @@ pub fn handle(app: &mut App) -> bool {
     app.streaming_text.clear();
     app.token_usage.reset();
     app.current_tool_call = None;
+    app.streaming_status.clear();
     app.status_messages.clear();
     app.turn_usage_line = None;
     app.streaming_events_rx = None;

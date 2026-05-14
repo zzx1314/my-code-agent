@@ -114,6 +114,8 @@ pub struct App {
     pub current_tool_call: Option<CurrentToolCall>,
     /// Most recent completed tool result during streaming (tool name, content)
     pub streaming_tool_result: Option<(String, String)>,
+    /// Status message for inter-turn waiting periods (e.g. "⏳ Waiting for model...")
+    pub streaming_status: String,
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
     /// Agent for processing requests
@@ -225,6 +227,7 @@ impl App {
             chat_history,
             current_response: String::new(),
             streaming_tool_result: None,
+            streaming_status: String::new(),
             input: input_area,
             scroll: 0,
             total_lines: 0,

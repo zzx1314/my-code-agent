@@ -471,26 +471,47 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
             }
         }
 
-        // Display completed tool result with collapsible multi-line content
-        if let Some((ref _name, ref content)) = app.streaming_tool_result.clone() {
+        // Display completed tool result with truncated content display.
+        // Take the content to avoid borrowing conflicts with &mut App calls
+        // and avoid cloning the potentially large content string every frame.
+        let streaming_content = app.streaming_tool_result.take().map(|(_name, content)| content);
+        if let Some(ref content) = streaming_content {
             // Try rendering as file tool result (git diff) first
             // Use a special high index for streaming section IDs — only one
             // streaming tool result exists at a time, so section IDs won't clash.
-            if try_render_file_tool_result(lines, &content, usize::MAX, app).is_none()
-                && try_render_shell_exec_result(lines, &content, usize::MAX, app).is_none()
-                && try_render_file_outline(lines, &content, usize::MAX, app).is_none()
+            if try_render_file_tool_result(lines, content, usize::MAX, app).is_none()
+                && try_render_shell_exec_result(lines, content, usize::MAX, app).is_none()
+                && try_render_file_outline(lines, content, usize::MAX, app).is_none()
             {
                 if app.config.agent.show_tool_calls && app.config.agent.show_tool_details {
-                    let raw_lines: Vec<Line> = content.lines()
-                        .map(|l| Line::from(l.to_string()))
-                        .collect();
-                    if !raw_lines.is_empty() {
-                        let section_id = format!("tr_{}", usize::MAX);
-                        render_collapsible_block(lines, app, &section_id, raw_lines);
+                    // Lightweight rendering: only show first few lines with a note
+                    let total_lines = content.lines().count();
+                    let max_preview = 5;
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "🔧 Tool Result:",
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                    for line in content.lines().take(max_preview) {
+                        lines.push(Line::from(line.to_string()));
+                    }
+                    if total_lines > max_preview {
+                        lines.push(Line::from(Span::styled(
+                            format!("  ... {} more lines (tool result shown briefly)", total_lines - max_preview),
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        )));
                     }
                 }
             }
         }
+    } else if !app.streaming_status.is_empty() {
+        // Show a status message during inter-turn waiting periods
+        // (e.g. "⏳ Waiting for model response..." after tool execution)
+        lines.push(Line::from(Span::styled(
+            app.streaming_status.clone(),
+            Style::default().fg(Color::Yellow),
+        )));
     } else if app.streaming_reasoning.is_empty() {
         lines.push(Line::from(Span::styled(
             "⏳ Generating response...",
