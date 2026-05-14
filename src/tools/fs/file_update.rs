@@ -75,7 +75,8 @@ impl Tool for FileUpdate {
         let args: FileUpdateArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         let content = std::fs::read_to_string(&args.path).map_err(|e| e.to_string())?;
-        let lines: Vec<&str> = content.split('\n').collect();
+        let has_trailing_newline = content.ends_with('\n');
+        let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
 
         if args.start_line == 0 {
@@ -109,7 +110,10 @@ impl Tool for FileUpdate {
         result_lines.extend_from_slice(&new_lines);
         result_lines.extend_from_slice(&lines[args.start_line - 1 + args.delete_count..]);
 
-        let new_file_content = result_lines.join("\n");
+        let mut new_file_content = result_lines.join("\n");
+        if has_trailing_newline {
+            new_file_content.push('\n');
+        }
 
         // Record the change for undo before writing
         let _ = undo_history::record_change(

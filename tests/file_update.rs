@@ -129,6 +129,85 @@ async fn test_append_at_end() {
 }
 
 #[tokio::test]
+async fn test_replace_with_trailing_newline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "hello\nworld\n").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 1, "earth")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "hello\nearth\n");
+    assert_eq!(output.replacements, 1);
+}
+
+#[tokio::test]
+async fn test_insert_with_trailing_newline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "line2\nline3\n").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 1, 0, "line1")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nline2\nline3\n");
+    assert_eq!(output.replacements, 0);
+}
+
+#[tokio::test]
+async fn test_delete_with_trailing_newline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "delete_me\nkeep_me\n").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 1, 1, "")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "keep_me\n");
+    assert_eq!(output.replacements, 1);
+}
+
+#[tokio::test]
+async fn test_append_at_end_with_trailing_newline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "line1\n").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 0, "line2")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nline2\n");
+    assert_eq!(output.replacements, 0);
+}
+
+#[tokio::test]
+async fn test_start_line_beyond_with_trailing_newline_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "hello\nworld\n").unwrap();
+
+    // file_read shows 2 lines, so start_line=4 (which is total_lines+2) should be rejected
+    let result = call_update(path.to_str().unwrap(), 4, 0, "new").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_delete_all_lines_with_trailing_newline_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "hello\nworld\n").unwrap();
+
+    // file_read shows 2 lines, so start_line=1 + delete_count=3 = 3 > 2 should be rejected
+    let result = call_update(path.to_str().unwrap(), 1, 3, "").await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("exceeds file length"));
+}
+
+#[tokio::test]
 async fn test_build_line_diff() {
     use my_code_agent::tools::build_line_diff;
 
