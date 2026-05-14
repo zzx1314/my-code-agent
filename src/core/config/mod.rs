@@ -140,6 +140,11 @@ pub struct AgentConfig {
     /// Default: 5.
     #[serde(default = "default_thinking_display_height")]
     pub thinking_display_height: u16,
+    /// Whether to show tool call details (tool name, arguments) in the chat UI.
+    /// When false, tool calls are hidden from the chat display (execution still proceeds).
+    /// Default: false.
+    #[serde(default)]
+    pub show_tool_calls: bool,
 }
 
 /// LLM provider settings.
@@ -265,6 +270,7 @@ impl Default for AgentConfig {
             thinking_display: "collapsed".to_string(),
             think_command: true,
             thinking_display_height: default_thinking_display_height(),
+            show_tool_calls: false,
         }
     }
 }

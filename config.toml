@@ -59,6 +59,12 @@ critical_threshold_percent = 90
 # Default: 10
 max_turns = 10
 
+# Whether to show tool call details (tool name, arguments) in the chat UI.
+# When false (default), tool calls are hidden from the display but still execute.
+# Set to true if you want to see what tools the model is calling.
+# Default: false
+# show_tool_calls = false
+
 # ── Plan Confirmation Settings ──
 [plan]
 # Timeout in seconds for plan confirmation prompt.

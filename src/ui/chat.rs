@@ -117,9 +117,11 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
         .rposition(|entry| entry.role == "assistant");
     let split_idx = last_assistant_idx.unwrap_or(app.chat_history.len());
 
+    let show_tool_calls = app.config.agent.show_tool_calls;
+
     // Messages before the last assistant message
     for entry in &app.chat_history[..split_idx] {
-        render_message(lines, entry, max_width);
+        render_message(lines, entry, max_width, show_tool_calls);
     }
 
     // Reasoning block
@@ -137,13 +139,14 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
 
 /// Render all chat messages in order.
 fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &App, max_width: Option<usize>) {
+    let show_tool_calls = app.config.agent.show_tool_calls;
     for entry in &app.chat_history {
-        render_message(lines, entry, max_width);
+        render_message(lines, entry, max_width, show_tool_calls);
     }
 }
 
 /// Render a single message with role-based styling.
-fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_width: Option<usize>) {
+fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_width: Option<usize>, show_tool_calls: bool) {
     match entry.role.as_str() {
         "user" => {
             lines.push(Line::from(vec![
@@ -158,29 +161,31 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_w
             lines.push(Line::default());
         }
         "assistant" => {
-            // Display tool calls (e.g. shell_exec) if present
-            if let Some(ref tool_calls) = entry.tool_calls {
-                for tc in tool_calls {
-                    let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
-                        .unwrap_or(serde_json::Value::Null);
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            "⚙️ ",
-                            Style::default().fg(Color::Yellow),
-                        ),
-                        Span::styled(
-                            tc.function.name.clone(),
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                        ),
-                    ]));
-                    if let Some(cmd) = args.get("command").and_then(|c| c.as_str()) {
-                        lines.push(Line::from(format!("  {}", cmd)));
-                    } else {
-                        lines.push(Line::from(format!("  {}", args)));
+            // Display tool calls (e.g. shell_exec) if present and config allows
+            if show_tool_calls {
+                if let Some(ref tool_calls) = entry.tool_calls {
+                    for tc in tool_calls {
+                        let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                            .unwrap_or(serde_json::Value::Null);
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                "⚙️ ",
+                                Style::default().fg(Color::Yellow),
+                            ),
+                            Span::styled(
+                                tc.function.name.clone(),
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            ),
+                        ]));
+                        if let Some(cmd) = args.get("command").and_then(|c| c.as_str()) {
+                            lines.push(Line::from(format!("  {}", cmd)));
+                        } else {
+                            lines.push(Line::from(format!("  {}", args)));
+                        }
                     }
-                }
-                if !entry.content.is_empty() {
-                    lines.push(Line::default());
+                    if !entry.content.is_empty() {
+                        lines.push(Line::default());
+                    }
                 }
             }
             // Display normal content
@@ -188,7 +193,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_w
                 let md = render_full(&entry.content, max_width);
                 lines.extend(md);
             }
-            if entry.tool_calls.is_some() || !entry.content.is_empty() {
+            if (show_tool_calls && entry.tool_calls.is_some()) || !entry.content.is_empty() {
                 lines.push(Line::default());
             }
         }
@@ -345,31 +350,33 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &App, max
             let md_lines = render_streaming_markdown(&app.streaming_text, max_width);
             lines.extend(md_lines);
         }
-        // Display current executing tool call with detailed info
-        if let Some(ref tool_call) = app.current_tool_call {
-            lines.push(Line::from(vec![
-                Span::styled(
-                    "⚙️ ",
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::styled(
-                    tool_call.name.clone(),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                ),
-            ]));
-            // Try to parse arguments as JSON to show command nicely
-            match serde_json::from_str::<serde_json::Value>(&tool_call.arguments) {
-                Ok(val) if !val.is_null() => {
-                    if let Some(cmd) = val.get("command").and_then(|c| c.as_str()) {
-                        lines.push(Line::from(format!("  {}", cmd)));
-                    } else {
-                        lines.push(Line::from(format!("  {}", val)));
+        // Display current executing tool call with detailed info (if config allows)
+        if app.config.agent.show_tool_calls {
+            if let Some(ref tool_call) = app.current_tool_call {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        "⚙️ ",
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::styled(
+                        tool_call.name.clone(),
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+                // Try to parse arguments as JSON to show command nicely
+                match serde_json::from_str::<serde_json::Value>(&tool_call.arguments) {
+                    Ok(val) if !val.is_null() => {
+                        if let Some(cmd) = val.get("command").and_then(|c| c.as_str()) {
+                            lines.push(Line::from(format!("  {}", cmd)));
+                        } else {
+                            lines.push(Line::from(format!("  {}", val)));
+                        }
                     }
-                }
-                _ => {
-                    // Show raw arguments if not yet valid JSON (still streaming)
-                    if !tool_call.arguments.is_empty() {
-                        lines.push(Line::from(format!("  {}", tool_call.arguments)));
+                    _ => {
+                        // Show raw arguments if not yet valid JSON (still streaming)
+                        if !tool_call.arguments.is_empty() {
+                            lines.push(Line::from(format!("  {}", tool_call.arguments)));
+                        }
                     }
                 }
             }
