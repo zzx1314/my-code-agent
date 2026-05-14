@@ -252,6 +252,12 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_w
                     return;
                 }
             }
+            // Check if it's a file_outline result
+            if try_render_file_outline(lines, &entry.content).is_some() {
+                lines.push(Line::default());
+                return;
+            }
+
             // Fallback: show raw content for non-shell tool results
             if !entry.content.is_empty() {
                 lines.push(Line::from(vec![
@@ -374,6 +380,123 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &App, max
             Style::default().fg(Color::Yellow),
         )));
     }
+}
+
+/// Try to parse tool content as a file_outline result and render it with colored spans.
+/// Returns Some(()) if the content was successfully rendered as a file outline.
+fn try_render_file_outline(lines: &mut Vec<ratatui::text::Line>, content: &str) -> Option<()> {
+    let value: serde_json::Value = serde_json::from_str(content).ok()?;
+    let outline = value.get("outline")?.as_str()?;
+    let path = value.get("path")?.as_str()?;
+
+    // Header: 📋 File Outline + path
+    lines.push(Line::from(vec![
+        Span::styled(
+            "📋 ",
+            Style::default().fg(Color::Cyan),
+        ),
+        Span::styled(
+            "File Outline",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "  File: ",
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::styled(
+            path.to_string(),
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    for line in outline.lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Total line: "Total: N lines"
+        if let Some(total) = line.strip_prefix("Total: ") {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    "  ",
+                    Style::default(),
+                ),
+                Span::styled(
+                    "── ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    format!("Total: {}", total),
+                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+            continue;
+        }
+
+        // Structure line format: "├── [1-10: 10 lines] fn main"
+        // or "└── [1-10: 10 lines] fn main"
+        if let Some((_prefix, rest)) = line.split_once("── ") {
+            let tree_char = line.chars().next().unwrap_or(' ');
+
+            let mut spans = Vec::new();
+            // Tree prefix character
+            spans.push(Span::styled(
+                format!("  {}", tree_char),
+                Style::default().fg(Color::DarkGray),
+            ));
+
+            if let Some((range_str, rest_after_range)) = rest.split_once("] ") {
+                // Range: "── [1-10: 10 lines"
+                let range_part = format!("── {}", range_str);
+                spans.push(Span::styled(
+                    range_part,
+                    Style::default().fg(Color::Blue),
+                ));
+                spans.push(Span::styled(
+                    "] ",
+                    Style::default().fg(Color::Blue),
+                ));
+
+                // Split rest into kind and name
+                let after_range = rest_after_range.trim_start();
+                if let Some((kind, name)) = after_range.split_once(char::is_whitespace) {
+                    let name = name.trim_start();
+                    spans.push(Span::styled(
+                        kind.to_string(),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ));
+                    if !name.is_empty() {
+                        spans.push(Span::styled(
+                            format!(" {}", name),
+                            Style::default().fg(Color::Green),
+                        ));
+                    }
+                } else {
+                    spans.push(Span::styled(
+                        after_range.to_string(),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ));
+                }
+            } else {
+                // Fallback: show the rest as-is
+                let rest_display = format!("── {}", rest);
+                spans.push(Span::styled(
+                    rest_display,
+                    Style::default(),
+                ));
+            }
+
+            lines.push(Line::from(spans));
+        } else {
+            // Fallback for lines that don't match the tree format
+            lines.push(Line::from(format!("  {}", line)));
+        }
+    }
+
+    Some(())
 }
 
 /// Render status messages at the bottom.

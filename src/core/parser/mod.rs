@@ -5,6 +5,8 @@ use tree_sitter::{Node, Parser, Tree};
 pub enum Language {
     Rust,
     JavaScript,
+    TypeScript,
+    Java,
     Html,
     Vue,
 }
@@ -15,6 +17,8 @@ impl Language {
         match ext {
             "rs" => Some(Language::Rust),
             "js" | "jsx" | "mjs" | "cjs" => Some(Language::JavaScript),
+            "ts" | "tsx" | "mts" | "cts" => Some(Language::TypeScript),
+            "java" => Some(Language::Java),
             "html" | "htm" => Some(Language::Html),
             "vue" => Some(Language::Vue),
             _ => None,
@@ -94,6 +98,8 @@ impl ParsedFile {
         let lang_fn = match language {
             Language::Rust => tree_sitter_rust::LANGUAGE.into(),
             Language::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
+            Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            Language::Java => tree_sitter_java::LANGUAGE.into(),
             Language::Html | Language::Vue => tree_sitter_html::LANGUAGE.into(),
         };
         let mut parser = Parser::new();
@@ -166,6 +172,8 @@ impl ParsedFile {
         let kind = match self.language {
             Language::Rust => Self::rust_node_kind(node),
             Language::JavaScript => Self::js_node_kind(node, &self.source),
+            Language::TypeScript => Self::ts_node_kind(node, &self.source),
+            Language::Java => Self::java_node_kind(node),
             Language::Html => Self::html_node_kind(node),
             Language::Vue => Self::vue_node_kind(node, &self.source),
         };
@@ -246,6 +254,37 @@ impl ParsedFile {
         }
     }
 
+    /// Map TypeScript AST node kinds to structure types.
+    /// TypeScript shares the same grammar structure as JavaScript.
+    fn ts_node_kind(node: Node, source: &str) -> Option<&'static str> {
+        // Reuse JS logic for common JS syntax
+        if let Some(kind) = Self::js_node_kind(node, source) {
+            return Some(kind);
+        }
+        // TypeScript-specific declarations
+        match node.kind() {
+            "interface_declaration" => Some("interface"),
+            "type_alias_declaration" => Some("type"),
+            "enum_declaration" => Some("enum"),
+            "abstract_class_declaration" => Some("class"),
+            _ => None,
+        }
+    }
+
+    /// Map Java AST node kinds to structure types
+    fn java_node_kind(node: Node) -> Option<&'static str> {
+        match node.kind() {
+            "class_declaration" => Some("class"),
+            "interface_declaration" => Some("interface"),
+            "enum_declaration" => Some("enum"),
+            "method_declaration" => Some("method"),
+            "constructor_declaration" => Some("constructor"),
+            "annotation_type_declaration" => Some("annotation"),
+            "record_declaration" => Some("record"),
+            _ => None,
+        }
+    }
+
     /// Check if a variable/lexical declaration has a function value
     fn has_function_value(node: Node, _source: &str) -> bool {
         let mut cursor = node.walk();
@@ -310,7 +349,7 @@ impl ParsedFile {
     /// Get the name for a node based on the current language
     fn get_node_name(&self, node: Node) -> Option<String> {
         match self.language {
-            Language::JavaScript => Self::get_js_node_name(node, &self.source),
+            Language::JavaScript | Language::TypeScript => Self::get_js_node_name(node, &self.source),
             Language::Vue => {
                 // For Vue SFC, elements get their tag name as the name
                 if let Some(tag) = Self::get_element_tag(node, &self.source) {
@@ -332,7 +371,7 @@ impl ParsedFile {
                 }
                 None
             }
-            Language::Rust | Language::Html => node
+            Language::Rust | Language::Html | Language::Java => node
                 .child_by_field_name("name")
                 .and_then(|n| n.utf8_text(self.source.as_bytes()).ok())
                 .map(|s| s.to_string()),
@@ -382,6 +421,8 @@ impl ParsedFile {
             let kind = match self.language {
                 Language::Rust => Self::rust_node_kind(child),
                 Language::JavaScript => Self::js_node_kind(child, &self.source),
+                Language::TypeScript => Self::ts_node_kind(child, &self.source),
+                Language::Java => Self::java_node_kind(child),
                 Language::Html => Self::html_node_kind(child),
                 Language::Vue => Self::vue_node_kind(child, &self.source),
             };
@@ -408,8 +449,12 @@ impl ParsedFile {
             if self.language == Language::Rust && kind == "impl" {
                 structures.extend(self.collect_structures(child, false));
             }
-            // For class declarations (JS), also collect methods inside
-            if self.language == Language::JavaScript && kind == "class" {
+            // For class declarations (JS/TS), also collect methods inside
+            if matches!(self.language, Language::JavaScript | Language::TypeScript) && kind == "class" {
+                structures.extend(self.collect_structures(child, false));
+            }
+            // For class declarations (Java), also collect methods and constructors inside
+            if self.language == Language::Java && matches!(kind, "class" | "interface" | "enum" | "record") {
                 structures.extend(self.collect_structures(child, false));
             }
         }
