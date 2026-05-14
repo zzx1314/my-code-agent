@@ -41,6 +41,11 @@ pub fn process_streaming_events(app: &mut App) {
                 Ok(crate::core::agent::stream_response::StreamEvent::ReasoningActive(active)) => {
                     if !active {
                         if !app.streaming_reasoning.is_empty() {
+                            // Reasoning just ended — the upcoming text should be
+                            // separated from any previous content by a newline.
+                            if !app.streaming_text.is_empty() {
+                                app.streaming_text.push_str("\n");
+                            }
                             app.last_reasoning = app.streaming_reasoning.clone();
                             app.streaming_reasoning.clear();
                         }
