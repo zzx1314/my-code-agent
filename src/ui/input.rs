@@ -14,16 +14,19 @@ const MAX_QUEUE_DISPLAY_LINES: usize = 4;
 /// Update the input textarea's visual style based on the current app state.
 ///
 /// - **Idle**: cyan borders, subtle cursor line highlight
-/// - **Streaming**: dark gray (dimmed) borders, no cursor highlight
-/// - **Shell mode**: magenta borders to indicate command mode
+/// - **Streaming**: dark gray (dimmed) borders, no highlight
+/// - **Shell mode**: magenta borders, purple cursor line highlight
+///
+/// The native terminal cursor (blinking bar) is styled separately after the
+/// frame is flushed — see `lifecycle.rs`.
 fn update_input_style(app: &mut App) {
     let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let (border_color, title_text, cursor_style) = if app.is_streaming {
+    let (border_color, title_text, cursor_line_style) = if app.is_streaming {
         let frame = spinner_frames[(app.marquee_frame as usize / 2) % spinner_frames.len()];
         (
             Color::DarkGray,
             format!(" {} Processing... ", frame),
-            Style::default(), // dimmed
+            Style::default(), // no cursor line highlight
         )
     } else if app.shell_mode {
         (
@@ -51,7 +54,11 @@ fn update_input_style(app: &mut App) {
             ))
             .border_type(ratatui::widgets::BorderType::Double),
     );
-    app.input.set_cursor_line_style(cursor_style);
+    app.input.set_cursor_line_style(cursor_line_style);
+    // cursor_style intentionally NOT set — the native terminal cursor
+    // (blinking bar) is the sole cursor indicator, avoiding a wide block
+    // cursor from tui-textarea's cell background styling.
+    app.input.set_cursor_style(Style::default());
 }
 
 /// Wrap a single line of text to fit within `text_width`, tracking cursor position.
@@ -310,23 +317,15 @@ pub fn render_queue_display(f: &mut Frame, app: &App, area: Rect) {
 }
 
 
-/// Render the input textarea into the given area.
+/// Render the input textarea widget and position the native terminal cursor.
 ///
-/// Uses the terminal's native cursor positioned at the correct display column,
-/// accounting for CJK wide characters (char index ≠ display width).
-/// tui-textarea's internal cursor rendering is disabled to avoid position
-/// conflicts with the native cursor.
+/// CJK wide characters are handled by converting char index to display width.
+///
+/// The cursor visual style (color, blinking bar shape, visibility) is applied
+/// **after** the ratatui frame flush in the main loop (`lifecycle.rs`) to
+/// prevent any interference from the terminal backend's own cursor sequences.
 pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     update_input_style(app);
-
-    // Disable tui-textarea's internal cursor — we position the native cursor
-    // ourselves at the correct display column.
-    app.input.set_cursor_style(Style::default());
-
-    // Set the cursor line style based on state
-    if app.is_streaming || app.shell_mode {
-        app.input.set_cursor_line_style(Style::default());
-    }
 
     f.render_widget(&app.input, area);
 
@@ -349,21 +348,8 @@ pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
         let max_y = area.y + area.height.saturating_sub(2);
         if cursor_x <= max_x && cursor_y <= max_y {
             f.set_cursor_position((cursor_x, cursor_y));
-            // Use thin (bar) cursor style via ANSI escape sequence.
-            // Show cursor explicitly: \x1b[?25h
-            // \x1b[5 q = blinking bar cursor (thin vertical line)
-            // \x1b[6 q = steady bar cursor
-            let _ = std::io::Write::write_fmt(
-                &mut std::io::stdout(),
-                format_args!("\x1b[?25h\x1b[5 q"),
-            );
         }
-    } else {
-        // Hide cursor during streaming — prevent it from appearing
-        // at the wrong position (e.g. on the border).
-        let _ = std::io::Write::write_fmt(
-            &mut std::io::stdout(),
-            format_args!("\x1b[?25l"),
-        );
     }
+    // Cursor visibility and style are set in lifecycle.rs after frame flush
+    // to avoid being overwritten by the terminal backend.
 }

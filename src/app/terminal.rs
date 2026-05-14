@@ -39,7 +39,8 @@ pub fn leave_terminal(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
 ) -> anyhow::Result<()> {
     // Disable mouse tracking and bracketed paste
-    // Ensure the terminal cursor is visible before leaving alternate screen
+    // Reset cursor color to default (OSC 112) and ensure cursor is visible
+    let _ = write!(std::io::stdout(), "\x1b]112\x1b\\");
     let _ = write!(std::io::stdout(), "\x1b[?1000l\x1b[?1006l");
     let _ = write!(std::io::stdout(), "\x1b[?2004l");
     let _ = std::io::stdout().flush();

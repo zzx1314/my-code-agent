@@ -1,5 +1,6 @@
 //! Application main loop and shutdown/cleanup logic.
 
+use std::io::Write;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -55,6 +56,36 @@ pub async fn run_app(
         crate::core::agent::stream::check_init_result(&mut app);
 
         terminal.draw(|f| crate::ui::ui(f, &mut app))?;
+
+        // ── Native cursor styling (after frame flush) ──────────────────────
+        // Must happen AFTER terminal.draw() so ratatui's internal flush
+        // (which may send its own cursor sequences via the crossterm backend)
+        // doesn't overwrite our DECSCUSR / OSC 12 sequences.
+        //
+        // During streaming the cursor is hidden; otherwise it's shown as a
+        // green blinking bar (narrow shape).
+        //
+        // Using write! + flush() directly — BufWriter would buffer and never
+        // deliver the sequences to the terminal.
+        if app.is_streaming {
+            let _ = std::io::Write::write_fmt(
+                &mut std::io::stdout(),
+                format_args!("\x1b[?25l"),
+            );
+        } else {
+            let cursor_color = if app.shell_mode {
+                "#64c85a" // shell mode: bright green
+            } else {
+                "#40e870" // idle: green
+            };
+            let _ = std::io::Write::write_fmt(
+                &mut std::io::stdout(),
+                format_args!(
+                    "\x1b]12;{cursor_color}\x1b\\\x1b[?25h\x1b[5 q"
+                ),
+            );
+        }
+        let _ = std::io::stdout().flush();
 
         crate::core::agent::stream::process_message_queue(&mut app, &mut context_manager);
 
