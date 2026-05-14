@@ -14,6 +14,51 @@ use crate::core::context::context_manager::ContextManager;
 use crate::core::session::SessionData;
 use crate::core::context::token_usage::TokenUsage;
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Cursor color palette — cycles through these hues for the native terminal
+// cursor (OSC 12). Each pulse (~2 s) smoothly interpolates between adjacent
+// colors via a ease-in-out sine wave.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const CURSOR_PULSE_MS: u128 = 2000;
+
+const CURSOR_PALETTE: &[(u8, u8, u8)] = &[
+    (255, 120, 0),     // warm orange
+    (255, 60, 60),     // coral red
+    (255, 180, 0),     // gold
+    (0,   200, 255),   // cyan
+    (0,   255, 120),   // spring green
+    (200, 100, 255),   // purple
+];
+
+fn lerp_rgb(a: (u8, u8, u8), b: (u8, u8, u8), t: f64) -> (u8, u8, u8) {
+    let t = t.clamp(0.0, 1.0);
+    (
+        (a.0 as f64 * (1.0 - t) + b.0 as f64 * t).round() as u8,
+        (a.1 as f64 * (1.0 - t) + b.1 as f64 * t).round() as u8,
+        (a.2 as f64 * (1.0 - t) + b.2 as f64 * t).round() as u8,
+    )
+}
+
+// Sine-wave interpolation between adjacent palette entries — each "pulse"
+// transitions smoothly from one color to the next, wrapping at the end.
+fn cursor_color_at(elapsed_ms: u128) -> String {
+    let cycle_num = elapsed_ms / CURSOR_PULSE_MS;
+    let pos = elapsed_ms % CURSOR_PULSE_MS;
+    let phase = pos as f64 / CURSOR_PULSE_MS as f64;
+
+    let i = (cycle_num as usize) % CURSOR_PALETTE.len();
+    let j = (i + 1) % CURSOR_PALETTE.len();
+
+    let a = CURSOR_PALETTE[i];
+    let b = CURSOR_PALETTE[j];
+
+    let t = ((2.0 * std::f64::consts::PI * phase).sin() + 1.0) / 2.0;
+
+    let (r, g, b) = lerp_rgb(a, b, t);
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
 /// Run the main event loop until the user exits.
 ///
 /// After the loop exits, performs all shutdown cleanup:
@@ -63,7 +108,7 @@ pub async fn run_app(
         // doesn't overwrite our DECSCUSR / OSC 12 sequences.
         //
         // During streaming the cursor is hidden; otherwise it's shown as a
-        // green blinking bar (narrow shape).
+        // blinking bar (narrow shape) with a dynamically cycling color.
         //
         // Using write! + flush() directly — BufWriter would buffer and never
         // deliver the sequences to the terminal.
@@ -74,9 +119,10 @@ pub async fn run_app(
             );
         } else {
             let cursor_color = if app.shell_mode {
-                "#64c85a" // shell mode: bright green
+                "#64c85a".to_string() // shell mode: static bright green
             } else {
-                "#40e870" // idle: green
+                let elapsed_ms = app.cursor_anim_start.elapsed().as_millis();
+                cursor_color_at(elapsed_ms)
             };
             let _ = std::io::Write::write_fmt(
                 &mut std::io::stdout(),
