@@ -129,11 +129,11 @@ impl CodeReview {
     }
 
     /// Read a file with line limit
-    fn read_file_with_limit(
+    async fn read_file_with_limit(
         path: &std::path::Path,
         max_lines: usize,
     ) -> Result<(String, usize, bool), std::io::Error> {
-        let content = std::fs::read_to_string(path)?;
+        let content = tokio::fs::read_to_string(path).await?;
         let lines: Vec<&str> = content.lines().collect();
         let line_count = lines.len();
 
@@ -154,7 +154,7 @@ impl CodeReview {
     }
 
     /// Collect files to review from a path
-    fn collect_files(
+    async fn collect_files(
         &self,
         path: &std::path::Path,
         extensions: &[String],
@@ -171,10 +171,11 @@ impl CodeReview {
             }
         } else if path.is_dir() {
             let mut files = Vec::new();
-            let mut entries = std::fs::read_dir(path)?
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .collect::<Vec<_>>();
+            let mut read_dir = tokio::fs::read_dir(path).await.map_err(CodeReviewError::Io)?;
+            let mut entries = Vec::new();
+            while let Ok(Some(entry)) = read_dir.next_entry().await {
+                entries.push(entry.path());
+            }
 
             // Sort for consistent ordering
             entries.sort();
@@ -188,9 +189,9 @@ impl CodeReview {
                     files.push(entry);
                 } else if entry.is_dir() {
                     // Recursively search subdirectories
-                    let mut sub_files =
-                        self.collect_files(&entry, extensions, max_files - files.len())?;
-                    files.append(&mut sub_files);
+                    let sub_files =
+                        Box::pin(self.collect_files(&entry, extensions, max_files - files.len())).await?;
+                    files.extend(sub_files);
                 }
             }
 
@@ -259,7 +260,7 @@ impl Tool for CodeReview {
         }
 
         let extensions = args.file_extensions.unwrap_or_default();
-        let files = self.collect_files(path, &extensions, args.max_files).map_err(|e| e.to_string())?;
+        let files = self.collect_files(path, &extensions, args.max_files).await.map_err(|e| e.to_string())?;
 
         let mut files_to_review = Vec::new();
         let mut truncated = false;
@@ -267,7 +268,7 @@ impl Tool for CodeReview {
         for file in files.iter().take(args.max_files) {
             let language = Self::get_language(file);
 
-            match Self::read_file_with_limit(file, args.max_lines_per_file) {
+            match Self::read_file_with_limit(file, args.max_lines_per_file).await {
                 Ok((content, line_count, file_truncated)) => {
                     truncated |= file_truncated;
                     files_to_review.push(FileToReview {

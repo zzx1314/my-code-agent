@@ -3,10 +3,8 @@ use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::core::context::tool_dedup::get_global_tool_dedup;
 use crate::tools::exec::confirmation::ConfirmationHandle;
 use crate::tools::exec::safety::{confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion};
-use crate::tools::infra::undo_history;
 
 #[derive(Deserialize, Serialize)]
 pub struct FileDeleteArgs {
@@ -142,7 +140,7 @@ impl Tool for FileDelete {
                 }
             }
 
-            let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+            let content = tokio::fs::read_to_string(path).await.map_err(|e| e.to_string())?;
 
             let count = content.matches(&snippet).count();
 
@@ -158,26 +156,17 @@ impl Tool for FileDelete {
 
             let new_content = content.replace(&snippet, "");
 
-            // Record the change for undo before writing
-            let _ = undo_history::record_change(
+            // Use the shared tracking utility: write + undo + dedup invalidation + git diff.
+            // Pass `Some(content)` (the old content) so it doesn't re-read the file.
+            let (_, git_diff) = super::fs_write_with_tracking(
                 &args.path,
-                Some(content.clone()),
-                Some(new_content.clone()),
+                &new_content,
                 "file_delete (snippet)",
-            );
-
-            std::fs::write(path, &new_content).map_err(|e| e.to_string())?;
-
-            // Invalidate dedup cache for this path — file content has changed
-            {
-                let dedup = get_global_tool_dedup();
-                let mut guard = dedup.lock().unwrap();
-                guard.invalidate_path(&args.path);
-            }
+                Some(content.clone()),
+            )
+            .await?;
 
             let diff = super::build_diff(&snippet, "", &content);
-
-            let git_diff = super::run_git_diff(&args.path).await;
 
             return serde_json::to_string(&FileDeleteOutput {
                 path: args.path,
@@ -215,30 +204,21 @@ impl Tool for FileDelete {
         let (deleted_type, git_diff) = if path.is_dir() {
             if args.recursive {
                 let git_diff = super::run_git_diff(&args.path).await;
-                std::fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+                tokio::fs::remove_dir_all(path).await.map_err(|e| e.to_string())?;
+                super::invalidate_dedup_cache(&args.path);
                 ("directory".to_string(), git_diff)
             } else {
-                std::fs::remove_dir(path).map_err(|e| e.to_string())?;
+                tokio::fs::remove_dir(path).await.map_err(|e| e.to_string())?;
+                super::invalidate_dedup_cache(&args.path);
                 ("directory".to_string(), None)
             }
         } else if path.is_file() {
-            // Run git diff before deletion
-            let git_diff = super::run_git_diff(&args.path).await;
-            // Record file content for undo before deletion
-            let old_content = std::fs::read_to_string(path).ok();
-            let _ = undo_history::record_change(&args.path, old_content, None, "file_delete");
-            std::fs::remove_file(path).map_err(|e| e.to_string())?;
+            // Use the shared deletion tracking utility: git diff + undo + delete + dedup invalidation
+            let git_diff = super::fs_delete_with_tracking(&args.path).await?;
             ("file".to_string(), git_diff)
         } else {
             return Err(format!("Path is not a file or directory: {}", args.path));
         };
-
-        // Invalidate dedup cache for this path — file has been deleted
-        {
-            let dedup = get_global_tool_dedup();
-            let mut guard = dedup.lock().unwrap();
-            guard.invalidate_path(&args.path);
-        }
 
         serde_json::to_string(&FileDeleteOutput {
             path: args.path,

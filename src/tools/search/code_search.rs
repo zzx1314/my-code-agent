@@ -158,12 +158,19 @@ impl Tool for CodeSearch {
         for (file, indices) in files_to_parse {
             let cache = get_global_file_cache();
             let content = {
-                let mut cache_guard = cache.lock().unwrap();
-                if let Some(entry) = cache_guard.get(&file) {
-                    Some(entry.content.clone())
+                // Check cache first (sync, under lock — lock is dropped before `.await`)
+                let cached = {
+                    let mut cache_guard = cache.lock().unwrap();
+                    cache_guard.get(&file).map(|entry| entry.content.clone())
+                };
+
+                if let Some(cached_content) = cached {
+                    Some(cached_content)
                 } else {
-                    match std::fs::read_to_string(&file) {
+                    // Cache miss — read from disk asynchronously
+                    match tokio::fs::read_to_string(&file).await {
                         Ok(content) => {
+                            let mut cache_guard = cache.lock().unwrap();
                             cache_guard.insert(&file, content.clone());
                             Some(content)
                         }

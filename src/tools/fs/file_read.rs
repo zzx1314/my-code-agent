@@ -144,11 +144,19 @@ impl Tool for FileRead {
         // ── File I/O (via disk cache) ─────────────────────────────────────
         let cache = get_global_file_cache();
         let content = {
-            let mut cache_guard = cache.lock().unwrap();
-            if let Some(entry) = cache_guard.get(&args.path) {
-                entry.content.clone()
+            // Check cache first (sync, under lock — lock is dropped before `.await`)
+            let cached = {
+                let mut cache_guard = cache.lock().unwrap();
+                cache_guard.get(&args.path).map(|entry| entry.content.clone())
+            };
+
+            if let Some(cached_content) = cached {
+                cached_content
             } else {
-                let content = std::fs::read_to_string(&args.path).map_err(|e| e.to_string())?;
+                // Cache miss — read from disk asynchronously
+                let content = tokio::fs::read_to_string(&args.path).await.map_err(|e| e.to_string())?;
+                // Update cache
+                let mut cache_guard = cache.lock().unwrap();
                 cache_guard.insert(&args.path, content.clone());
                 content
             }

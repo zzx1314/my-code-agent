@@ -2,7 +2,6 @@ use crate::core::types::ToolDefinition;
 use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::fs;
 use std::path::Path;
 
 #[derive(Debug, thiserror::Error)]
@@ -93,7 +92,7 @@ impl Tool for ListDir {
         let mut total_dirs = 0usize;
 
         let entries =
-            list_dir_recursive(path, args.max_depth, 1, &mut total_files, &mut total_dirs);
+            list_dir_recursive(path, args.max_depth, 1, &mut total_files, &mut total_dirs).await;
 
         let output = ListDirOutput {
             path: args.path,
@@ -106,7 +105,7 @@ impl Tool for ListDir {
 }
 
 /// Recursively lists directory contents up to `max_depth`.
-fn list_dir_recursive(
+async fn list_dir_recursive(
     dir: &Path,
     max_depth: usize,
     current_depth: usize,
@@ -115,17 +114,21 @@ fn list_dir_recursive(
 ) -> Vec<DirEntry> {
     let mut entries: Vec<DirEntry> = Vec::new();
 
-    let read_dir = match fs::read_dir(dir) {
+    let mut read_dir = match tokio::fs::read_dir(dir).await {
         Ok(rd) => rd,
         Err(_) => return entries,
     };
 
     // Collect and sort entries for deterministic output
-    let mut dir_entries: Vec<_> = read_dir.filter_map(|e| e.ok()).collect();
+    let mut dir_entries = Vec::new();
+    while let Ok(Some(entry)) = read_dir.next_entry().await {
+        dir_entries.push(entry);
+    }
     dir_entries.sort_by(|a, b| {
         // Directories first, then files; alphabetically within each group
-        let a_is_dir = a.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        let b_is_dir = b.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        // Use blocking metadata lookup since we need sync sort
+        let a_is_dir = std::fs::metadata(a.path()).map(|m| m.is_dir()).unwrap_or(false);
+        let b_is_dir = std::fs::metadata(b.path()).map(|m| m.is_dir()).unwrap_or(false);
         match (a_is_dir, b_is_dir) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
@@ -135,18 +138,18 @@ fn list_dir_recursive(
 
     for entry in dir_entries {
         let name = entry.file_name().to_string_lossy().to_string();
-        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let is_dir = std::fs::metadata(entry.path()).map(|m| m.is_dir()).unwrap_or(false);
 
         if is_dir {
             *total_dirs += 1;
             let children = if current_depth < max_depth {
-                let kids = list_dir_recursive(
+                let kids = Box::pin(list_dir_recursive(
                     &entry.path(),
                     max_depth,
                     current_depth + 1,
                     total_files,
                     total_dirs,
-                );
+                )).await;
                 if kids.is_empty() { None } else { Some(kids) }
             } else {
                 None

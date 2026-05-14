@@ -3,9 +3,6 @@ use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::core::context::tool_dedup::get_global_tool_dedup;
-use crate::tools::infra::undo_history;
-
 #[derive(Deserialize, Serialize)]
 pub struct FileWriteArgs {
     pub path: String,
@@ -66,30 +63,17 @@ impl Tool for FileWrite {
         if args.create_dirs
             && let Some(parent) = std::path::Path::new(&args.path).parent()
         {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
         }
 
-        // Record the change for undo before writing
-        let old_content = std::fs::read_to_string(&args.path).ok();
-        let _ = undo_history::record_change(
+        // Use the shared tracking utility: write + undo + dedup invalidation + git diff
+        let (bytes_written, git_diff) = super::fs_write_with_tracking(
             &args.path,
-            old_content,
-            Some(args.content.clone()),
+            &args.content,
             "file_write",
-        );
-
-        let bytes_written = args.content.len();
-        std::fs::write(&args.path, &args.content).map_err(|e| e.to_string())?;
-
-        // Invalidate dedup cache for this path — file content has changed
-        {
-            let dedup = get_global_tool_dedup();
-            let mut guard = dedup.lock().unwrap();
-            guard.invalidate_path(&args.path);
-        }
-
-        // Run git diff to show what changed
-        let git_diff = super::run_git_diff(&args.path).await;
+            None,
+        )
+        .await?;
 
         serde_json::to_string(&FileWriteOutput {
             path: args.path,

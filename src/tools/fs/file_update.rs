@@ -3,9 +3,6 @@ use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::core::context::tool_dedup::get_global_tool_dedup;
-use crate::tools::infra::undo_history;
-
 #[derive(Deserialize, Serialize)]
 pub struct FileUpdateArgs {
     pub path: String,
@@ -74,7 +71,7 @@ impl Tool for FileUpdate {
     async fn call(&self, args: serde_json::Value) -> Result<String, String> {
         let args: FileUpdateArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        let content = std::fs::read_to_string(&args.path).map_err(|e| e.to_string())?;
+        let content = tokio::fs::read_to_string(&args.path).await.map_err(|e| e.to_string())?;
         let has_trailing_newline = content.ends_with('\n');
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
@@ -115,28 +112,19 @@ impl Tool for FileUpdate {
             new_file_content.push('\n');
         }
 
-        // Record the change for undo before writing
-        let _ = undo_history::record_change(
+        // Use the shared tracking utility: write + undo + dedup invalidation + git diff.
+        // Pass `Some(content.clone())` so it doesn't re-read the file we just read.
+        // Clone because `lines` borrows from `content` and is used below for the diff.
+        let (_, git_diff) = super::fs_write_with_tracking(
             &args.path,
-            Some(content.clone()),
-            Some(new_file_content.clone()),
+            &new_file_content,
             "file_update",
-        );
-
-        std::fs::write(&args.path, &new_file_content).map_err(|e| e.to_string())?;
-
-        // Invalidate dedup cache for this path — file content has changed
-        {
-            let dedup = get_global_tool_dedup();
-            let mut guard = dedup.lock().unwrap();
-            guard.invalidate_path(&args.path);
-        }
+            Some(content.clone()),
+        )
+        .await?;
 
         // Build a diff showing the line-level change
         let diff = build_line_diff(args.start_line, args.delete_count, &args.new_content, &lines);
-
-        // Run git diff to show what changed
-        let git_diff = super::run_git_diff(&args.path).await;
 
         serde_json::to_string(&FileUpdateOutput {
             path: args.path,

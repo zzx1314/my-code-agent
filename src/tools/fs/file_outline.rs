@@ -68,7 +68,7 @@ impl Tool for FileOutline {
             }
         }
 
-        let content = std::fs::read_to_string(&args.path).map_err(|e| e.to_string())?;
+        let content = tokio::fs::read_to_string(&args.path).await.map_err(|e| e.to_string())?;
         let total_lines = content.lines().count();
 
         let outline = if let Some(parsed) = ParsedFile::parse_with_path(content, &args.path) {
