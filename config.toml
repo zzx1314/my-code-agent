@@ -64,6 +64,13 @@ max_turns = 10
 # Default: false
 # show_tool_calls = false
 
+# Whether to show tool call arguments and results (vs just the tool name).
+# When false, only the tool name (e.g. "⚙️ file_read") is shown without arguments or results.
+# Only effective when show_tool_calls is true. Default: true (show everything).
+# Default: true
+# show_tool_details = true
+
+
 # Whether to show tool call details in the chat history after the response completes.
 # When false (default), tool calls and results are hidden from completed responses.
 # Set to true to inspect what tools were called after the fact.

@@ -48,6 +48,10 @@ fn default_api_key_env() -> String {
 fn default_base_url() -> Option<String> {
     None
 }
+fn default_true() -> bool {
+    true
+}
+
 
 /// Configuration file name (looked up in the application base directory).
 pub const CONFIG_FILE: &str = "config.toml";
@@ -145,6 +149,10 @@ pub struct AgentConfig {
     /// Default: false.
     #[serde(default)]
     pub show_tool_calls: bool,
+    /// Whether to show tool call arguments and results (vs just the tool name).
+    /// Only effective when show_tool_calls is true. Default: true (show everything).
+    #[serde(default = "default_true")]
+    pub show_tool_details: bool,
     /// Whether to show tool call details in the chat history after the response completes.
     /// When false (default), tool calls and results are hidden from completed responses.
     /// Default: false.
@@ -276,6 +284,7 @@ impl Default for AgentConfig {
             think_command: true,
             thinking_display_height: default_thinking_display_height(),
             show_tool_calls: false,
+            show_tool_details: true,
             show_tool_calls_in_history: false,
         }
     }

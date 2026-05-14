@@ -133,7 +133,7 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
         .map(|(i, e)| (i, e.clone()))
         .collect();
     for (i, entry) in &before {
-        render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history);
+        render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
     }
 
     // Reasoning block
@@ -157,7 +157,7 @@ fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &mut App, max
         .map(|(i, e)| (i, e.clone()))
         .collect();
     for (i, entry) in &entries {
-        render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history);
+        render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
     }
 }
 
@@ -215,7 +215,7 @@ fn render_collapsible_block<'a>(
 }
 
 /// Render a single message with role-based styling.
-fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry_idx: usize, app: &mut App, max_width: Option<usize>, show_tool_calls: bool) {
+fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry_idx: usize, app: &mut App, max_width: Option<usize>, show_tool_calls: bool, show_tool_details: bool) {
     match entry.role.as_str() {
         "user" => {
             lines.push(Line::from(vec![
@@ -246,11 +246,13 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
                                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                             ),
                         ]));
-                        if let Some(cmd) = args.get("command").and_then(|c| c.as_str()) {
-                            lines.push(Line::from(format!("  {}", cmd)));
-                        } else {
-                            lines.push(Line::from(format!("  {}", args)));
-                        }
+                            if show_tool_details {
+                                if let Some(cmd) = args.get("command").and_then(|c| c.as_str()) {
+                                    lines.push(Line::from(format!("  {}", cmd)));
+                                } else {
+                                    lines.push(Line::from(format!("  {}", args)));
+                                }
+                            }
                     }
                     if !entry.content.is_empty() {
                         lines.push(Line::default());
@@ -275,7 +277,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
             }
 
             // Other tool results are only shown when show_tool_calls is enabled
-            if show_tool_calls {
+            if show_tool_calls && show_tool_details {
                 // Parse the tool result (ShellExecOutput JSON) for nice display
                 if let Ok(output) = serde_json::from_str::<serde_json::Value>(&entry.content) {
                     if let Some(cmd) = output.get("command").and_then(|c| c.as_str()) {
@@ -449,18 +451,20 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
                     ),
                 ]));
                 // Try to parse arguments as JSON to show command nicely
-                match serde_json::from_str::<serde_json::Value>(&tool_call.arguments) {
-                    Ok(val) if !val.is_null() => {
-                        if let Some(cmd) = val.get("command").and_then(|c| c.as_str()) {
-                            lines.push(Line::from(format!("  {}", cmd)));
-                        } else {
-                            lines.push(Line::from(format!("  {}", val)));
+                if app.config.agent.show_tool_details {
+                    match serde_json::from_str::<serde_json::Value>(&tool_call.arguments) {
+                        Ok(val) if !val.is_null() => {
+                            if let Some(cmd) = val.get("command").and_then(|c| c.as_str()) {
+                                lines.push(Line::from(format!("  {}", cmd)));
+                            } else {
+                                lines.push(Line::from(format!("  {}", val)));
+                            }
                         }
-                    }
-                    _ => {
-                        // Show raw arguments if not yet valid JSON (still streaming)
-                        if !tool_call.arguments.is_empty() {
-                            lines.push(Line::from(format!("  {}", tool_call.arguments)));
+                        _ => {
+                            // Show raw arguments if not yet valid JSON (still streaming)
+                            if !tool_call.arguments.is_empty() {
+                                lines.push(Line::from(format!("  {}", tool_call.arguments)));
+                            }
                         }
                     }
                 }
@@ -476,8 +480,7 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
                 && try_render_shell_exec_result(lines, &content, usize::MAX, app).is_none()
                 && try_render_file_outline(lines, &content, usize::MAX, app).is_none()
             {
-                // Non-file, non-shell, non-outline tool result: show raw content with collapsible
-                if app.config.agent.show_tool_calls {
+                if app.config.agent.show_tool_calls && app.config.agent.show_tool_details {
                     let raw_lines: Vec<Line> = content.lines()
                         .map(|l| Line::from(l.to_string()))
                         .collect();
