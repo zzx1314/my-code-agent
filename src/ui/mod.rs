@@ -26,6 +26,9 @@ use status::render_status_bar;
 /// 2. Input area (dynamic height based on content)
 /// 3. Status bar (1 line)
 pub fn ui(f: &mut Frame, app: &mut App) {
+    // Reset toggle tracking each frame — it gets rebuilt during rendering
+    app.collapsed_toggles.clear();
+
     let area = f.area();
     let text_width = (area.width as usize).saturating_sub(2);
 

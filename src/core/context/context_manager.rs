@@ -4,6 +4,11 @@ use crate::core::types::Message;
 const PREAMBLE_ESTIMATED_TOKENS: u64 = 1000;
 const PRE_SEND_THRESHOLD_PERCENT: u64 = 50;
 
+/// Manages the context window for conversation history, including pruning,
+/// compaction, and token estimation.
+///
+/// Tracks whether pruning has been triggered and how many compactions have
+/// occurred to provide visibility into context management operations.
 #[derive(Debug, Clone)]
 pub struct ContextManager {
     config: Config,
@@ -12,6 +17,7 @@ pub struct ContextManager {
 }
 
 impl ContextManager {
+    /// Creates a new `ContextManager` by cloning the provided config.
     pub fn new(config: &Config) -> Self {
         Self {
             config: config.clone(),
@@ -20,6 +26,7 @@ impl ContextManager {
         }
     }
 
+    /// Creates a new `ContextManager` that takes ownership of the provided config.
     pub fn with_config(config: Config) -> Self {
         Self {
             config,
@@ -28,6 +35,8 @@ impl ContextManager {
         }
     }
 
+    /// Returns `true` if the context should be pruned before sending a request,
+    /// based on the estimated token usage reaching the pre-send threshold (50%).
     pub fn should_prune_before_send(&self, estimated_tokens: u64) -> bool {
         let window_size = self.config.context.window_size;
         if window_size == 0 {
@@ -37,6 +46,8 @@ impl ContextManager {
         usage_pct >= PRE_SEND_THRESHOLD_PERCENT
     }
 
+    /// Returns `true` if the current token usage has reached the critical
+    /// threshold, indicating that compaction should be performed.
     pub fn should_compact(&self, input_tokens: u64) -> bool {
         let threshold = self.config.context.critical_threshold_percent;
         let window_size = self.config.context.window_size;
@@ -47,6 +58,9 @@ impl ContextManager {
         usage_pct >= threshold
     }
 
+    /// Returns `true` if token usage is at or above the warn threshold but
+    /// below the critical threshold, indicating that the context is approaching
+    /// its limit and attention is warranted.
     pub fn should_warn(&self, input_tokens: u64) -> bool {
         let threshold = self.config.context.warn_threshold_percent;
         let window_size = self.config.context.window_size;
@@ -195,6 +209,11 @@ impl ContextManager {
         }
     }
 
+    /// Finds the earliest index (from oldest to newest) at which messages
+    /// exceed the retention budget (30% of window size) when counted from
+    /// the newest end. Used to determine where to insert a summary.
+    ///
+    /// Returns `None` if all messages fit within the retention budget.
     pub fn find_compact_point(&self, messages: &[Message]) -> Option<usize> {
         let retain_tokens = self.config.context.window_size * 30 / 100;
         let mut token_count = 0;
@@ -208,6 +227,11 @@ impl ContextManager {
         None
     }
 
+    /// Compacts the message list by replacing the oldest messages (those that
+    /// exceed the retention budget) with a single summary message.
+    ///
+    /// Returns a new vector starting with the summary, followed by the messages
+    /// that fit within the retention budget.
     pub fn compact_messages(&self, messages: &[Message], summary: &str) -> Vec<Message> {
         if messages.is_empty() {
             return vec![];
@@ -223,18 +247,25 @@ impl ContextManager {
         new_messages
     }
 
+    /// Estimates the maximum number of tokens that can be retained in the
+    /// context after applying the warn threshold headroom.
     pub fn estimate_max_tokens(&self) -> u64 {
         let window_size = self.config.context.window_size;
         let warn_threshold = self.config.context.warn_threshold_percent;
         window_size * (100 - warn_threshold) / 100
     }
 
+    /// Estimates the total token count for a list of messages, optionally
+    /// including the preamble tokens.
     pub fn estimate_messages_tokens(&self, messages: &[Message], include_preamble: bool) -> u64 {
         let preamble = if include_preamble { PREAMBLE_ESTIMATED_TOKENS } else { 0 };
         let msgs: u64 = messages.iter().map(|m| Self::estimate_message_tokens(m)).sum();
         preamble + msgs
     }
 
+    /// Estimates the number of tokens in a text string using a simple
+    /// heuristic: ASCII characters count as 1/4 token, non-ASCII characters
+    /// count as 2/3 token. Returns at least 1 for non-empty input.
     pub fn estimate_text_tokens(text: &str) -> u64 {
         if text.is_empty() {
             return 1;
@@ -244,6 +275,8 @@ impl ContextManager {
         (ascii / 4 + non_ascii * 2 / 3).max(1)
     }
 
+    /// Estimates the number of tokens in a single message, including content
+    /// text, tool call names/arguments, and tool call IDs with fixed overhead.
     pub fn estimate_message_tokens(msg: &Message) -> u64 {
         let mut total = Self::estimate_text_tokens(&msg.content);
         if let Some(ref calls) = msg.tool_calls {
@@ -260,28 +293,38 @@ impl ContextManager {
         total.max(1)
     }
 
+    /// Returns whether pruning has been triggered during the current session.
     pub fn is_prune_triggered(&self) -> bool {
         self.prune_triggered
     }
 
+    /// Sets the prune-triggered flag to the given value.
     pub fn set_prune_triggered(&mut self, triggered: bool) {
         self.prune_triggered = triggered;
     }
 
+    /// Returns the number of times compaction has been performed during the
+    /// current session.
     pub fn compact_count(&self) -> usize {
         self.compact_count
     }
 
+    /// Increments the compaction counter by one.
     pub fn increment_compact_count(&mut self) {
         self.compact_count += 1;
     }
 
+    /// Resets the prune-triggered flag and compaction counter to their
+    /// initial values.
     pub fn reset(&mut self) {
         self.prune_triggered = false;
         self.compact_count = 0;
     }
 }
 
+/// Formats a slice of messages into a simple human-readable string for
+/// display in context logs, showing each message's role and content on
+/// separate lines.
 pub fn format_messages_for_context(messages: &[Message]) -> String {
     if messages.is_empty() {
         return String::from("(No previous messages)");

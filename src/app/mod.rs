@@ -111,6 +111,8 @@ pub struct App {
     pub streaming_reasoning: String,
     /// Currently executing tool call (displayed inline, replaces previous)
     pub current_tool_call: Option<CurrentToolCall>,
+    /// Most recent completed tool result during streaming (tool name, content)
+    pub streaming_tool_result: Option<(String, String)>,
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
     /// Agent for processing requests
@@ -189,6 +191,11 @@ pub struct App {
     pub history_index: Option<usize>,
     /// Draft text saved when the user starts browsing history (so we can restore it on Down past the end)
     pub history_draft: String,
+    // === Collapsible sections state ===
+    /// Track which sections are collapsed (section_id -> collapsed)
+    pub collapsed_sections: std::collections::HashSet<String>,
+    /// Toggle positions for mouse click handling: (logical_line_index, section_id)
+    pub collapsed_toggles: Vec<(u16, String)>,
 }
 
 impl App {
@@ -214,6 +221,7 @@ impl App {
         App {
             chat_history,
             current_response: String::new(),
+            streaming_tool_result: None,
             input: input_area,
             scroll: 0,
             total_lines: 0,
@@ -284,6 +292,8 @@ impl App {
             input_history: Vec::new(),
             history_index: None,
             history_draft: String::new(),
+            collapsed_sections: std::collections::HashSet::new(),
+            collapsed_toggles: Vec::new(),
         }
     }
 }

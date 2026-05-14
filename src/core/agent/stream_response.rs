@@ -128,6 +128,7 @@ pub struct StreamResult {
 pub enum StreamEvent {
     Text(String),
     ToolCall { name: String, arguments: String },
+    ToolResult { name: String, content: String },
     ReasoningActive(bool),
     ReasoningDelta(String),
 }
@@ -565,6 +566,11 @@ pub async fn stream_response(
                         Ok(output) => output,
                         Err(e) => format!("Error: {}", e),
                     };
+                    // Emit tool result event for real-time display during streaming
+                    send_event(StreamEvent::ToolResult {
+                        name: tc.function.name.clone(),
+                        content: content.clone(),
+                    });
                     let tr = Message::tool(&tc.id, content);
                     messages.push(tr);
                 }

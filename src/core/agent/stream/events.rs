@@ -12,6 +12,8 @@ pub fn process_streaming_events(app: &mut App) {
                         app.streaming_text.push_str("\n");
                         app.current_tool_call = None;
                     }
+                    // Clear tool result when new text arrives — model is responding
+                    app.streaming_tool_result = None;
                     app.streaming_text.push_str(&delta);
                 }
                 Ok(crate::core::agent::stream_response::StreamEvent::ToolCall { name, arguments }) => {
@@ -19,6 +21,13 @@ pub fn process_streaming_events(app: &mut App) {
                     // tool may arrive in multiple chunks with progressively more complete
                     // arguments. Just update the current tool call info.
                     app.current_tool_call = Some(crate::app::CurrentToolCall { name, arguments });
+                    // Clear previous tool result — a new tool call is starting
+                    app.streaming_tool_result = None;
+                }
+                Ok(crate::core::agent::stream_response::StreamEvent::ToolResult { name, content }) => {
+                    // Store the completed tool result for display during streaming
+                    app.current_tool_call = None;
+                    app.streaming_tool_result = Some((name, content));
                 }
                 Ok(crate::core::agent::stream_response::StreamEvent::ReasoningActive(active)) => {
                     if !active {

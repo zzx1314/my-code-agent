@@ -7,6 +7,9 @@ use crate::app::{App, ChatEntry};
 use crate::ui::render::{render_full, render_streaming_markdown};
 use crate::ui::terminal;
 
+/// Threshold for collapsing content: sections with more lines than this are collapsed.
+const COLLAPSE_THRESHOLD: usize = 8;
+
 /// Render the chat history area including streaming content and reasoning.
 pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     if app.show_banner {
@@ -119,9 +122,12 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
 
     let show_tool_calls_in_history = app.config.agent.show_tool_calls_in_history;
 
-    // Messages before the last assistant message
-    for entry in &app.chat_history[..split_idx] {
-        render_message(lines, entry, max_width, show_tool_calls_in_history);
+    // Clone entries before the last assistant to avoid borrow conflict with &mut App
+    let before: Vec<(usize, ChatEntry)> = app.chat_history[..split_idx].iter().enumerate()
+        .map(|(i, e)| (i, e.clone()))
+        .collect();
+    for (i, entry) in &before {
+        render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history);
     }
 
     // Reasoning block
@@ -138,15 +144,72 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
 }
 
 /// Render all chat messages in order.
-fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &App, max_width: Option<usize>) {
+fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &mut App, max_width: Option<usize>) {
     let show_tool_calls_in_history = app.config.agent.show_tool_calls_in_history;
-    for entry in &app.chat_history {
-        render_message(lines, entry, max_width, show_tool_calls_in_history);
+    // Clone entries to avoid borrow conflict with &mut App
+    let entries: Vec<(usize, ChatEntry)> = app.chat_history.iter().enumerate()
+        .map(|(i, e)| (i, e.clone()))
+        .collect();
+    for (i, entry) in &entries {
+        render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history);
+    }
+}
+
+/// Render a collapsible block of `Line`s. If the number of content lines exceeds
+/// `COLLAPSE_THRESHOLD` and the section is in the collapsed set, only the first
+/// `COLLAPSE_THRESHOLD` lines are shown with a toggle to expand. If expanded, all
+/// lines are shown with a toggle to collapse.
+fn render_collapsible_block<'a>(
+    lines: &mut Vec<ratatui::text::Line<'a>>,
+    app: &mut App,
+    section_id: &str,
+    content: Vec<ratatui::text::Line<'a>>,
+) {
+    let total = content.len();
+    let collapsed = app.collapsed_sections.contains(section_id);
+
+    if total > COLLAPSE_THRESHOLD {
+        if collapsed {
+            // Show first COLLAPSE_THRESHOLD lines
+            for line in content.into_iter().take(COLLAPSE_THRESHOLD) {
+                lines.push(line);
+            }
+            let toggle_line = lines.len() as u16;
+            lines.push(ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(
+                    format!("  [+ {} more lines - click to expand]", total - COLLAPSE_THRESHOLD),
+                    ratatui::style::Style::default()
+                        .fg(ratatui::style::Color::Yellow)
+                        .add_modifier(ratatui::style::Modifier::BOLD),
+                ),
+            ]));
+            app.collapsed_toggles.push((toggle_line, section_id.to_string()));
+        } else {
+            // Show all lines
+            for line in content {
+                lines.push(line);
+            }
+            let toggle_line = lines.len() as u16;
+            lines.push(ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(
+                    "  [-] click to collapse",
+                    ratatui::style::Style::default()
+                        .fg(ratatui::style::Color::Yellow)
+                        .add_modifier(ratatui::style::Modifier::BOLD),
+                ),
+            ]));
+            app.collapsed_toggles.push((toggle_line, section_id.to_string()));
+        }
+    } else {
+        // Small enough, show all without toggle
+        for line in content {
+            lines.push(line);
+        }
     }
 }
 
 /// Render a single message with role-based styling.
-fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_width: Option<usize>, show_tool_calls: bool) {
+fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry_idx: usize, app: &mut App, max_width: Option<usize>, show_tool_calls: bool) {
     match entry.role.as_str() {
         "user" => {
             lines.push(Line::from(vec![
@@ -200,7 +263,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_w
         "tool" => {
             // File tool results (file_write, file_update, file_delete) with git_diff
             // are ALWAYS shown — they contain substantive code changes.
-            if try_render_file_tool_result(lines, &entry.content).is_some() {
+            if try_render_file_tool_result(lines, &entry.content, entry_idx, app).is_some() {
                 lines.push(Line::default());
                 return;
             }
@@ -246,9 +309,12 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_w
                                     "  ─── stdout ───",
                                     Style::default().fg(Color::DarkGray),
                                 )));
-                                for line in stdout.lines() {
-                                    lines.push(Line::from(format!("  {}", line)));
-                                }
+                                // Collapsible stdout
+                                let stdout_lines: Vec<Line> = stdout.lines()
+                                    .map(|l| Line::from(format!("  {}", l)))
+                                    .collect();
+                                let section_id = format!("so_{}", entry_idx);
+                                render_collapsible_block(lines, app, &section_id, stdout_lines);
                             }
                         }
                         if let Some(stderr) = output.get("stderr").and_then(|s| s.as_str()) {
@@ -257,9 +323,12 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_w
                                     "  ─── stderr ───",
                                     Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
                                 )));
-                                for line in stderr.lines() {
-                                    lines.push(Line::from(format!("  {}", line)));
-                                }
+                                // Collapsible stderr
+                                let stderr_lines: Vec<Line> = stderr.lines()
+                                    .map(|l| Line::from(format!("  {}", l)))
+                                    .collect();
+                                let section_id = format!("se_{}", entry_idx);
+                                render_collapsible_block(lines, app, &section_id, stderr_lines);
                             }
                         }
                         lines.push(Line::default());
@@ -267,7 +336,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_w
                     }
                 }
                 // Check if it's a file_outline result
-                if try_render_file_outline(lines, &entry.content).is_some() {
+                if try_render_file_outline(lines, &entry.content, entry_idx, app).is_some() {
                     lines.push(Line::default());
                     return;
                 }
@@ -344,12 +413,12 @@ fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str,
 }
 
 /// Render streaming content (text and tool calls).
-fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &App, max_width: Option<usize>) {
+fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App, max_width: Option<usize>) {
     if !app.is_streaming {
         return;
     }
 
-    if !app.streaming_text.is_empty() || app.current_tool_call.is_some() {
+    if !app.streaming_text.is_empty() || app.current_tool_call.is_some() || app.streaming_tool_result.is_some() {
         lines.push(Line::from(vec![Span::styled(
             "Assistant: ",
             Style::default()
@@ -391,6 +460,31 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &App, max
                 }
             }
         }
+
+        // Display completed tool result (e.g. git diff) — always shown for file tools
+        if let Some((ref name, ref content)) = app.streaming_tool_result.clone() {
+            // Try rendering as file tool result with git diff first
+            // Use a special high index for streaming section IDs
+            if try_render_file_tool_result(lines, &content, usize::MAX, app).is_none() {
+                // Non-file tool results: only show if show_tool_calls is enabled
+                if app.config.agent.show_tool_calls {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "⚙️ ",
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        Span::styled(
+                            format!("{}", name),
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            " completed",
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                }
+            }
+        }
     } else if app.streaming_reasoning.is_empty() {
         lines.push(Line::from(Span::styled(
             "⏳ Generating response...",
@@ -400,9 +494,14 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &App, max
 }
 
 /// Try to parse tool content as a file tool result (file_write, file_update, file_delete)
-/// and render it with a git diff display.
+/// and render it with a collapsible git diff display.
 /// Returns Some(()) if the content contained a git_diff field.
-fn try_render_file_tool_result(lines: &mut Vec<ratatui::text::Line>, content: &str) -> Option<()> {
+fn try_render_file_tool_result(
+    lines: &mut Vec<ratatui::text::Line>,
+    content: &str,
+    entry_idx: usize,
+    app: &mut App,
+) -> Option<()> {
     let value: serde_json::Value = serde_json::from_str(content).ok()?;
 
     // Check if this is a file tool result by looking for a path field
@@ -447,31 +546,41 @@ fn try_render_file_tool_result(lines: &mut Vec<ratatui::text::Line>, content: &s
         ),
     ]));
 
-    // Show the git diff
-    lines.push(Line::from(Span::styled(
-        "  ─── git diff ───",
-        Style::default().fg(Color::Green),
-    )));
-    for line in git_diff.lines() {
-        let line = line.trim_end();
-        if line.starts_with('+') && !line.starts_with("+++") {
-            lines.push(Line::from(Span::styled(
-                format!("  {}", line),
-                Style::default().fg(Color::Green),
-            )));
-        } else if line.starts_with('-') && !line.starts_with("---") {
-            lines.push(Line::from(Span::styled(
-                format!("  {}", line),
-                Style::default().fg(Color::Red),
-            )));
-        } else if line.starts_with("@@") {
-            lines.push(Line::from(Span::styled(
-                format!("  {}", line),
-                Style::default().fg(Color::Cyan),
-            )));
-        } else {
-            lines.push(Line::from(format!("  {}", line)));
-        }
+    // Show the git diff (collapsible)
+    if !git_diff.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  ─── git diff ───",
+            Style::default().fg(Color::Green),
+        )));
+
+        // Build styled diff lines
+        let diff_lines: Vec<Line> = git_diff
+            .lines()
+            .map(|line| {
+                let line = line.trim_end();
+                if line.starts_with('+') && !line.starts_with("+++") {
+                    Line::from(Span::styled(
+                        format!("  {}", line),
+                        Style::default().fg(Color::Green),
+                    ))
+                } else if line.starts_with('-') && !line.starts_with("---") {
+                    Line::from(Span::styled(
+                        format!("  {}", line),
+                        Style::default().fg(Color::Red),
+                    ))
+                } else if line.starts_with("@@") {
+                    Line::from(Span::styled(
+                        format!("  {}", line),
+                        Style::default().fg(Color::Cyan),
+                    ))
+                } else {
+                    Line::from(format!("  {}", line))
+                }
+            })
+            .collect();
+
+        let section_id = format!("gd_{}", entry_idx);
+        render_collapsible_block(lines, app, &section_id, diff_lines);
     }
 
     Some(())
@@ -479,7 +588,12 @@ fn try_render_file_tool_result(lines: &mut Vec<ratatui::text::Line>, content: &s
 
 /// Try to parse tool content as a file_outline result and render it with colored spans.
 /// Returns Some(()) if the content was successfully rendered as a file outline.
-fn try_render_file_outline(lines: &mut Vec<ratatui::text::Line>, content: &str) -> Option<()> {
+fn try_render_file_outline(
+    lines: &mut Vec<ratatui::text::Line>,
+    content: &str,
+    entry_idx: usize,
+    app: &mut App,
+) -> Option<()> {
     let value: serde_json::Value = serde_json::from_str(content).ok()?;
     let outline = value.get("outline")?.as_str()?;
     let path = value.get("path")?.as_str()?;
@@ -506,6 +620,8 @@ fn try_render_file_outline(lines: &mut Vec<ratatui::text::Line>, content: &str) 
         ),
     ]));
 
+    // Build styled outline lines
+    let mut outline_content: Vec<Line> = Vec::new();
     for line in outline.lines() {
         let line = line.trim_end();
         if line.is_empty() {
@@ -514,7 +630,7 @@ fn try_render_file_outline(lines: &mut Vec<ratatui::text::Line>, content: &str) 
 
         // Total line: "Total: N lines"
         if let Some(total) = line.strip_prefix("Total: ") {
-            lines.push(Line::from(vec![
+            outline_content.push(Line::from(vec![
                 Span::styled(
                     "  ",
                     Style::default(),
@@ -584,12 +700,16 @@ fn try_render_file_outline(lines: &mut Vec<ratatui::text::Line>, content: &str) 
                 ));
             }
 
-            lines.push(Line::from(spans));
+            outline_content.push(Line::from(spans));
         } else {
             // Fallback for lines that don't match the tree format
-            lines.push(Line::from(format!("  {}", line)));
+            outline_content.push(Line::from(format!("  {}", line)));
         }
     }
+
+    // Render collapsible outline content
+    let section_id = format!("ol_{}", entry_idx);
+    render_collapsible_block(lines, app, &section_id, outline_content);
 
     Some(())
 }
