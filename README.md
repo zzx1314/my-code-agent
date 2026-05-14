@@ -5,7 +5,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 ## Features
 
 - **💬 Interactive Chat** — Multi-turn conversation with streaming responses
-- **🔧 Tool-Augmented** — The agent can read files, write files, search code, and run shell commands
+- **🔧 Tool-Augmented** — The agent can read files, write files, search code, run shell commands, and search the web
 - **📊 Token Usage Tracking** — Monitor token consumption per-turn and per-session
 - **⚡ Interrupt Handling** — Esc or Ctrl+C to interrupt a response, double-press to quit
 - **💾 Session Persistence** — Save/load conversation sessions (enable in config)
@@ -13,6 +13,10 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 - **🎨 Colored Output** — Rich terminal UI with syntax-highlighted tool calls and usage stats
 - **💭 Collapsible Reasoning** — DeepSeek's reasoning (thinking) is collapsed into a one-line summary; use `think` to expand
 - **🛡️ Tool Safety** — Built-in checks for dangerous file deletions and shell commands
+- **🌐 Web Search** — Search the web and fetch URL content via Parallel Search MCP
+- **🖱️ Mouse & Paste Support** — Mouse click handling and terminal paste events
+- **📚 Knowledge Bootstrapping** — Automatic project knowledge injection from `knowledge.md`
+- **↩️ Undo Support** — Undo the last file write/update/delete operation
 
 ## Tools
 
@@ -23,7 +27,8 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 | `file_write` | Write or create files with optional parent directory creation |
 | `file_update` | Make targeted edits to existing files (find & replace) |
 | `file_delete` | Delete files or directories from the filesystem |
-| `shell_exec` | Execute shell commands with timeout and working directory support |
+| `file_undo` | Undo the last file write/update/delete operation |
+| `shell_exec` | Execute shell commands with timeout and working directory, confirmation, and safety checks |
 | `code_search` | Search for text patterns in source code using ripgrep (respects .gitignore) |
 | `code_review` | Review code and provide improvement suggestions |
 | `list_dir` | List files and directories with configurable recursion depth |
@@ -32,8 +37,8 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 | `git_diff` | Show changes between commits or working tree |
 | `git_log` | Show commit history |
 | `git_commit` | Create a commit with staged changes |
-| `web_search` | **(MCP)** Search the web using Parallel Search for up-to-date information |
-| `web_fetch` | **(MCP)** Extract content from a specific URL |
+| `web_search` | Search the web using Parallel Search for up-to-date information (MCP-powered) |
+| `web_fetch` | Extract content from a specific URL (MCP-powered) |
 
 ### MCP Web Search
 
@@ -191,8 +196,14 @@ The agent is instructed to use `file_read` with the suggested offset when it enc
 | `save` | Save conversation session to disk |
 | `load` | Load a previously saved session |
 | `new` | Start a fresh session (clears current history) |
-|   `think` | Expand the last collapsed reasoning content |
+| `think` | Expand the last collapsed reasoning content |
 | `clear` | Clear conversation history (also deletes saved session) |
+| `init` | Re-initialize the agent (reconnect LLM) |
+| `plan` | Create or refine a task plan before execution |
+| `shell` | Toggle to shell command mode |
+| `status` | Show agent status (provider, model, costs) |
+| `tokens` | Show detailed token usage report |
+| `undo` | Undo the last file write/update/delete |
 | `quit` / `exit` / `q` | Exit the agent |
 
 ### Examples
@@ -282,63 +293,77 @@ The session file is gitignored by default.
 src/
 ├── main.rs               # CLI entry point and interactive loop
 ├── lib.rs                # Library crate root (exports app, core, mcp, tools, ui)
+│
 ├── app/                  # Application layer
-│   ├── mod.rs            # App struct, InitResult, PendingConfirmation
-│   ├── conversion.rs     # Data conversion utilities (rig ↔ app message types)
-│   ├── lifecycle.rs      # Application lifecycle management
-│   ├── event_handler/    # User input event handling, command dispatch
+│   ├── mod.rs            # App struct, lifecycle state machine
+│   ├── lifecycle.rs      # Lifecycle transitions (running → picking → confirming → …)
+│   ├── terminal.rs       # Terminal raw mode, setup/teardown
+│   ├── bootstrap/        # Startup initialization
 │   │   ├── mod.rs
-│   │   ├── init.rs       # Event handler initialization
-│   │   ├── message.rs    # Message event processing
-│   │   ├── streaming.rs  # Streaming event handling
-│   │   ├── terminal.rs   # Terminal event handling
-│   │   ├── command/      # Slash command implementations (15 commands)
-│   │   │   ├── mod.rs, clear.rs, connect.rs, help.rs, init.rs
-│   │   │   ├── load.rs, model.rs, plan.rs, quit.rs, save.rs
-│   │   │   ├── shell.rs, status.rs, think.rs, tokens.rs, undo.rs
-│   │   └── key_event/    # Key event handling
-│   │       ├── mod.rs, completion.rs
-│   │       ├── input/    # Input key handlers (enter.rs, shell.rs)
-│   │       └── picker/   # Picker handlers (model.rs, provider.rs, session.rs)
-│   └── ui/               # Application UI rendering
-│       ├── chat.rs       # Chat area rendering
-│       ├── input.rs      # Input area rendering
-│       ├── overlays.rs   # Overlay dialogs (picker, confirmation, etc.)
-│       └── status.rs     # Status bar rendering
-├── core/                 # Core functionality
-│   ├── mod.rs, init.rs
-│   ├── config/           # TOML config loader with defaults
-│   ├── agent/            # LLM agent management
-│   │   ├── connection.rs # LLM connection management
-│   │   ├── preamble.rs   # Agent builder, provider setup
-│   │   └── streaming.rs  # Streaming response handling
-│   ├── context/          # Context management
+│   │   └── knowledge.rs  # Auto-inject project knowledge from knowledge.md
+│   ├── commands/         # Slash command handlers (15 commands)
+│   │   ├── mod.rs        # Command dispatch (/help → help::handle, …)
+│   │   ├── clear.rs, connect.rs, help.rs, init.rs
+│   │   ├── load.rs, model.rs, plan.rs, quit.rs, save.rs
+│   │   ├── shell.rs, status.rs, think.rs, tokens.rs, undo.rs
+│   └── event_handler/    # User input event processing
+│       ├── mod.rs        # Re-exports handle_key_event, handle_mouse_event, handle_paste_event
+│       ├── picker.rs     # Picker overlay (model, provider, session selection)
+│       └── key_event/    # Keyboard/mouse/paste event handlers
+│           ├── mod.rs, completion.rs, mouse.rs, paste.rs
+│           └── input/    # Input key handlers (enter.rs, shell.rs)
+│
+├── core/                 # Core domain logic
+│   ├── mod.rs
+│   ├── config/           # TOML config loader with sensible defaults
+│   │   └── mod.rs
+│   ├── agent/            # LLM agent lifecycle and streaming
+│   │   ├── mod.rs, client.rs, connection.rs, preamble.rs, stream_response.rs
+│   │   └── stream/       # Stream processing pipeline
+│   │       ├── mod.rs, events.rs, init.rs, queue.rs
+│   │       ├── result.rs, spawn.rs, state.rs
+│   ├── context/          # Context window management
+│   │   ├── mod.rs, context_cache.rs, context_manager.rs, file_cache.rs
 │   │   ├── file_ref.rs   # @filepath parsing and expansion
-│   │   ├── context_cache.rs, context_manager.rs
-│   │   ├── file_cache.rs, token_usage.rs
-│   ├── parser/           # Parsing utilities (tree-sitter based)
+│   │   ├── token_usage.rs, tool_dedup.rs
+│   ├── parser/           # Tree-sitter based code parsing (multi-language)
 │   ├── session/          # Session persistence (save/load/resume)
-│   └── paths/            # Path resolution helpers
-├── tools/                # Tool implementations (18 tools)
-│   ├── mod.rs            # Tool registry (all_tools, all_tools_with_handle, create_mcp_tools)
-│   ├── code_review.rs, code_search.rs, confirmation.rs
-│   ├── file_delete.rs, file_outline.rs, file_read.rs
-│   ├── file_undo.rs, file_update.rs, file_write.rs
-│   ├── git_commit.rs, git_diff.rs, git_log.rs, git_status.rs
-│   ├── glob.rs, list_dir.rs, safety.rs
-│   ├── shell_exec.rs, undo_history.rs
-├── ui/                   # Terminal UI (3 files)
+│   ├── paths/            # Path resolution helpers
+│   ├── tool/             # Core tool abstractions (ToolExecutor trait)
+│   └── types/            # Shared type definitions (AgentMessage, ToolCall, …)
+│
+├── tools/                # Tool implementations (17 tools)
+│   ├── mod.rs            # Tool registry & creation
+│   ├── exec/             # Command execution tools
+│   │   ├── mod.rs, shell_exec.rs, confirmation.rs, safety.rs
+│   ├── fs/               # Filesystem tools
+│   │   ├── mod.rs, file_read.rs, file_write.rs, file_update.rs
+│   │   ├── file_delete.rs, file_outline.rs, file_undo.rs
+│   │   ├── glob.rs, list_dir.rs
+│   ├── git/              # Git tools
+│   │   ├── mod.rs, git_commit.rs, git_diff.rs, git_log.rs, git_status.rs
+│   ├── search/           # Search tools
+│   │   ├── mod.rs, code_search.rs, code_review.rs, web_search.rs
+│   └── infra/            # Infrastructure tools
+│       ├── mod.rs, undo_history.rs
+│
+├── ui/                   # Terminal UI (ratatui)
+│   ├── mod.rs
+│   ├── chat.rs           # Chat area rendering
+│   ├── input.rs          # Input area rendering
 │   ├── markdown.rs       # Custom markdown renderer
-│   ├── render.rs         # Markdown rendering integration
-│   └── terminal.rs       # Banner, help, startup text
-└── mcp/                  # Model Context Protocol
-    ├── client.rs         # MCP client implementation
-    ├── types.rs          # MCP type definitions
-    └── web_search_tool.rs # Web search via Parallel Search MCP
+│   ├── overlays.rs       # Overlay dialogs (picker, confirmation)
+│   ├── render.rs         # Top-level render dispatch
+│   ├── status.rs         # Status bar rendering
+│   └── terminal.rs       # Banner, help text, startup display
+│
+└── mcp/                  # Model Context Protocol client
+    ├── mod.rs
+    ├── client.rs         # MCP client (stdio transport to parallel-search MCP server)
+    └── types.rs          # MCP type definitions (JSON-RPC messages)
 
-tests/                    # Integration tests (26 test files)
-.github/workflows/        # CI/CD (release.yml)
-.sessions/                # Session persistence directory (gitignored)
+tests/                    # Integration tests (28 test files)
+└── test_*.rs             # One file per module/feature
 ```
 
 ## Configuration

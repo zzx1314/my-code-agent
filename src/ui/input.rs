@@ -53,6 +53,11 @@ fn update_input_style(app: &mut App) {
     app.input.set_cursor_line_style(cursor_style);
 }
 
+/// Wrap a single line of text to fit within `text_width`, tracking cursor position.
+///
+/// Returns a tuple of `(wrapped_lines, cursor_row, cursor_col)` where `cursor_row`
+/// and `cursor_col` are the mapped position of the original cursor within the wrapped output.
+/// Pass `cursor_char_idx = usize::MAX` to skip cursor tracking for non-target lines.
 fn wrap_line(line: &str, text_width: usize, cursor_char_idx: usize) -> (Vec<String>, usize, usize) {
     let mut result: Vec<String> = Vec::new();
     let mut curr = String::new();
@@ -88,6 +93,11 @@ fn wrap_line(line: &str, text_width: usize, cursor_char_idx: usize) -> (Vec<Stri
     (result, out_row, out_col)
 }
 
+/// Apply word-wrap to all lines in the input buffer to fit within `text_width`.
+///
+/// Rebuilds the `TextArea` with wrapped lines and adjusts the cursor position
+/// to match the original location in the wrapped layout. Skips if no line exceeds
+/// the text width.
 pub fn apply_input_wrap(app: &mut App, text_width: usize) {
     if text_width == 0 {
         return;
@@ -160,6 +170,10 @@ pub fn apply_input_wrap(app: &mut App, text_width: usize) {
     app.input = new_ta;
 }
 
+/// Calculate the dynamic height for the input area based on content and available width.
+///
+/// Returns a value clamped between `MIN_INPUT_HEIGHT` (4) and `MAX_INPUT_HEIGHT` (14).
+/// An empty input returns the minimum height; wrapped multi-line content grows the area.
 pub fn calculate_input_height(app: &App, area_width: u16) -> u16 {
     let lines: Vec<&str> = app.input.lines().iter().map(|s| s.as_str()).collect();
     let is_empty = lines.is_empty() || (lines.len() == 1 && lines[0].is_empty());
