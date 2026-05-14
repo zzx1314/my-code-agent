@@ -545,10 +545,6 @@ pub async fn stream_response(
                         );
                         let tr = Message::tool(&tc.id, content);
                         messages.push(tr);
-                        status_messages.push(format!(
-                            "⚠ Loop detected: repeated `{}` call — injected guidance message",
-                            tc.function.name,
-                        ));
                         loop_detector.record(&tc.function.name, &tc.function.arguments);
                         continue;
                     }
@@ -557,11 +553,6 @@ pub async fn stream_response(
                     if let Some(msg) = loop_detector.build_loop_message(&tc.function.name) {
                         let tr = Message::tool(&tc.id, msg);
                         messages.push(tr);
-                        status_messages.push(format!(
-                            "⚠ Loop detected: {} consecutive `{}` calls with varying args — injected guidance",
-                            loop_detector.consecutive_same_tool_count(&tc.function.name) + 1,
-                            tc.function.name,
-                        ));
                         loop_detector.record(&tc.function.name, &tc.function.arguments);
                         continue;
                     }
