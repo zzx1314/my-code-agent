@@ -140,11 +140,16 @@ pub struct AgentConfig {
     /// Default: 5.
     #[serde(default = "default_thinking_display_height")]
     pub thinking_display_height: u16,
-    /// Whether to show tool call details (tool name, arguments) in the chat UI.
-    /// When false, tool calls are hidden from the chat display (execution still proceeds).
+    /// Whether to show tool call details (tool name, arguments) during streaming.
+    /// When false (default), tool calls are hidden while the model is generating.
     /// Default: false.
     #[serde(default)]
     pub show_tool_calls: bool,
+    /// Whether to show tool call details in the chat history after the response completes.
+    /// When false (default), tool calls and results are hidden from completed responses.
+    /// Default: false.
+    #[serde(default)]
+    pub show_tool_calls_in_history: bool,
 }
 
 /// LLM provider settings.
@@ -271,6 +276,7 @@ impl Default for AgentConfig {
             think_command: true,
             thinking_display_height: default_thinking_display_height(),
             show_tool_calls: false,
+            show_tool_calls_in_history: false,
         }
     }
 }

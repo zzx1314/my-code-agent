@@ -59,11 +59,16 @@ critical_threshold_percent = 90
 # Default: 10
 max_turns = 10
 
-# Whether to show tool call details (tool name, arguments) in the chat UI.
-# When false (default), tool calls are hidden from the display but still execute.
-# Set to true if you want to see what tools the model is calling.
+# Whether to show tool call details (tool name, arguments) during streaming.
+# When false (default), tool calls are hidden while the model is generating.
 # Default: false
 # show_tool_calls = false
+
+# Whether to show tool call details in the chat history after the response completes.
+# When false (default), tool calls and results are hidden from completed responses.
+# Set to true to inspect what tools were called after the fact.
+# Default: false
+# show_tool_calls_in_history = false
 
 # ── Plan Confirmation Settings ──
 [plan]

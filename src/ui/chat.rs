@@ -117,11 +117,11 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
         .rposition(|entry| entry.role == "assistant");
     let split_idx = last_assistant_idx.unwrap_or(app.chat_history.len());
 
-    let show_tool_calls = app.config.agent.show_tool_calls;
+    let show_tool_calls_in_history = app.config.agent.show_tool_calls_in_history;
 
     // Messages before the last assistant message
     for entry in &app.chat_history[..split_idx] {
-        render_message(lines, entry, max_width, show_tool_calls);
+        render_message(lines, entry, max_width, show_tool_calls_in_history);
     }
 
     // Reasoning block
@@ -139,9 +139,9 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
 
 /// Render all chat messages in order.
 fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &App, max_width: Option<usize>) {
-    let show_tool_calls = app.config.agent.show_tool_calls;
+    let show_tool_calls_in_history = app.config.agent.show_tool_calls_in_history;
     for entry in &app.chat_history {
-        render_message(lines, entry, max_width, show_tool_calls);
+        render_message(lines, entry, max_width, show_tool_calls_in_history);
     }
 }
 
@@ -198,81 +198,84 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, max_w
             }
         }
         "tool" => {
-            // Parse the tool result (ShellExecOutput JSON) for nice display
-            if let Ok(output) = serde_json::from_str::<serde_json::Value>(&entry.content) {
-                if let Some(cmd) = output.get("command").and_then(|c| c.as_str()) {
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            "⚙️ ",
-                            Style::default().fg(Color::Yellow),
-                        ),
-                        Span::styled(
-                            "Shell Exec",
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                        ),
-                    ]));
-                    lines.push(Line::from(format!("  Command: {}", cmd)));
-                    if let Some(exit_code) = output.get("exit_code") {
-                        let color = if exit_code.as_i64() == Some(0) {
-                            Color::Green
-                        } else {
-                            Color::Red
-                        };
+            // Tool results are only shown when show_tool_calls is enabled
+            if show_tool_calls {
+                // Parse the tool result (ShellExecOutput JSON) for nice display
+                if let Ok(output) = serde_json::from_str::<serde_json::Value>(&entry.content) {
+                    if let Some(cmd) = output.get("command").and_then(|c| c.as_str()) {
                         lines.push(Line::from(vec![
-                            Span::styled("  Exit Code: ", Style::default()),
-                            Span::styled(format!("{}", exit_code), Style::default().fg(color)),
+                            Span::styled(
+                                "⚙️ ",
+                                Style::default().fg(Color::Yellow),
+                            ),
+                            Span::styled(
+                                "Shell Exec",
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            ),
                         ]));
-                    }
-                    if let Some(timed_out) = output.get("timed_out").and_then(|t| t.as_bool()) {
-                        if timed_out {
-                            lines.push(Line::from(Span::styled(
-                                "  ⚠ Timed out",
-                                Style::default().fg(Color::Red),
-                            )));
+                        lines.push(Line::from(format!("  Command: {}", cmd)));
+                        if let Some(exit_code) = output.get("exit_code") {
+                            let color = if exit_code.as_i64() == Some(0) {
+                                Color::Green
+                            } else {
+                                Color::Red
+                            };
+                            lines.push(Line::from(vec![
+                                Span::styled("  Exit Code: ", Style::default()),
+                                Span::styled(format!("{}", exit_code), Style::default().fg(color)),
+                            ]));
                         }
-                    }
-                    if let Some(stdout) = output.get("stdout").and_then(|s| s.as_str()) {
-                        if !stdout.is_empty() {
-                            lines.push(Line::from(Span::styled(
-                                "  ─── stdout ───",
-                                Style::default().fg(Color::DarkGray),
-                            )));
-                            for line in stdout.lines() {
-                                lines.push(Line::from(format!("  {}", line)));
+                        if let Some(timed_out) = output.get("timed_out").and_then(|t| t.as_bool()) {
+                            if timed_out {
+                                lines.push(Line::from(Span::styled(
+                                    "  ⚠ Timed out",
+                                    Style::default().fg(Color::Red),
+                                )));
                             }
                         }
-                    }
-                    if let Some(stderr) = output.get("stderr").and_then(|s| s.as_str()) {
-                        if !stderr.is_empty() {
-                            lines.push(Line::from(Span::styled(
-                                "  ─── stderr ───",
-                                Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
-                            )));
-                            for line in stderr.lines() {
-                                lines.push(Line::from(format!("  {}", line)));
+                        if let Some(stdout) = output.get("stdout").and_then(|s| s.as_str()) {
+                            if !stdout.is_empty() {
+                                lines.push(Line::from(Span::styled(
+                                    "  ─── stdout ───",
+                                    Style::default().fg(Color::DarkGray),
+                                )));
+                                for line in stdout.lines() {
+                                    lines.push(Line::from(format!("  {}", line)));
+                                }
                             }
                         }
+                        if let Some(stderr) = output.get("stderr").and_then(|s| s.as_str()) {
+                            if !stderr.is_empty() {
+                                lines.push(Line::from(Span::styled(
+                                    "  ─── stderr ───",
+                                    Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
+                                )));
+                                for line in stderr.lines() {
+                                    lines.push(Line::from(format!("  {}", line)));
+                                }
+                            }
+                        }
+                        lines.push(Line::default());
+                        return;
                     }
+                }
+                // Check if it's a file_outline result
+                if try_render_file_outline(lines, &entry.content).is_some() {
                     lines.push(Line::default());
                     return;
                 }
-            }
-            // Check if it's a file_outline result
-            if try_render_file_outline(lines, &entry.content).is_some() {
-                lines.push(Line::default());
-                return;
-            }
 
-            // Fallback: show raw content for non-shell tool results
-            if !entry.content.is_empty() {
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        "🔧 Tool Result:",
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                    ),
-                ]));
-                lines.push(Line::from(entry.content.to_string()));
-                lines.push(Line::default());
+                // Fallback: show raw content for non-shell tool results
+                if !entry.content.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "🔧 Tool Result:",
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                    lines.push(Line::from(entry.content.to_string()));
+                    lines.push(Line::default());
+                }
             }
         }
         _ => {
