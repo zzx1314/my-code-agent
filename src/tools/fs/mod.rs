@@ -13,6 +13,7 @@ pub use file_read::FileRead;
 pub use file_undo::FileUndo;
 pub use file_update::FileUpdate;
 pub use file_update::build_diff;
+pub use file_update::build_line_diff;
 pub use file_write::FileWrite;
 pub use glob::GlobSearch;
 pub use list_dir::ListDir;

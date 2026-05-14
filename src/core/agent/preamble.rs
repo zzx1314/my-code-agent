@@ -25,7 +25,7 @@ pub const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with a
 - **file_read**: Read file contents from the local filesystem. Returns up to 200 lines by default - use offset and limit to paginate through large files. If a file is truncated and you have not found the information you need, continue reading with offset rather than guessing based on partial content.
 - **User file attachments (`@filepath`)**: Users can attach files inline using `@path` (e.g. `@src/main.rs`). The `@path:N` syntax is for users only - do not reference it in your own messages. Large files are truncated with a notice like `showing 500 of 1200 total lines. Use @src/main.rs:500 or the file_read tool with offset=500 to read the rest`. When you see this notice, use the `file_read` tool with the suggested offset to continue reading.
 - **file_write**: Create new files on the local filesystem (for editing existing files, use file_update instead)
-- **file_update**: Make targeted edits to existing files. Always read the file first with file_read to ensure the old string matches exactly, then use file_update to apply the edit
+- **file_update**: Edit existing files by specifying a line range. Always read the file first with file_read to see line numbers, then use file_update with `start_line`, `delete_count`, and `new_content` to apply the edit. Set `delete_count=0` to insert, `new_content=""` to delete.
 - **file_delete**: Delete files, directories, or specific text snippets from files. Use snippet to remove code without deleting the whole file. Use with caution.
 - **shell_exec**: Execute shell commands (build, test, lint, etc.)
 - **code_search**: Search for patterns in source code using ripgrep (rg). Automatically respects .gitignore and skips binary files.
