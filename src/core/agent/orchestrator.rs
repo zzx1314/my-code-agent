@@ -14,7 +14,6 @@ use super::review_agent::{ReviewAgent, ReviewRequest, ReviewEvent};
 use crate::core::config::Config;
 use crate::core::types::review::*;
 use crate::core::types::Message;
-use crate::tools::ToolRegistry;
 
 /// Multi-Agent Coordinator
 pub struct AgentOrchestrator {
@@ -43,25 +42,15 @@ impl AgentOrchestrator {
     }
 
     /// Derive a review agent from the main agent
+    ///
+    /// The review agent does NOT register tools — it sends diffs directly
+    /// to the LLM and expects a JSON response.
     fn build_review_agent(
         main_agent: &Agent,
-        config: &Config,
+        _config: &Config,
         review_config: &ReviewConfig,
     ) -> ReviewAgent {
-        // Review agent only registers read-only tools
-        let mut tools = ToolRegistry::new();
-        tools.register(crate::tools::fs::FileRead::from_config(config));
-        tools.register(crate::tools::fs::FileOutline);
-        tools.register(crate::tools::search::CodeSearch);
-        tools.register(crate::tools::fs::ListDir);
-        tools.register(crate::tools::fs::GlobSearch);
-        tools.register(crate::tools::search::CodeReview);
-
-        ReviewAgent::new(
-            main_agent.client.clone(),
-            tools,
-            review_config.clone(),
-        )
+        ReviewAgent::new(main_agent.client.clone(), review_config.clone())
     }
 
     /// Detect file changes from the most recent round of the main agent
@@ -70,8 +59,13 @@ impl AgentOrchestrator {
 
         for msg in history {
             if msg.role == "tool" {
-                if let Some(path) = Self::extract_file_path(&msg.content) {
-                    // Check if already exists
+                // First try to parse as JSON (file_write / file_update output)
+                if let Some(changed_file) = Self::parse_tool_output(&msg.content) {
+                    if !files.iter().any(|f: &ChangedFile| f.path == changed_file.path) {
+                        files.push(changed_file);
+                    }
+                } else if let Some(path) = Self::extract_file_path(&msg.content) {
+                    // Fallback: extract path from text
                     if !files.iter().any(|f: &ChangedFile| f.path == path) {
                         files.push(ChangedFile {
                             path,
@@ -86,6 +80,41 @@ impl AgentOrchestrator {
         }
 
         files
+    }
+
+    /// Parse a tool message's JSON content to extract file change info.
+    /// Handles both FileWriteOutput and FileUpdateOutput formats.
+    pub fn parse_tool_output(content: &str) -> Option<ChangedFile> {
+        let val: serde_json::Value = serde_json::from_str(content).ok()?;
+        let path = val.get("path")?.as_str()?.to_string();
+
+        // Extract git_diff if available
+        let diff = val
+            .get("git_diff")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        // Count lines from git_diff to provide meaningful stats
+        let lines_added: usize = diff.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
+        let lines_removed: usize = diff.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
+
+        // Determine change type from git_diff header, or infer from context
+        let change_type = if diff.contains("new file mode") || diff.contains("--- /dev/null") {
+            ChangeType::Added
+        } else if diff.contains("deleted file mode") || diff.contains("+++ /dev/null") {
+            ChangeType::Deleted
+        } else {
+            ChangeType::Modified
+        };
+
+        Some(ChangedFile {
+            path,
+            change_type,
+            lines_added,
+            lines_removed,
+            diff,
+        })
     }
 
     /// Extract file path from tool execution result

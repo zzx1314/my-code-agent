@@ -6,12 +6,14 @@ use anyhow::Result;
 
 use super::client::LlmClient;
 use crate::core::types::review::*;
-use crate::tools::ToolRegistry;
 
 /// Code Review Agent
+///
+/// Reviews code changes by sending diffs directly to the LLM.
+/// Does NOT register tools — the LLM should analyze the diffs we provide
+/// and return JSON, not call additional tools.
 pub struct ReviewAgent {
     pub client: LlmClient,
-    pub tools: ToolRegistry,
     pub config: ReviewConfig,
 }
 
@@ -32,8 +34,8 @@ pub enum ReviewEvent {
 }
 
 impl ReviewAgent {
-    pub fn new(client: LlmClient, tools: ToolRegistry, config: ReviewConfig) -> Self {
-        Self { client, tools, config }
+    pub fn new(client: LlmClient, config: ReviewConfig) -> Self {
+        Self { client, config }
     }
 
     /// Get the review system prompt
@@ -48,7 +50,7 @@ impl ReviewAgent {
 5. **Concurrency Safety** - Deadlocks, race conditions, data races
 
 ## Output Format
-You must output a JSON object with the following fields:
+You MUST output ONLY a valid JSON object. Do NOT include any other text or explanation. Output the JSON directly (either raw or wrapped in a ```json code block).
 ```json
 {
   "issues": [
@@ -103,6 +105,11 @@ You must output a JSON object with the following fields:
     }
 
     /// Call LLM for review (non-streaming, returns full response)
+    ///
+    /// Note: tool definitions are intentionally NOT passed here.
+    /// The review agent should analyze the diffs we provide directly,
+    /// not call additional tools. Passing tools causes the LLM to
+    /// return tool calls instead of JSON review output.
     async fn call_llm(&self, user_message: &str) -> Result<String> {
         use crate::core::types::Message;
         let messages = vec![
@@ -110,8 +117,7 @@ You must output a JSON object with the following fields:
             Message::user(user_message),
         ];
 
-        let tool_defs = self.tools.definitions();
-        let response = self.client.chat(&messages, &tool_defs).await?;
+        let response = self.client.chat(&messages, &[]).await?;
 
         // Extract content from OpenAI-compatible response
         let content = response["choices"][0]["message"]["content"]
@@ -261,23 +267,90 @@ You must output a JSON object with the following fields:
 
     /// Extract JSON from response
     fn extract_json(&self, response: &str) -> Result<String> {
-        // Try to find JSON block
-        if let Some(start) = response.find('{') {
-            if let Some(end) = response.rfind('}') {
-                if end > start {
-                    return Ok(response[start..=end].to_string());
-                }
-            }
-        }
-
-        // Try to find ```json ... ``` block
-        if let Some(start) = response.find("```json") {
-            let json_start = start + 7;
-            if let Some(end) = response[json_start..].find("```") {
-                return Ok(response[json_start..json_start + end].trim().to_string());
-            }
-        }
-
-        anyhow::bail!("Unable to extract JSON from response")
+        extract_json_from_response(response)
     }
+}
+
+/// Extract a JSON object from an LLM response string.
+///
+/// Handles multiple formats:
+/// 1. ```json ... ``` code blocks
+/// 2. ``` ... ``` code blocks (looks for JSON-like content inside)
+/// 3. Bare `{...}` objects using brace counting (handles nesting)
+/// 4. If the entire string is valid JSON, returns it directly
+pub fn extract_json_from_response(response: &str) -> Result<String> {
+    let response = response.trim();
+
+    // Strategy 1: Try ```json ... ``` code block (most common with LLMs)
+    if let Some(start) = response.find("```json") {
+        let json_start = start + 7;
+        if let Some(end) = response[json_start..].find("```") {
+            return Ok(response[json_start..json_start + end].trim().to_string());
+        }
+    }
+
+    // Strategy 2: Try ``` ... ``` code block without language specifier
+    if let Some(start) = response.rfind("```") {
+        let before = &response[..start];
+        // Find matching opening ```
+        if let Some(open) = before.rfind("```") {
+            let inner = response[open + 3..start].trim();
+            // Check if it looks like JSON (starts with { or [)
+            if inner.starts_with('{') || inner.starts_with('[') {
+                return Ok(inner.to_string());
+            }
+        }
+    }
+
+    // Strategy 3: Find outermost { ... } pair using string-aware brace counting
+    // This handles nested braces properly and skips braces inside string literals.
+    if let Some(start) = response.find('{') {
+        let mut depth = 0_i64;
+        let mut json_start = None;
+        let mut json_end = None;
+        let mut in_string = false;
+        let mut prev_was_escape = false;
+        for (i, ch) in response.chars().enumerate() {
+            if i < start { continue; }
+            // Track string boundaries to skip braces inside strings
+            if ch == '"' && !prev_was_escape {
+                in_string = !in_string;
+            }
+            prev_was_escape = ch == '\\' && !prev_was_escape;
+            if in_string { continue; }
+            match ch {
+                '{' => {
+                    if depth == 0 {
+                        json_start = Some(i);
+                    }
+                    depth += 1;
+                }
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        json_end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let (Some(js), Some(je)) = (json_start, json_end) {
+            if je > js {
+                return Ok(response[js..=je].to_string());
+            }
+        }
+    }
+
+    // Strategy 4: If response is itself valid JSON, return it
+    if response.starts_with('{') && response.ends_with('}') {
+        if serde_json::from_str::<serde_json::Value>(response).is_ok() {
+            return Ok(response.to_string());
+        }
+    }
+
+    anyhow::bail!(
+        "Unable to extract JSON from response. Response was:\n{}",
+        response.chars().take(500).collect::<String>()
+    )
 }
