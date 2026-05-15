@@ -206,26 +206,41 @@ impl ReviewAgent {
         let file_count = request.changed_files.len();
         let _ = event_tx.send(ReviewEvent::Started { file_count });
 
-        let changes_summary = self.format_changes_summary(&request.changed_files);
+        // Token optimization strategy:
+        // - Phase 1: full diff (must check functional completeness + bugs)
+        // - Phase 2: signature summary (function/struct/import signatures for safety/perf)
+        // - Phase 3: compressed file list only (style/docs/maintainability)
+        let full_changes_summary = self.format_changes_summary(&request.changed_files);
+        let signature_changes_summary = self.format_changes_summary_signatures(&request.changed_files);
+        let compressed_changes_summary = self.format_changes_summary_compressed(&request.changed_files);
 
-        // Build the base user message (context + diff) once, reused across all phases
-        let base_message = if let Some(ref context) = request.context {
-            format!(
-                "## User Request (Requirements)\n\n{context}\n\n## Code Changes to Review\n\n{changes_summary}",
-                context = context,
-                changes_summary = changes_summary,
-            )
-        } else {
-            format!(
-                "Please review the following code changes:\n\n{changes_summary}",
-                changes_summary = changes_summary,
-            )
+        let build_base_message = |summary: &str, ctx: &Option<String>| -> String {
+            if let Some(context) = ctx {
+                format!(
+                    "## User Request (Requirements)\n\n{context}\n\n## Code Changes to Review\n\n{summary}",
+                    context = context,
+                    summary = summary,
+                )
+            } else {
+                format!(
+                    "Please review the following code changes:\n\n{summary}",
+                    summary = summary,
+                )
+            }
         };
 
         let mut all_issues = Vec::new();
         let total_phases = REVIEW_PHASES.len();
 
         for (phase_index, phase) in REVIEW_PHASES.iter().enumerate() {
+            // Phase 1: full diff | Phase 2: signatures | Phase 3: compressed
+            let changes_summary = match phase_index {
+                0 => &full_changes_summary,
+                1 => &signature_changes_summary,
+                _ => &compressed_changes_summary,
+            };
+            let base_message = build_base_message(changes_summary, &request.context);
+
             // Build phase-specific user message
             let cat_names: Vec<String> = phase.categories.iter().map(|c| {
                 match c {
@@ -368,33 +383,131 @@ impl ReviewAgent {
         user_messages.join("\n\n---\n\n")
     }
 
-    /// Format changes summary
+    /// Format changes summary (full diff included)
     fn format_changes_summary(&self, files: &[ChangedFile]) -> String {
+        self.format_changes_summary_inner(files, true, false)
+    }
+
+    /// Format changes summary with function signatures extracted from the diff (no full diff body).
+    /// Used by Phase 2 — gives enough context for safety/performance/concurrency checks
+    /// without sending the entire diff.
+    fn format_changes_summary_signatures(&self, files: &[ChangedFile]) -> String {
+        self.format_changes_summary_inner(files, false, true)
+    }
+
+    /// Format changes summary (compressed — no diff body, only metadata).
+    /// Used by Phase 3 — only needs file list for style/docs/maintainability checks.
+    fn format_changes_summary_compressed(&self, files: &[ChangedFile]) -> String {
+        self.format_changes_summary_inner(files, false, false)
+    }
+
+    /// Shared implementation for formatting changes summary.
+    /// When `include_diff` is true, includes the full diff body for each file.
+    /// When `include_signatures` is true, includes function/struct signatures extracted from the diff.
+    fn format_changes_summary_inner(&self, files: &[ChangedFile], include_diff: bool, include_signatures: bool) -> String {
         let mut summary = String::new();
 
         summary.push_str(&format!("## Changed Files ({})\n\n", files.len()));
 
         for file in files {
+            let change_type_str = match file.change_type {
+                ChangeType::Added => "Added",
+                ChangeType::Modified => "Modified",
+                ChangeType::Deleted => "Deleted",
+                ChangeType::Renamed => "Renamed",
+            };
             summary.push_str(&format!(
                 "### {} ({})\n",
-                file.path,
-                match file.change_type {
-                    ChangeType::Added => "Added",
-                    ChangeType::Modified => "Modified",
-                    ChangeType::Deleted => "Deleted",
-                    ChangeType::Renamed => "Renamed",
-                }
+                file.path, change_type_str,
             ));
             summary.push_str(&format!(
                 "- +{} lines, -{} lines\n",
                 file.lines_added, file.lines_removed
             ));
-            summary.push_str("```diff\n");
-            summary.push_str(&file.diff);
-            summary.push_str("\n```\n\n");
+
+            if include_diff && !file.diff.is_empty() {
+                summary.push_str("```diff\n");
+                summary.push_str(&file.diff);
+                summary.push_str("\n```\n");
+            } else if include_signatures && !file.diff.is_empty() {
+                let sigs = Self::extract_signatures_from_diff(&file.diff);
+                if !sigs.is_empty() {
+                    summary.push_str(&format!("```\n{}\
+```\n", sigs.join("\n")));
+                }
+            }
+
+            summary.push_str("\n");
+        }
+
+        if !include_diff {
+            let note = if include_signatures {
+                "*Key signatures extracted from diff (context for Phase 2 review).*"
+            } else {
+                "*Full diff was reviewed in Phase 1. This phase checks additional quality dimensions.*"
+            };
+            summary.push_str(note);
+            summary.push_str("\n\n");
         }
 
         summary
+    }
+
+    /// Extract function/struct/enum/trait/import signatures from a diff string.
+    /// Scans added lines (starting with `+`) for common declaration patterns
+    /// across Rust, TypeScript, Python, and other languages.
+    fn extract_signatures_from_diff(diff: &str) -> Vec<String> {
+        let mut sigs = Vec::new();
+
+        for line in diff.lines() {
+            let trimmed = line.trim_start();
+            // Only look at added lines (diff lines starting with +)
+            if !trimmed.starts_with('+') {
+                continue;
+            }
+            let content = trimmed[1..].trim();
+            if content.is_empty() {
+                continue;
+            }
+
+            // Check for common declaration patterns (language-agnostic)
+            let is_signature = content.starts_with("fn ")
+                || content.starts_with("pub fn ")
+                || content.starts_with("pub async fn ")
+                || content.starts_with("async fn ")
+                || content.starts_with("pub struct ")
+                || content.starts_with("struct ")
+                || content.starts_with("pub enum ")
+                || content.starts_with("enum ")
+                || content.starts_with("pub trait ")
+                || content.starts_with("trait ")
+                || content.starts_with("impl ")
+                || content.starts_with("pub type ")
+                || content.starts_with("type ")
+                || content.starts_with("pub const ")
+                || content.starts_with("const ")
+                || content.starts_with("use ")
+                || content.starts_with("macro_rules!")
+                || content.starts_with("def ")
+                || content.starts_with("async def ")
+                || content.starts_with("class ")
+                || content.starts_with("function ")
+                || content.starts_with("export function ")
+                || content.starts_with("export default ")
+                || content.starts_with("export class ")
+                || content.starts_with("export interface ")
+                || content.starts_with("interface ")
+                || content.starts_with("import ")
+                || content.starts_with("from ");
+
+            if is_signature {
+                // Take the full line up to the first { or ; for compactness
+                let sig = content.split(['{', ';', '=']).next().unwrap_or(content).trim();
+                sigs.push(sig.to_string());
+            }
+        }
+
+        sigs
     }
 
     /// Parse review response — full pipeline: extract JSON, parse issues, build report.

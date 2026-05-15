@@ -40,11 +40,9 @@ pub fn process_review_events(app: &mut App) {
                     // in result.rs or commands/review.rs respectively.
                     // Just leave it as visible status.
                 }
-                Ok(ReviewEvent::Progress { message }) => {
-                    // Brief progress updates — write to chat_history so the user sees them
-                    let msg = format!("🔍 {}", message);
-                    app.chat_history.push(ChatEntry::assistant(msg));
-                    app.auto_scroll = true;
+                Ok(ReviewEvent::Progress { .. }) => {
+                    // Skip intermediate progress updates to keep chat_history concise.
+                    // PhaseCompleted events are sufficient for tracking review progress.
                 }
                 Ok(ReviewEvent::FileAnalyzed { file, issues_found }) => {
                     let msg = format!("📄 Analyzed `{}` — {} issue(s) found", file, issues_found);
