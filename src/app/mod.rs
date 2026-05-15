@@ -139,8 +139,10 @@ pub struct App {
     // === Completion menu state ===
     /// Whether to show the completion menu
     pub show_completion: bool,
-    /// Completion item list
+    /// Completion item list (filtered view)
     pub completion_items: Vec<String>,
+    /// Full unfiltered completion item list (cached on trigger to avoid expensive re-computation)
+    pub completion_all_items: Vec<String>,
     /// Index of the currently selected completion item
     pub completion_selected: usize,
     /// Completion type: '/' command completion or '@' file completion
@@ -255,6 +257,7 @@ impl App {
             // Completion menu initialization
             show_completion: false,
             completion_items: Vec::new(),
+            completion_all_items: Vec::new(),
             completion_selected: 0,
             completion_type: None,
             completion_query: String::new(),

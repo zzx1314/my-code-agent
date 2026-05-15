@@ -10,14 +10,17 @@ pub fn trigger_completion(app: &mut App, trigger_char: char) {
     app.completion_trigger_pos = get_cursor_position(app);
     app.completion_query = String::new();
 
-    // Fetch completion items
-    app.completion_items = get_completion_items(trigger_char);
+    // Fetch and cache completion items
+    let items = get_completion_items(trigger_char);
+    app.completion_all_items = items.clone();
+    app.completion_items = items;
 }
 
 /// Hide the completion menu
 pub fn hide_completion(app: &mut App) {
     app.show_completion = false;
     app.completion_items.clear();
+    app.completion_all_items.clear();
     app.completion_selected = 0;
     app.completion_type = None;
     app.completion_query.clear();
@@ -52,6 +55,8 @@ pub fn apply_completion(app: &mut App) {
     let mut lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
     let cursor = app.input.cursor();
 
+    let mut added_trailing_space = false;
+
     // Find the current line
     if cursor.0 < lines.len() {
         let line = &mut lines[cursor.0];
@@ -63,7 +68,9 @@ pub fn apply_completion(app: &mut App) {
             .unwrap_or(pos.saturating_sub(1));
 
         // Replace content from the trigger position to the cursor position
-        let new_line = format!("{}{}{}", &line[..trigger_pos], selected, &line[pos..]);
+        // Auto-add a trailing space after '@' file path completions
+        let extra = if trigger_char == '@' && !line[pos..].starts_with(' ') { added_trailing_space = true; " " } else { "" };
+        let new_line = format!("{}{}{}{}", &line[..trigger_pos], selected, extra, &line[pos..]);
         lines[cursor.0] = new_line;
     }
 
@@ -80,7 +87,7 @@ pub fn apply_completion(app: &mut App) {
     // Set cursor position to the end of the completion
     let completion_len = selected.len();
     let cursor = app.input.cursor();
-    let new_cursor_col = app.completion_trigger_pos + completion_len;
+    let new_cursor_col = app.completion_trigger_pos + completion_len + if added_trailing_space { 1 } else { 0 };
     app.input.move_cursor(tui_textarea::CursorMove::Jump(
         cursor.0 as u16,
         new_cursor_col as u16,
@@ -110,22 +117,20 @@ pub fn update_completion_query(app: &mut App) {
         }
     }
 
-    // Filter completion items
-    if let Some(trigger_char) = app.completion_type {
-        let all_items = get_completion_items(trigger_char);
-        if app.completion_query.is_empty() {
-            app.completion_items = all_items;
-        } else {
-            app.completion_items = all_items
-                .into_iter()
-                .filter(|item| {
-                    item.to_lowercase()
-                        .contains(&app.completion_query.to_lowercase())
-                })
-                .collect();
-        }
-        app.completion_selected = 0;
+    // Filter completion items from cached full list
+    if app.completion_query.is_empty() {
+        app.completion_items = app.completion_all_items.clone();
+    } else {
+        app.completion_items = app.completion_all_items
+            .iter()
+            .filter(|item| {
+                item.to_lowercase()
+                    .contains(&app.completion_query.to_lowercase())
+            })
+            .cloned()
+            .collect();
     }
+    app.completion_selected = 0;
 }
 
 /// Get the current cursor position (character offset)
