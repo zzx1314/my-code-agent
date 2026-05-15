@@ -479,22 +479,21 @@ fn test_iteration_max_stops_loop() {
 /// Test iteration counter is reset after approved review
 #[test]
 fn test_iteration_reset_after_approved() {
-    let mut review_iteration = 2_usize; // was in a loop
     let verdict = ReviewVerdict::Approved;
     let auto_trigger = true;
 
     let should_fix = auto_trigger && verdict != ReviewVerdict::Approved;
     assert!(!should_fix);
 
-    // Reset after approved
-    review_iteration = 0;
+    // After approved, iteration should be 0
+    let review_iteration = 0;
     assert_eq!(review_iteration, 0, "Iteration should reset after approved");
 }
 
 /// Test build_fix_prompt format (verify it contains expected sections)
 #[test]
 fn test_build_fix_prompt_format() {
-    let report = ReviewReport {
+    let _report = ReviewReport {
         summary: ReviewSummary {
             total_issues: 2,
             critical_count: 1,
@@ -624,12 +623,12 @@ fn test_complete_iterative_loop_logic() {
 /// Test that a second review cycle starts fresh with iteration=0
 #[test]
 fn test_new_review_cycle_starts_fresh() {
-    let mut review_iteration = 0;
+    let review_iteration = 0;
     let max_iterations = 3;
 
     // Simulate: first message → review loop (3 iterations)
     // After loop completes (approved or max reached), iteration resets to 0
-    review_iteration = 0; // reset
+    // review_iteration already 0 — simulates reset after loop
 
     // Now user sends a new message → new cycle starts
     let verdict = ReviewVerdict::NeedsRevision;
