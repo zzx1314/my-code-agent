@@ -226,3 +226,92 @@ async fn test_build_diff() {
     assert!(diff.contains("-hello"));
     assert!(diff.contains("+hi"));
 }
+
+// ── Tests for the trailing-newline-in-new_content bug ──
+
+#[tokio::test]
+async fn test_new_content_with_trailing_newline() {
+    // When new_content ends with \n (common when LLM generates code blocks),
+    // split('\n') should NOT produce an extra empty line.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "line1\nline2\nline3").unwrap();
+
+    // new_content with trailing \n — simulates what LLMs often send
+    let result = call_update(path.to_str().unwrap(), 2, 1, "replacement\n")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nreplacement\nline3");
+    assert_eq!(output.replacements, 1);
+}
+
+#[tokio::test]
+async fn test_new_content_with_brackets_and_trailing_newline() {
+    // This simulates replacing a Rust function body — brackets {} and trailing newline
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(
+        &path,
+        "fn old() {\n    old_stuff();\n}",
+    )
+    .unwrap();
+
+    // new_content with brackets and trailing \n
+    let new_content = "fn new() {\n    new_stuff();\n}\n";
+    let result = call_update(path.to_str().unwrap(), 1, 3, new_content)
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    // Should be exactly the replacement without extra blank lines
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "fn new() {\n    new_stuff();\n}"
+    );
+    assert_eq!(output.replacements, 3);
+}
+
+#[tokio::test]
+async fn test_new_content_with_multiple_trailing_newlines() {
+    // Multiple trailing newlines should all be stripped by trim_end_matches('\n')
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "line1\nline2").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 1, "replacement\n\n\n")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    // All trailing \n in new_content are trimmed, so replacement is just "replacement"
+    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nreplacement");
+    assert_eq!(output.replacements, 1);
+}
+
+#[tokio::test]
+async fn test_new_content_with_only_newlines() {
+    // new_content consisting ONLY of newlines should produce empty replacement
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "line1\nline2\nline3").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 1, "\n\n\n")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nline3");
+    assert_eq!(output.replacements, 1);
+}
+
+#[tokio::test]
+async fn test_build_line_diff_with_trailing_newline() {
+    use my_code_agent::tools::build_line_diff;
+
+    let original = vec!["old_line"];
+    // new_content with trailing \n — diff should not show an extra +
+    let diff = build_line_diff(1, 1, "new_line\n", &original);
+    assert!(diff.contains("+new_line"));
+    // Count the number of '+' lines — should be exactly 1
+    let plus_count = diff.lines().filter(|l| l.starts_with('+')).count();
+    assert_eq!(plus_count, 1, "Diff should have exactly 1 + line, not 2");
+}
+

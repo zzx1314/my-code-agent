@@ -93,11 +93,42 @@ impl Tool for FileUpdate {
             ));
         }
 
-        let new_lines: Vec<&str> = if args.new_content.is_empty() {
+        // Trim trailing newlines from new_content to avoid empty-string elements
+        // from split('\n') when the model includes a trailing newline.
+        // This matches the behavior of str::lines() which doesn't return
+        // a trailing empty string.
+        let new_content_trimmed = args.new_content.trim_end_matches('\n');
+        let new_lines: Vec<&str> = if new_content_trimmed.is_empty() {
             vec![]
         } else {
-            args.new_content.split('\n').collect()
+            new_content_trimmed.split('\n').collect()
         };
+        // Detect potential bracket/line duplication:
+        // If new_content's last line matches the first preserved line after the
+        // deletion range, the model likely included an extra copy of that line.
+        // e.g. replacing line 2 with "    baz();\n}" but delete_count=1 preserves
+        // the original "}" on line 3, producing double "}}".
+        let mut duplication_warning: Option<String> = None;
+        if let Some(last_new) = new_lines.last() {
+            let preserved_start = args.start_line - 1 + args.delete_count;
+            if preserved_start < total_lines && !last_new.is_empty() {
+                let first_preserved = lines[preserved_start];
+                if *last_new == first_preserved {
+                    duplication_warning = Some(format!(
+                        "WARNING: new_content's last line {:?} matches line {} ({:?}) \
+                         which would also be preserved. This may create a duplicate. \
+                         Consider increasing delete_count to {} or removing \"{}\" from new_content.",
+                        last_new,
+                        preserved_start + 1,
+                        first_preserved,
+                        args.delete_count + 1,
+                        last_new,
+                    ));
+                }
+            }
+        }
+
+
 
         let mut result_lines: Vec<&str> = Vec::with_capacity(
             total_lines - args.delete_count + new_lines.len(),
@@ -124,7 +155,10 @@ impl Tool for FileUpdate {
         .await?;
 
         // Build a diff showing the line-level change
-        let diff = build_line_diff(args.start_line, args.delete_count, &args.new_content, &lines);
+        let mut diff = build_line_diff(args.start_line, args.delete_count, &args.new_content, &lines);
+        if let Some(warning) = duplication_warning {
+            diff.push_str(&format!("\n{}\n", warning));
+        }
 
         serde_json::to_string(&FileUpdateOutput {
             path: args.path,
@@ -153,7 +187,9 @@ pub fn build_line_diff(
         }
     }
 
-    for line in new_content.split('\n') {
+    // Trim trailing newlines to keep diff output consistent
+    let trimmed = new_content.trim_end_matches('\n');
+    for line in trimmed.split('\n') {
         diff.push_str(&format!("+{}\n", line));
     }
 

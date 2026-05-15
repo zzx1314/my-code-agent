@@ -476,14 +476,18 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
         // and avoid cloning the potentially large content string every frame.
         let streaming_content = app.streaming_tool_result.take().map(|(_name, content)| content);
         if let Some(ref content) = streaming_content {
-            // Try rendering as file tool result (git diff) first
-            // Use a special high index for streaming section IDs — only one
-            // streaming tool result exists at a time, so section IDs won't clash.
-            if try_render_file_tool_result(lines, content, usize::MAX, app, false).is_none()
-                && try_render_shell_exec_result(lines, content, usize::MAX, app, app.config.agent.show_tool_details).is_none()
-                && try_render_file_outline(lines, content, usize::MAX, app).is_none()
-            {
-                if app.config.agent.show_tool_calls && app.config.agent.show_tool_details {
+            // Only render tool results when show_tool_calls and show_tool_details are both enabled.
+            // Without this guard, the specialized renderers below (file_tool_result, shell_exec,
+            // file_outline) would render their content even when the user has configured
+            // show_tool_calls = false.
+            if app.config.agent.show_tool_calls && app.config.agent.show_tool_details {
+                // Try rendering as file tool result (git diff) first
+                // Use a special high index for streaming section IDs — only one
+                // streaming tool result exists at a time, so section IDs won't clash.
+                if try_render_file_tool_result(lines, content, usize::MAX, app, false).is_none()
+                    && try_render_shell_exec_result(lines, content, usize::MAX, app, true).is_none()
+                    && try_render_file_outline(lines, content, usize::MAX, app).is_none()
+                {
                     // Lightweight rendering: only show first few lines with a note
                     let total_lines = content.lines().count();
                     let max_preview = 5;
