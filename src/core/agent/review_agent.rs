@@ -1,6 +1,6 @@
-//! 代码审查 Agent
+//! Code Review Agent
 //!
-//! 负责在主 Agent 完成代码修改后，自动审查变更的代码。
+//! Responsible for automatically reviewing code changes after the main Agent completes modifications.
 
 use anyhow::Result;
 
@@ -8,14 +8,14 @@ use super::client::LlmClient;
 use crate::core::types::review::*;
 use crate::tools::ToolRegistry;
 
-/// 代码审查 Agent
+/// Code Review Agent
 pub struct ReviewAgent {
     pub client: LlmClient,
     pub tools: ToolRegistry,
     pub config: ReviewConfig,
 }
 
-/// 审查请求
+/// Review Request
 pub struct ReviewRequest {
     pub changed_files: Vec<ChangedFile>,
     pub context: Option<String>,  // 原始任务描述
@@ -36,19 +36,19 @@ impl ReviewAgent {
         Self { client, tools, config }
     }
 
-    /// 获取审查系统提示词
+    /// Get the review system prompt
     fn system_prompt(&self) -> String {
-        r#"你是一个专业的代码审查专家。你的任务是分析代码变更，发现问题并提供改进建议。
+        r#"You are a professional code review expert. Your task is to analyze code changes, identify issues, and provide improvement suggestions.
 
-## 审查维度
-1. **安全性** - SQL 注入、XSS、敏感信息泄露、权限问题、不安全的依赖
-2. **性能** - 内存泄漏、算法复杂度、资源未释放、不必要的克隆
-3. **可靠性** - 空指针、边界条件、错误处理、panic 风险
-4. **可维护性** - 代码重复、函数过长、命名不规范、魔法数字
-5. **并发安全** - 死锁、竞态条件、数据竞争
+## Review Dimensions
+1. **Security** - SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies
+2. **Performance** - Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning
+3. **Reliability** - Null pointers, edge cases, error handling, panic risks
+4. **Maintainability** - Code duplication, overlong functions, naming conventions, magic numbers
+5. **Concurrency Safety** - Deadlocks, race conditions, data races
 
-## 输出格式
-你必须输出一个 JSON 对象，包含以下字段：
+## Output Format
+You must output a JSON object with the following fields:
 ```json
 {
   "issues": [
@@ -58,11 +58,11 @@ impl ReviewAgent {
       "end_line": 50,
       "severity": "high",
       "category": "security",
-      "title": "问题标题",
-      "description": "详细描述",
-      "suggestion": "修复建议",
-      "code_snippet": "问题代码",
-      "fix_example": "修复示例代码"
+      "title": "Issue title",
+      "description": "Detailed description",
+      "suggestion": "Fix suggestion",
+      "code_snippet": "Problem code",
+      "fix_example": "Fix example code"
     }
   ],
   "summary": {
@@ -72,40 +72,39 @@ impl ReviewAgent {
 }
 ```
 
-## 审查原则
-- 关注高影响问题，避免吹毛求疵
-- 提供具体的修复代码示例
-- 解释问题的根本原因
-- 优先处理安全和稳定性问题
-- 考虑 Rust 的所有权和借用规则
+## Review Principles
+- Focus on high-impact issues, avoid nitpicking
+- Provide concrete fix code examples
+- Explain the root cause of issues
+- Prioritize security and stability issues
+- Consider Rust's ownership and borrowing rules
 "#.to_string()
     }
 
-    /// 执行审查
+    /// Execute review
     pub async fn review(&self, request: &ReviewRequest) -> Result<ReviewReport> {
-        // 1. 收集变更信息
+        // 1. Gather change information
         let changes_summary = self.format_changes_summary(&request.changed_files);
 
-        // 2. 构建审查请求
+        // 2. Build review request
         let user_message = format!(
-            "请审查以下代码变更：\n\n{}\n\n{}",
-            changes_summary,
-            request.context.as_deref().unwrap_or("")
+            "Please review the following code changes:\n\n{changes_summary}\n\n{context}",
+            changes_summary = changes_summary,
+            context = request.context.as_deref().unwrap_or("")
         );
 
-        // 3. 调用 LLM 进行审查
+        // 3. Call LLM for review
         let response = self.call_llm(&user_message).await?;
 
-        // 4. 解析审查结果
+        // 4. Parse review results
         let report = self.parse_review_response(&response, &request.changed_files)?;
 
         Ok(report)
     }
 
-    /// 调用 LLM 进行审查（非流式，返回完整响应）
+    /// Call LLM for review (non-streaming, returns full response)
     async fn call_llm(&self, user_message: &str) -> Result<String> {
         use crate::core::types::Message;
-
         let messages = vec![
             Message::system(self.system_prompt()),
             Message::user(user_message),
@@ -114,7 +113,7 @@ impl ReviewAgent {
         let tool_defs = self.tools.definitions();
         let response = self.client.chat(&messages, &tool_defs).await?;
 
-        // 从 OpenAI-compatible 响应中提取 content
+        // Extract content from OpenAI-compatible response
         let content = response["choices"][0]["message"]["content"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No content in review response"))?
@@ -123,25 +122,25 @@ impl ReviewAgent {
         Ok(content)
     }
 
-    /// 格式化变更摘要
+    /// Format changes summary
     fn format_changes_summary(&self, files: &[ChangedFile]) -> String {
         let mut summary = String::new();
 
-        summary.push_str(&format!("## 变更文件 ({} 个)\n\n", files.len()));
+        summary.push_str(&format!("## Changed Files ({})\n\n", files.len()));
 
         for file in files {
             summary.push_str(&format!(
                 "### {} ({})\n",
                 file.path,
                 match file.change_type {
-                    ChangeType::Added => "新增",
-                    ChangeType::Modified => "修改",
-                    ChangeType::Deleted => "删除",
-                    ChangeType::Renamed => "重命名",
+                    ChangeType::Added => "Added",
+                    ChangeType::Modified => "Modified",
+                    ChangeType::Deleted => "Deleted",
+                    ChangeType::Renamed => "Renamed",
                 }
             ));
             summary.push_str(&format!(
-                "- 添加 {} 行, 删除 {} 行\n",
+                "- +{} lines, -{} lines\n",
                 file.lines_added, file.lines_removed
             ));
             summary.push_str("```diff\n");
@@ -152,13 +151,13 @@ impl ReviewAgent {
         summary
     }
 
-    /// 解析审查响应
+    /// Parse review response
     fn parse_review_response(
         &self,
         response: &str,
         changed_files: &[ChangedFile],
     ) -> Result<ReviewReport> {
-        // 尝试从响应中提取 JSON
+        // Try to extract JSON from response
         let json_str = self.extract_json(response)?;
 
         let parsed: serde_json::Value = serde_json::from_str(&json_str)?;
@@ -201,7 +200,7 @@ impl ReviewAgent {
             }
         }
 
-        // 计算摘要
+        // Calculate summary
         let critical_count = issues.iter().filter(|i| i.severity == Severity::Critical).count();
         let high_count = issues.iter().filter(|i| i.severity == Severity::High).count();
         let medium_count = issues.iter().filter(|i| i.severity == Severity::Medium).count();
@@ -260,9 +259,9 @@ impl ReviewAgent {
         })
     }
 
-    /// 从响应中提取 JSON
+    /// Extract JSON from response
     fn extract_json(&self, response: &str) -> Result<String> {
-        // 尝试找到 JSON 块
+        // Try to find JSON block
         if let Some(start) = response.find('{') {
             if let Some(end) = response.rfind('}') {
                 if end > start {
@@ -271,7 +270,7 @@ impl ReviewAgent {
             }
         }
 
-        // 尝试找到 ```json ... ``` 块
+        // Try to find ```json ... ``` block
         if let Some(start) = response.find("```json") {
             let json_start = start + 7;
             if let Some(end) = response[json_start..].find("```") {
@@ -279,6 +278,6 @@ impl ReviewAgent {
             }
         }
 
-        anyhow::bail!("无法从响应中提取 JSON")
+        anyhow::bail!("Unable to extract JSON from response")
     }
 }

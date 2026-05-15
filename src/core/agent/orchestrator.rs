@@ -1,9 +1,9 @@
-//! AgentOrchestrator — 多 Agent 协作协调器
+//! AgentOrchestrator — Multi-Agent Collaboration Coordinator
 //!
-//! 管理主 Agent 和审查 Agent 之间的协作流程：
-//! 1. 主 Agent 完成代码变更后自动触发审查
-//! 2. 支持手动 `/review` 命令
-//! 3. 检测变更文件并生成审查报告
+//! Manages the collaboration flow between the main Agent and the review Agent:
+//! 1. Automatically triggers review after the main Agent completes code changes
+//! 2. Supports manual `/review` command
+//! 3. Detects changed files and generates review reports
 
 use std::sync::Arc;
 
@@ -16,20 +16,20 @@ use crate::core::types::review::*;
 use crate::core::types::Message;
 use crate::tools::ToolRegistry;
 
-/// 多 Agent 协调器
+/// Multi-Agent Coordinator
 pub struct AgentOrchestrator {
-    /// 主 Agent（执行日常任务）
+    /// Main agent (handles daily tasks)
     pub main_agent: Arc<Agent>,
-    /// 审查 Agent（代码审查专用）
+    /// Review agent (dedicated to code review)
     pub review_agent: Arc<ReviewAgent>,
-    /// 审查配置
+    /// Review configuration
     pub config: ReviewConfig,
-    /// 是否启用自动审查
+    /// Whether auto-review is enabled
     pub auto_review_enabled: bool,
 }
 
 impl AgentOrchestrator {
-    /// 创建新的协调器
+    /// Create a new coordinator
     pub fn new(main_agent: Arc<Agent>, config: &Config) -> Self {
         let review_config = ReviewConfig::from_app_config(&config.review);
         let review_agent = Self::build_review_agent(&main_agent, config, &review_config);
@@ -42,13 +42,13 @@ impl AgentOrchestrator {
         }
     }
 
-    /// 从主 Agent 派生审查 Agent
+    /// Derive a review agent from the main agent
     fn build_review_agent(
         main_agent: &Agent,
         config: &Config,
         review_config: &ReviewConfig,
     ) -> ReviewAgent {
-        // 审查 Agent 只注册只读工具
+        // Review agent only registers read-only tools
         let mut tools = ToolRegistry::new();
         tools.register(crate::tools::fs::FileRead::from_config(config));
         tools.register(crate::tools::fs::FileOutline);
@@ -64,14 +64,14 @@ impl AgentOrchestrator {
         )
     }
 
-    /// 检测主 Agent 最近一轮中涉及的文件变更
+    /// Detect file changes from the most recent round of the main agent
     pub fn detect_changed_files(&self, history: &[Message]) -> Vec<ChangedFile> {
         let mut files = Vec::new();
 
         for msg in history {
             if msg.role == "tool" {
                 if let Some(path) = Self::extract_file_path(&msg.content) {
-                    // 检查是否已经存在
+                    // Check if already exists
                     if !files.iter().any(|f: &ChangedFile| f.path == path) {
                         files.push(ChangedFile {
                             path,
@@ -88,19 +88,19 @@ impl AgentOrchestrator {
         files
     }
 
-    /// 从工具执行结果中提取文件路径
+    /// Extract file path from tool execution result
     fn extract_file_path(content: &str) -> Option<String> {
-        // 尝试从 JSON 中提取 path 字段
+        // Try to extract path field from JSON
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
             if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
                 return Some(path.to_string());
             }
         }
 
-        // 尝试从文本中提取路径模式：`path/to/file.rs`
+        // Try to extract path pattern from text: `path/to/file.rs`
         for line in content.lines() {
             let line = line.trim();
-            // 匹配包含 .rs / .toml / .md 等扩展名的路径
+            // Match path containing extensions like .rs / .toml / .md
             if line.ends_with(".rs")
                 || line.ends_with(".toml")
                 || line.ends_with(".md")
@@ -109,7 +109,7 @@ impl AgentOrchestrator {
                 || line.ends_with(".py")
                 || line.ends_with(".json")
             {
-                // 移除行首的星号、引号等装饰
+                // Remove leading asterisks, quotes, and other decorations
                 let cleaned = line
                     .trim_start_matches(|c: char| "*`\"'".contains(c))
                     .trim_end_matches(|c: char| "*`\"'".contains(c));
@@ -122,31 +122,8 @@ impl AgentOrchestrator {
         None
     }
 
-    /// 构建审查提示
-    fn build_review_prompt(&self, changed_files: &[ChangedFile], context: Option<&str>) -> String {
-        let mut prompt = String::new();
 
-        prompt.push_str(&format!(
-            "请审查以下 {} 个文件的代码变更：\n\n",
-            changed_files.len()
-        ));
-
-        for file in changed_files {
-            prompt.push_str(&format!("- {} ({:?})\n", file.path, file.change_type));
-        }
-
-        if let Some(ctx) = context {
-            prompt.push_str(&format!("\n## 原始任务\n{}\n", ctx));
-        }
-
-        prompt.push_str(
-            "\n请读取每个文件的内容，进行全面审查，并输出 JSON 格式的审查报告。",
-        );
-
-        prompt
-    }
-
-    /// 执行审查（同步等待结果）
+    /// Execute review (synchronously wait for result)
     pub async fn review(
         &self,
         changed_files: Vec<ChangedFile>,
@@ -160,7 +137,7 @@ impl AgentOrchestrator {
         self.review_agent.review(&request).await
     }
 
-    /// 执行审查并返回事件流（用于 UI 展示进度）
+    /// Execute review and return event stream (for UI progress display)
     pub async fn review_with_events(
         &self,
         changed_files: Vec<ChangedFile>,
@@ -176,7 +153,7 @@ impl AgentOrchestrator {
         };
 
         let _ = event_tx.send(ReviewEvent::Progress {
-            message: "正在调用审查模型...".to_string(),
+            message: "Calling review model...".to_string(),
         });
 
         let report = self.review_agent.review(&request).await?;
@@ -188,36 +165,36 @@ impl AgentOrchestrator {
         Ok(report)
     }
 
-    /// 格式化审查报告为 Markdown
+    /// Format review report as Markdown
     pub fn format_review_report(&self, report: &ReviewReport) -> String {
         let mut output = String::new();
 
-        // 标题
-        output.push_str("## 📋 代码审查报告\n\n");
+        // Title
+        output.push_str("## 📋 Code Review Report\n\n");
 
-        // 摘要
+        // Summary
         let verdict_icon = report.summary.verdict.icon();
         output.push_str(&format!(
-            "{} **结论**: {} | **评分**: {:.0}/100\n\n",
+            "{} **Verdict**: {} | **Score**: {:.0}/100\n\n",
             verdict_icon,
             report.summary.verdict.label(),
             report.summary.overall_score,
         ));
 
-        output.push_str("### 统计摘要\n");
+        output.push_str("### Statistics Summary\n");
         output.push_str(&format!(
-            "- 审查文件数: {}\n",
+            "- Files Reviewed: {}\n",
             report.changed_files.len()
         ));
         output.push_str(&format!(
-            "- 总变更: +{} / -{} 行\n",
+            "- Total Changes: +{} / -{} lines\n",
             report.metrics.total_lines_added, report.metrics.total_lines_removed
         ));
-        output.push_str(&format!("- 问题总数: {}\n\n", report.summary.total_issues));
+        output.push_str(&format!("- Total Issues: {}\n\n", report.summary.total_issues));
 
-        // 严重程度统计
-        output.push_str("### 严重程度分布\n\n");
-        output.push_str(&format!("| 级别 | 数量 |\n|------|:----:|\n"));
+        // Severity Distribution
+        output.push_str("### Severity Distribution\n\n");
+        output.push_str(&format!("| Severity | Count |\n|---------|:-----:|\n"));
         output.push_str(&format!(
             "| 🔴 Critical | {} |\n",
             report.summary.critical_count
@@ -240,12 +217,12 @@ impl AgentOrchestrator {
         ));
 
         if report.issues.is_empty() {
-            output.push_str("✅ 未发现问题！\n\n");
+            output.push_str("✅ No issues found!\n\n");
             return output;
         }
 
-        // 问题列表
-        output.push_str("### 发现的问题\n\n");
+        // Issues list
+        output.push_str("### Issues Found\n\n");
 
         for (i, issue) in report.issues.iter().enumerate() {
             let icon = issue.severity.icon();
@@ -261,10 +238,10 @@ impl AgentOrchestrator {
             ));
 
             output.push_str(&format!(
-                "- **类别**: {} {:?}\n",
+                "- **Category**: {} {:?}\n",
                 cat_icon, issue.category
             ));
-            output.push_str(&format!("- **文件**: `{}`", issue.file));
+            output.push_str(&format!("- **File**: `{}`", issue.file));
             if let Some(line) = issue.line {
                 output.push_str(&format!(":{}", line));
                 if let Some(end_line) = issue.end_line {
@@ -275,10 +252,10 @@ impl AgentOrchestrator {
             }
             output.push_str("\n");
 
-            output.push_str(&format!("- **描述**: {}\n", issue.description));
+            output.push_str(&format!("- **Description**: {}\n", issue.description));
 
             if let Some(ref suggestion) = issue.suggestion {
-                output.push_str(&format!("- **建议**: {}\n", suggestion));
+                output.push_str(&format!("- **Suggestion**: {}\n", suggestion));
             }
 
             if let Some(ref snippet) = issue.code_snippet {
@@ -288,7 +265,7 @@ impl AgentOrchestrator {
             }
 
             if let Some(ref fix) = issue.fix_example {
-                output.push_str("\n**修复示例**:\n```rust\n");
+                output.push_str("\n**Fix Example**:\n```rust\n");
                 output.push_str(fix);
                 output.push_str("\n```\n");
             }
@@ -296,10 +273,10 @@ impl AgentOrchestrator {
             output.push_str("\n---\n\n");
         }
 
-        // 自动可修复的问题
+        // Auto-fixable issues
         if !report.auto_fixable.is_empty() {
             output.push_str(&format!(
-                "### 🔧 可自动修复的问题 ({} 个)\n\n",
+                "### 🔧 Auto-fixable Issues ({})\n\n",
                 report.auto_fixable.len()
             ));
             for issue in &report.auto_fixable {
@@ -321,7 +298,7 @@ impl AgentOrchestrator {
         output
     }
 
-    /// 判断是否应该触发自动审查
+    /// Determine whether auto-review should be triggered
     pub fn should_auto_review(&self, history: &[Message]) -> bool {
         if !self.auto_review_enabled || !self.config.enabled {
             return false;
@@ -332,7 +309,7 @@ impl AgentOrchestrator {
             return false;
         }
 
-        // 检查是否有写操作（file_write / file_update）
+        // Check for write operations (file_write / file_update)
         history.iter().any(|msg| {
             msg.role == "assistant"
                 && msg
@@ -348,5 +325,5 @@ impl AgentOrchestrator {
     }
 }
 
-// 类型别名用于简化导入
+// Type alias for simplified imports
 pub type OrchestratorRef = std::sync::Arc<AgentOrchestrator>;

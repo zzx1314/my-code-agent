@@ -1,15 +1,15 @@
-//! `/review` 命令 — 手动触发代码审查
+//! `/review` command — Manually trigger code review
 //!
-//! 语法:
-//!   /review              — 审查当前对话中涉及的代码
-//!   /review <path>       — 审查指定路径的代码
-//!   /review --auto       — 切换自动审查模式的开关状态
+//! Syntax:
+//!   /review              — Review code involved in the current conversation
+//!   /review <path>       — Review code at the specified path
+//!   /review --auto       — Toggle auto-review mode on/off
 
 use crate::app::App;
 use crate::core::context::context_manager::ContextManager;
 use crate::core::types::review::{ChangedFile, ChangeType};
 
-/// 处理 `/review` 命令
+/// Handle `/review` command
 pub fn handle(app: &mut App, input: &str, _context_manager: &mut ContextManager) -> bool {
     let args = input.trim();
     let parts: Vec<&str> = args.split_whitespace().collect();
@@ -26,14 +26,14 @@ pub fn handle(app: &mut App, input: &str, _context_manager: &mut ContextManager)
         Some(path) => {
             let path_str = path.to_string();
             app.chat_history.push(crate::app::ChatEntry::assistant(
-                format!("🔍 正在审查 `{}`...", path_str),
+                format!("🔍 Reviewing `{}`...", path_str),
             ));
             spawn_review(app, Some(path_str));
             false
         }
         None => {
             app.chat_history.push(crate::app::ChatEntry::assistant(
-                "🔍 正在审查最近的代码变更...".to_string(),
+                "🔍 Reviewing recent code changes...".to_string(),
             ));
             spawn_review(app, None);
             false
@@ -41,20 +41,20 @@ pub fn handle(app: &mut App, input: &str, _context_manager: &mut ContextManager)
     }
 }
 
-/// 切换自动审查开关
+/// Toggle auto-review on/off
 fn toggle_auto_review(app: &mut App) {
     let new_state = {
         let orchestrator = match app.orchestrator.as_mut() {
             Some(o) => o,
             None => {
                 app.chat_history.push(crate::app::ChatEntry::assistant(
-                    "⚠️ 审查系统未初始化。请重启应用。".to_string(),
+                    "⚠️ Review system not initialized. Please restart the app.".to_string(),
                 ));
                 return;
             }
         };
 
-        // 通过 Arc::get_mut 获取唯一所有权（此时 refcount 应为 1）
+        // Get unique ownership via Arc::get_mut (refcount should be 1)
         let orch = std::sync::Arc::get_mut(orchestrator)
             .expect("Orchestrator should have unique ownership at this point");
         let new_state = !orch.auto_review_enabled;
@@ -62,44 +62,44 @@ fn toggle_auto_review(app: &mut App) {
         new_state
     };
 
-    let status = if new_state { "✅ 已开启" } else { "❌ 已关闭" };
+    let status = if new_state { "✅ Enabled" } else { "❌ Disabled" };
     app.chat_history.push(crate::app::ChatEntry::assistant(
-        format!("**自动代码审查** {} 自动审查", status),
+        format!("**Auto Code Review** {} Auto-review is now {}", status, if new_state { "enabled" } else { "disabled" }),
     ));
 }
 
-/// 显示帮助
+/// Show help
 fn show_help(app: &mut App) {
     app.chat_history.push(crate::app::ChatEntry::assistant(
         "\
-/review 命令 — 代码审查
+/review command — Code Review
 
-**用法:**
-- `/review` — 审查当前对话中涉及的代码变更
-- `/review <path>` — 审查指定文件或目录
-- `/review --auto` 或 `/review -a` — 切换自动审查模式
-- `/review --help` 或 `/review -h` — 显示此帮助
+**Usage:**
+- `/review` — Review code changes involved in the current conversation
+- `/review <path>` — Review the specified file or directory
+- `/review --auto` or `/review -a` — Toggle auto-review mode
+- `/review --help` or `/review -h` — Show this help
 
-**自动审查:**
-当主 Agent 完成代码修改后，审查 Agent 会自动分析变更的代码。
-可以通过 `/review --auto` 开启或关闭此功能。"
+**Auto Review:**
+After the main agent completes code modifications, the review agent will automatically analyze the changed code.
+You can enable or disable this feature with `/review --auto`."
             .trim(),
     ));
 }
 
-/// 异步执行审查
+/// Execute review asynchronously
 fn spawn_review(app: &mut App, path: Option<String>) {
     let orchestrator = match app.orchestrator.clone() {
         Some(o) => o,
         None => {
             app.chat_history.push(crate::app::ChatEntry::assistant(
-                "⚠️ 审查系统未初始化。请重启应用。".to_string(),
+                "⚠️ Review system not initialized. Please restart the app.".to_string(),
             ));
             return;
         }
     };
 
-    // 从 chat_history 取快照
+    // Take snapshot from chat_history
     let history_snapshot: Vec<crate::app::ChatEntry> = app.chat_history.clone();
 
     let (result_tx, result_rx) = tokio::sync::mpsc::channel::<String>(1);
@@ -108,7 +108,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
     app.review_event_rx = Some(event_rx);
     app.is_reviewing = true;
 
-    // 保存 result_rx 以便后续检查结果
+    // Save result_rx for later result checking
     app.review_result_rx = Some(result_rx);
 
     tokio::spawn(async move {
@@ -121,7 +121,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                 diff: String::new(),
             }]
         } else {
-            // 从对话历史快照中检测变更
+            // Detect changes from conversation history snapshot
             let messages: Vec<crate::core::types::Message> = history_snapshot
                 .iter()
                 .map(|e| crate::core::types::Message {
@@ -137,9 +137,9 @@ fn spawn_review(app: &mut App, path: Option<String>) {
 
         if changed_files.is_empty() {
             let msg = if path.is_some() {
-                "未找到指定路径的代码文件。请确认路径是否正确。".to_string()
+                "No code file found at the specified path. Please verify the path is correct.".to_string()
             } else {
-                "未检测到需要审查的代码变更。请先让主 Agent 修改代码，或使用 `/review <path>` 指定路径。"
+                "No code changes detected for review. Please make changes with the main agent first, or use `/review <path>` to specify a path."
                     .to_string()
             };
             let _ = result_tx.send(msg.clone()).await;
@@ -160,7 +160,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                 let _ = event_tx.send(ReviewEvent::Completed { report });
             }
             Err(e) => {
-                let err_msg = format!("⚠️ 审查失败: {}", e);
+                let err_msg = format!("⚠️ Review failed: {}", e);
                 let _ = result_tx.send(err_msg).await;
                 let err_str: String = format!("{}", e);
                 let _ = event_tx.send(ReviewEvent::Error {
