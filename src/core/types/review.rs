@@ -146,6 +146,31 @@ impl ReviewVerdict {
     }
 }
 
+impl ReviewReport {
+    /// Produce a concise natural-language summary of the review results.
+    pub fn natural_summary(&self) -> String {
+        if self.issues.is_empty() {
+            format!(
+                "✅ Review passed — no issues found across {} files (score: {:.0}/100).",
+                self.changed_files.len(),
+                self.summary.overall_score,
+            )
+        } else {
+            let top_issues: Vec<&str> = self.issues.iter().take(3).map(|i| i.title.as_str()).collect();
+            format!(
+                "⚠️ Found {} issues ({} critical, {} high) across {} files (score: {:.0}/100, verdict: {}). Key concerns: {}.",
+                self.summary.total_issues,
+                self.summary.critical_count,
+                self.summary.high_count,
+                self.changed_files.len(),
+                self.summary.overall_score,
+                self.summary.verdict.label(),
+                top_issues.join("; "),
+            )
+        }
+    }
+}
+
 /// Code metrics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeMetrics {

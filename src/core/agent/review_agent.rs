@@ -3,6 +3,7 @@
 //! Responsible for automatically reviewing code changes after the main Agent completes modifications.
 
 use anyhow::Result;
+use futures::future::join_all;
 
 use super::client::LlmClient;
 use crate::core::types::review::*;
@@ -80,6 +81,15 @@ const REVIEW_PHASES: &[ReviewPhase] = &[
     },
 ];
 
+/// Default focus areas for parallel review
+const DEFAULT_FOCUSES: &[&str] = &[
+    "Security and bug risk review",
+    "Functional completeness — does the code fully address user requirements?",
+    "Code simplification and reuse of existing patterns",
+    "Performance and concurrency review",
+    "Maintainability and code style",
+];
+
 impl ReviewAgent {
     pub fn new(client: LlmClient, config: ReviewConfig) -> Self {
         Self { client, config }
@@ -146,6 +156,47 @@ impl ReviewAgent {
         prompt.push_str("- **verdict**: `\"approved\"` (no blocking issues) | `\"needs_revision\"` (fixes required) | `\"rejected\"` (fundamental problems)\n");
         prompt.push_str("- **overall_score**: integer 0–100 (higher = better)\n\n");
 
+        prompt.push_str("## Verdict Guidelines\n");
+        prompt.push_str("- Use `\"rejected\"` when functional_completeness has critical issues — the code fundamentally does not do what was asked.\n");
+        prompt.push_str("- Use `\"needs_revision\"` when there are any high/critical severity issues of ANY category, or when parts of the requirements are missing.\n");
+        prompt.push_str("- Use `\"approved\"` ONLY when ALL requirements are fully met AND there are no high/critical issues.\n");
+        prompt.push_str("- **Be strict about functional_completeness.** It is better to catch a missing feature than to approve incomplete code.\n\n");
+
+        prompt.push_str("## Review Principles\n");
+        prompt.push_str("- Focus on high-impact issues, avoid nitpicking. It's better to report 3 real bugs than 20 minor style nits.\n");
+        prompt.push_str("- Provide concrete fix code examples for every issue where possible.\n");
+        prompt.push_str("- Explain the root cause of issues, not just the symptom.\n");
+        prompt.push_str("- Adapt the review to the language of each file (detected by file extension):\n");
+        prompt.push_str("  - **Rust** — ownership/borrowing, unsafe blocks, unwrap/expect\n");
+        prompt.push_str("  - **TypeScript/JavaScript** — type safety, null handling, async/promise hygiene, `any` types, `as` casts\n");
+        prompt.push_str("  - **Python** — exception handling, type hints, dynamic pitfalls\n");
+        prompt.push_str("  - **Other languages** — apply language-appropriate best practices\n");
+        prompt.push_str("- Prioritize correctness and functional completeness over style preferences.\n");
+        prompt.push_str("- **Be concise**: Focus on high-impact issues. If there are no critical issues, say so briefly. Do not pad the review with unnecessary praise.\n\n");
+
+        prompt.push_str("## Review Guidelines (from industry best practices)\n");
+        prompt.push_str("- **Advocate for the user**: Ensure ALL aspects of the user's request are addressed. Call out any missing requirements.\n");
+        prompt.push_str("- **Minimal changes**: Prefer changing as few lines of code as possible. Don't rewrite working code.\n");
+        prompt.push_str("- **Reuse existing code**: Where a function already exists, reuse it — do not create a new one.\n");
+        prompt.push_str("- **No dead code**: Ensure no unused imports, variables, or functions are introduced.\n");
+        prompt.push_str("- **No missing imports**: Verify all imports are present for new code.\n");
+        prompt.push_str("- **No accidental deletions**: Verify no sections were deleted that weren't supposed to be.\n");
+        prompt.push_str("- **Match existing style**: New code must match the existing codebase's style and conventions.\n");
+        prompt.push_str("- **Avoid unnecessary try/catch**: Don't add try/catch blocks unless truly needed — they clutter the code.\n");
+        prompt.push_str("- **Simplify when possible**: If logic can be simplified, suggest it.\n\n");
+
+        prompt.push_str("## Reasoning Step\n");
+        prompt.push_str("Before providing your JSON review output, use <antThinking> tags to reason through the code changes and identify issues. Think through:\n");
+        prompt.push_str("1. Do the changes fully address the user's requirements?\n");
+        prompt.push_str("2. Are there any bugs, security issues, or performance problems?\n");
+        prompt.push_str("3. Can any code be simplified or reused?\n");
+        prompt.push_str("4. Are there any edge cases missed?\n\n");
+        prompt.push_str("Example format:\n");
+        prompt.push_str("<antThinking>\n");
+        prompt.push_str("The changes add a new API endpoint. Let me check: authentication is present but rate limiting is missing...\n");
+        prompt.push_str("</thinking>\n\n");
+        prompt.push_str("{\"issues\": [...], \"summary\": {...}}\n\n");
+
         prompt.push_str("## Output Format\n");
         prompt.push_str("You MUST output ONLY a valid JSON object. Do NOT include any other text or explanation. Output the JSON directly (either raw or wrapped in a ```json code block).\n");
         prompt.push_str("```json\n");
@@ -170,23 +221,6 @@ impl ReviewAgent {
         prompt.push_str("  }\n");
         prompt.push_str("}\n");
         prompt.push_str("```\n\n");
-
-        prompt.push_str("## Verdict Guidelines\n");
-        prompt.push_str("- Use `\"rejected\"` when functional_completeness has critical issues — the code fundamentally does not do what was asked.\n");
-        prompt.push_str("- Use `\"needs_revision\"` when there are any high/critical severity issues of ANY category, or when parts of the requirements are missing.\n");
-        prompt.push_str("- Use `\"approved\"` ONLY when ALL requirements are fully met AND there are no high/critical issues.\n");
-        prompt.push_str("- **Be strict about functional_completeness.** It is better to catch a missing feature than to approve incomplete code.\n\n");
-
-        prompt.push_str("## Review Principles\n");
-        prompt.push_str("- Focus on high-impact issues, avoid nitpicking. It's better to report 3 real bugs than 20 minor style nits.\n");
-        prompt.push_str("- Provide concrete fix code examples for every issue where possible.\n");
-        prompt.push_str("- Explain the root cause of issues, not just the symptom.\n");
-        prompt.push_str("- Adapt the review to the language of each file (detected by file extension):\n");
-        prompt.push_str("  - **Rust** — ownership/borrowing, unsafe blocks, unwrap/expect\n");
-        prompt.push_str("  - **TypeScript/JavaScript** — type safety, null handling, async/promise hygiene, `any` types, `as` casts\n");
-        prompt.push_str("  - **Python** — exception handling, type hints, dynamic pitfalls\n");
-        prompt.push_str("  - **Other languages** — apply language-appropriate best practices\n");
-        prompt.push_str("- Prioritize correctness and functional completeness over style preferences.\n");
 
         prompt
     }
@@ -361,26 +395,71 @@ impl ReviewAgent {
     }
 
     /// Extract user's original request from conversation history for review context.
-    /// Returns the concatenated user messages (excluding auto-generated fix prompts from review iterations).
+    ///
+    /// Uses an improved strategy:
+    /// 1. Takes the FIRST user message (original request) — the most important context
+    /// 2. Includes the LAST assistant message before the review (what was implemented)
+    /// 3. Includes the most recent follow-up user message (if any substantial one exists)
+    /// 4. Caps total context at ~2000 characters
     pub fn extract_context_from_history(history: &[crate::core::types::Message]) -> String {
-        let mut user_messages: Vec<&str> = history
-            .iter()
-            .filter(|m| {
-                m.role == "user"
-                    && !m.content.contains("fix the issues found in the code review")
-                    && !m.content.contains("Auto-Review Iteration")
-                    && !m.content.contains("Fix Required")
-            })
-            .map(|m| m.content.as_str())
-            .collect();
+        let mut result = String::new();
 
-        // Take the last 2 user messages (original request + any followups)
-        let count = user_messages.len();
-        if count > 2 {
-            user_messages = user_messages[count.saturating_sub(2)..].to_vec();
+        // Find positions of first user and last assistant messages
+        let first_user_idx = history.iter().position(|m| m.role == "user");
+        let last_assistant_idx = history.iter().rposition(|m| m.role == "assistant");
+
+        // 1. Always include the first user message (original request)
+        if let Some(idx) = first_user_idx {
+            let content = clean_review_content(&history[idx].content);
+            if !content.is_empty() {
+                result.push_str("## Original Request\n");
+                result.push_str(&truncate_content(&content, 1500));
+                result.push_str("\n\n");
+            }
         }
 
-        user_messages.join("\n\n---\n\n")
+        // 2. Include last assistant message summary (what was implemented)
+        if let Some(idx) = last_assistant_idx {
+            let content = clean_review_content(&history[idx].content);
+            if !content.is_empty() {
+                result.push_str("## What Was Implemented\n");
+                result.push_str(&truncate_content(&content, 1000));
+                result.push_str("\n\n");
+            }
+        }
+
+        // 3. If there are follow-up user messages between first and last assistant,
+        //    include the most recent substantial one
+        if let (Some(first_idx), Some(last_idx)) = (first_user_idx, last_assistant_idx) {
+            for i in (first_idx + 1..last_idx).rev() {
+                if history[i].role == "user" {
+                    let content = clean_review_content(&history[i].content);
+                    if !content.is_empty() && content.len() > 20 {
+                        result.push_str("## Follow-up Context\n");
+                        result.push_str(&truncate_content(&content, 500));
+                        result.push_str("\n\n");
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 4. Cap at 2000 characters
+        if result.len() > 2000 {
+            result.truncate(2000);
+            if let Some(last_newline) = result[..1997].rfind('\n') {
+                result.truncate(last_newline + 1);
+            }
+        }
+
+        if result.is_empty() {
+            // Fallback: return last user message
+            if let Some(msg) = history.iter().rev().find(|m| m.role == "user") {
+                result = clean_review_content(&msg.content);
+            }
+        }
+
+        result
     }
 
     /// Format changes summary (full diff included)
@@ -637,6 +716,78 @@ impl ReviewAgent {
     fn extract_json(&self, response: &str) -> Result<String> {
         extract_json_from_response(response)
     }
+
+    /// Execute parallel review — runs multiple focused review prompts concurrently
+    /// and merges the results, deduplicating overlapping issues.
+    pub async fn review_parallel(
+        &self,
+        request: &ReviewRequest,
+        focus_prompts: Vec<String>,
+    ) -> Result<ReviewReport> {
+        let focuses = if focus_prompts.is_empty() {
+            DEFAULT_FOCUSES.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        } else {
+            focus_prompts
+        };
+
+        let changes_summary = self.format_changes_summary(&request.changed_files);
+
+        let base_message = if let Some(ref context) = request.context {
+            format!(
+                "## User Request (Requirements)\n\n{context}\n\n## Code Changes to Review\n\n{changes_summary}",
+                context = context,
+                changes_summary = changes_summary,
+            )
+        } else {
+            format!(
+                "Please review the following code changes:\n\n{changes_summary}",
+                changes_summary = changes_summary,
+            )
+        };
+
+        // Spawn concurrent review tasks for each focus area
+        let tasks: Vec<_> = focuses.into_iter().map(|focus| {
+            let message = format!(
+                "{}\n\n## Review Phase Focus\nFocus your review specifically on the following aspect:\n{focus}",
+                base_message, focus = focus,
+            );
+
+            async move {
+                let response = self.call_llm(None, &message).await?;
+                self.parse_issues_from_response(&response)
+            }
+        }).collect();
+
+        let results = join_all(tasks).await;
+
+        let mut all_issues = Vec::new();
+        for result in results {
+            match result {
+                Ok(issues) => all_issues.extend(issues),
+                Err(e) => {
+                    tracing::warn!("Parallel review task failed: {}", e);
+                }
+            }
+        }
+
+        // Deduplicate by (file, line)
+        all_issues = Self::deduplicate_issues(all_issues);
+
+        self.build_report(&all_issues, &request.changed_files)
+    }
+
+    /// Deduplicate issues: two issues are duplicates if they share the same file AND line number.
+    fn deduplicate_issues(issues: Vec<ReviewIssue>) -> Vec<ReviewIssue> {
+        let mut seen = std::collections::HashSet::new();
+        let mut deduped = Vec::new();
+        for issue in issues {
+            let key = (issue.file.clone(), issue.line);
+            if seen.insert(key) {
+                deduped.push(issue);
+            }
+        }
+        deduped
+    }
 }
 
 /// Extract a JSON object from an LLM response string.
@@ -721,4 +872,28 @@ pub fn extract_json_from_response(response: &str) -> Result<String> {
         "Unable to extract JSON from response. Response was:\n{}",
         response.chars().take(500).collect::<String>()
     )
+}
+
+fn clean_review_content(content: &str) -> String {
+    content
+        .lines()
+        .filter(|line| {
+            !line.contains("fix the issues found in the code review")
+                && !line.contains("Auto-Review Iteration")
+                && !line.contains("Fix Required")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn truncate_content(content: &str, max_chars: usize) -> String {
+    if content.len() > max_chars {
+        let mut s = content[..max_chars].to_string();
+        s.push_str("...");
+        s
+    } else {
+        content.to_string()
+    }
 }
