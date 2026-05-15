@@ -177,7 +177,7 @@ fn render_collapsible_block<'a>(
     area_width: u16,
 ) {
     let total = content.len();
-    let collapsed = app.collapsed_sections.contains(section_id);
+    let collapsed = !app.collapsed_sections.contains(section_id);
 
     /// Compute how many visual lines a `Line` occupies after word-wrap at `width`.
     fn visual_lines(line: &ratatui::text::Line<'_>, width: u16) -> u16 {
