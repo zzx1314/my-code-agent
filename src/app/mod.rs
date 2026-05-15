@@ -218,6 +218,12 @@ pub struct App {
     pub review_result_rx: Option<tokio::sync::mpsc::Receiver<crate::core::types::review::ReviewOutcome>>,
     /// Current auto-review iteration count (0 = first review cycle)
     pub review_iteration: usize,
+    /// Transient message to show in status bar after review completes
+    pub review_complete_message: Option<String>,
+    /// Verdict of the completed review (for color-coding the status bar message)
+    pub review_complete_verdict: Option<crate::core::types::review::ReviewVerdict>,
+    /// Frames remaining to show review_complete_message (~10 frames/second)
+    pub review_complete_timer: u64,
 }
 
 impl App {
@@ -326,6 +332,9 @@ impl App {
             review_event_rx: None,
             review_result_rx: None,
             review_iteration: 0,
+            review_complete_message: None,
+            review_complete_verdict: None,
+            review_complete_timer: 0,
         }
     }
 }

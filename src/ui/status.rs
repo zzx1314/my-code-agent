@@ -44,6 +44,23 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             format!(" | 🔍 Reviewing{}", dots),
             Style::default().fg(Color::Cyan),
         ));
+    } else if let Some(ref msg) = app.review_complete_message {
+        if app.review_complete_timer > 0 {
+            let verdict_color = app.review_complete_verdict
+                .as_ref()
+                .map(|v| match v {
+                    crate::core::types::review::ReviewVerdict::Approved => Color::Green,
+                    crate::core::types::review::ReviewVerdict::NeedsRevision => Color::Yellow,
+                    crate::core::types::review::ReviewVerdict::Rejected => Color::Red,
+                })
+                .unwrap_or(Color::Green);
+            spans.push(Span::styled(
+                format!(" | {}", msg),
+                Style::default().fg(verdict_color),
+            ));
+        } else {
+            spans.push(Span::styled(" | Ready", Style::default().fg(Color::Green)));
+        }
     } else if app.shell_mode {
         spans.push(Span::styled(
             " | 🐚 Shell",

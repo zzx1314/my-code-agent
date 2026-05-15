@@ -1,15 +1,15 @@
-//! 代码审查相关的数据结构
+//! Data structures for code review
 
 use serde::{Deserialize, Serialize};
 
-/// 审查严重程度
+/// Review severity level
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
-    Critical,  // 严重 - 必须修复
-    High,      // 高 - 应该修复
-    Medium,    // 中 - 建议修复
-    Low,       // 低 - 可以改进
-    Info,      // 信息 - 仅供参考
+    Critical,  // Must fix
+    High,      // Should fix
+    Medium,    // Recommended to fix
+    Low,       // Could be improved
+    Info,      // For reference only
 }
 
 impl Severity {
@@ -34,17 +34,17 @@ impl Severity {
     }
 }
 
-/// 审查问题类别
+/// Review issue category
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ReviewCategory {
-    Security,       // 安全漏洞
-    Performance,    // 性能问题
-    BugRisk,        // 潜在 Bug
-    Style,          // 代码风格
-    Maintainability,// 可维护性
-    Documentation,  // 文档问题
-    ErrorHandling,  // 错误处理
-    Concurrency,    // 并发问题
+    Security,        // Security vulnerability
+    Performance,     // Performance issue
+    BugRisk,         // Potential bug
+    Style,           // Code style
+    Maintainability, // Maintainability
+    Documentation,   // Documentation issue
+    ErrorHandling,   // Error handling
+    Concurrency,     // Concurrency issue
 }
 
 impl ReviewCategory {
@@ -62,7 +62,7 @@ impl ReviewCategory {
     }
 }
 
-/// 单个审查问题
+/// A single review issue
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewIssue {
     pub file: String,
@@ -77,7 +77,7 @@ pub struct ReviewIssue {
     pub fix_example: Option<String>,
 }
 
-/// 变更文件信息
+/// Changed file information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangedFile {
     pub path: String,
@@ -95,7 +95,7 @@ pub enum ChangeType {
     Renamed,
 }
 
-/// 审查报告
+/// Review report
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewReport {
     pub summary: ReviewSummary,
@@ -105,7 +105,7 @@ pub struct ReviewReport {
     pub auto_fixable: Vec<ReviewIssue>,
 }
 
-/// 审查摘要
+/// Review summary
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewSummary {
     pub total_issues: usize,
@@ -114,16 +114,16 @@ pub struct ReviewSummary {
     pub medium_count: usize,
     pub low_count: usize,
     pub info_count: usize,
-    pub overall_score: f64,  // 0-100 分
+    pub overall_score: f64,  // Score 0-100
     pub verdict: ReviewVerdict,
 }
 
-/// 审查结论
+/// Review verdict
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ReviewVerdict {
-    Approved,        // 可以合并
-    NeedsRevision,   // 需要修改
-    Rejected,        // 建议拒绝
+    Approved,        // OK to merge
+    NeedsRevision,   // Needs changes
+    Rejected,        // Should be rejected
 }
 
 impl ReviewVerdict {
@@ -144,7 +144,7 @@ impl ReviewVerdict {
     }
 }
 
-/// 代码指标
+/// Code metrics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeMetrics {
     pub files_changed: usize,
@@ -153,20 +153,20 @@ pub struct CodeMetrics {
     pub complexity_estimate: Option<f64>,
 }
 
-/// 审查配置
+/// Review configuration
 #[derive(Debug, Clone)]
 pub struct ReviewConfig {
     pub enabled: bool,
-    pub auto_review: bool,              // 是否自动审查
-    pub severity_threshold: Severity,   // 只报告此级别以上的问题
-    pub categories: Vec<ReviewCategory>,// 要检查的类别
-    pub max_issues: usize,              // 最大问题数
-    pub include_suggestions: bool,      // 是否包含修复建议
-    pub max_review_iterations: usize,   // 最大自动审查迭代次数 (默认3)
+    pub auto_review: bool,                // Whether to auto-review
+    pub severity_threshold: Severity,     // Only report issues at or above this level
+    pub categories: Vec<ReviewCategory>,  // Categories to check
+    pub max_issues: usize,                // Maximum number of issues
+    pub include_suggestions: bool,        // Whether to include fix suggestions
+    pub max_review_iterations: usize,     // Maximum auto-review iterations (default 3)
 }
 
 impl ReviewConfig {
-    /// 从应用配置创建审查配置
+    /// Create review config from application config
     pub fn from_app_config(app_config: &crate::core::config::ReviewConfig) -> Self {
         let severity_threshold = match app_config.severity_threshold.to_lowercase().as_str() {
             "critical" => Severity::Critical,
@@ -195,17 +195,17 @@ impl ReviewConfig {
     }
 }
 
-/// 审查结果 (用于自动审查迭代循环)
+/// Review outcome (used for auto-review iteration loop)
 #[derive(Debug, Clone)]
 pub struct ReviewOutcome {
-    /// 显示的审查报告文本
+    /// Review report display text
     pub display_text: String,
-    /// 审查结论
+    /// Review verdict
     pub verdict: ReviewVerdict,
-    /// 审查摘要 (用于构建修复提示)
+    /// Review summary (used to build fix prompts)
     pub report_summary: String,
-    /// 审查报告 (用于构建修复提示)
+    /// Review report (used to build fix prompts)
     pub report: Option<ReviewReport>,
-    /// 是否自动触发修复 (auto-review=true, manual=false)
+    /// Whether to auto-trigger fixes (auto-review=true, manual=false)
     pub auto_trigger: bool,
 }

@@ -14,6 +14,14 @@ pub fn check_review_result(app: &mut App) {
                 app.chat_history.push(crate::app::ChatEntry::assistant(outcome.display_text));
                 app.auto_scroll = true;
 
+                // Set the completion message for status bar display (~3 seconds)
+                let verdict_icon = outcome.verdict.icon();
+                let verdict_label = outcome.verdict.label();
+                let complete_msg = format!("{} Review: {}", verdict_icon, verdict_label);
+                app.review_complete_message = Some(complete_msg);
+                app.review_complete_verdict = Some(outcome.verdict.clone());
+                app.review_complete_timer = 30; // ~3 seconds at ~10fps
+
                 // Determine whether to re-trigger the main agent for fixes
                 let should_fix = outcome.auto_trigger
                     && outcome.verdict != ReviewVerdict::Approved
@@ -22,6 +30,15 @@ pub fn check_review_result(app: &mut App) {
                 if should_fix {
                     let iteration = app.review_iteration;
                     let max_iterations = app.config.review.max_review_iterations;
+
+                    // Update completion message to show iteration info
+                    app.review_complete_message = Some(format!(
+                        "{} Iteration {}/{} — Fixing...",
+                        verdict_icon,
+                        iteration + 1,
+                        max_iterations,
+                    ));
+                    app.review_complete_verdict = Some(outcome.verdict.clone());
 
                     // Build fix prompt from the report
                     let fix_prompt = if let Some(ref report) = outcome.report {
@@ -84,6 +101,9 @@ pub fn check_review_result(app: &mut App) {
                 app.review_result_rx = None;
                 app.is_reviewing = false;
                 app.review_iteration = 0;
+                app.review_complete_message = Some("⚠️ Review Disconnected".to_string());
+                app.review_complete_timer = 30;
+                app.review_complete_verdict = None;
             }
         }
     }

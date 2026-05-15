@@ -20,10 +20,10 @@ pub struct ReviewAgent {
 /// Review Request
 pub struct ReviewRequest {
     pub changed_files: Vec<ChangedFile>,
-    pub context: Option<String>,  // 原始任务描述
+    pub context: Option<String>,  // Original task description
 }
 
-/// 审查响应事件
+/// Review response events
 #[derive(Debug, Clone)]
 pub enum ReviewEvent {
     Started { file_count: usize },
@@ -42,12 +42,23 @@ impl ReviewAgent {
     fn system_prompt(&self) -> String {
         r#"You are a professional code review expert. Your task is to analyze code changes, identify issues, and provide improvement suggestions.
 
-## Review Dimensions
-1. **Security** - SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies
-2. **Performance** - Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning
-3. **Reliability** - Null pointers, edge cases, error handling, panic risks
-4. **Maintainability** - Code duplication, overlong functions, naming conventions, magic numbers
-5. **Concurrency Safety** - Deadlocks, race conditions, data races
+## Review Categories
+Analyze code across all of the following categories:
+
+1. **security** — SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies
+2. **performance** — Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning/allocation
+3. **bug_risk** — Null/unchecked pointers, off-by-one errors, edge cases, type confusion, logic errors
+4. **error_handling** — Missing error propagation, ignored Results, unwrap/expect panics, silent failures
+5. **maintainability** — Code duplication, overlong functions, poor naming, magic numbers, dead code
+6. **style** — Inconsistent formatting, non-idiomatic patterns, lint violations, naming convention breaks
+7. **documentation** — Missing/misleading doc comments, stale comments, missing public API docs
+8. **concurrency** — Data races, deadlocks, missing synchronization, async misuse, Send/Sync issues
+
+## Valid Values
+- **severity**: `"critical"` | `"high"` | `"medium"` | `"low"` | `"info"`
+- **category**: one of the 8 categories listed above (`"security"`, `"performance"`, etc.)
+- **verdict**: `"approved"` (no blocking issues) | `"needs_revision"` (fixes required) | `"rejected"` (fundamental problems)
+- **overall_score**: integer 0–100 (higher = better)
 
 ## Output Format
 You MUST output ONLY a valid JSON object. Do NOT include any other text or explanation. Output the JSON directly (either raw or wrapped in a ```json code block).
@@ -75,11 +86,15 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
 ```
 
 ## Review Principles
-- Focus on high-impact issues, avoid nitpicking
-- Provide concrete fix code examples
-- Explain the root cause of issues
-- Prioritize security and stability issues
-- Consider Rust's ownership and borrowing rules
+- Focus on high-impact issues, avoid nitpicking. It's better to report 3 real bugs than 20 minor style nits.
+- Provide concrete fix code examples for every issue where possible.
+- Explain the root cause of issues, not just the symptom.
+- Adapt the review to the language of each file (detected by file extension):
+  - **Rust** — ownership/borrowing, unsafe blocks, unwrap/expect
+  - **TypeScript/JavaScript** — type safety, null handling, async/promise hygiene
+  - **Python** — exception handling, type hints, dynamic pitfalls
+  - **Other languages** — apply language-appropriate best practices
+- Prioritize correctness, security, and stability over style preferences.
 "#.to_string()
     }
 

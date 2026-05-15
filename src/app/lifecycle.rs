@@ -101,6 +101,14 @@ pub async fn run_app(
         crate::core::agent::stream::check_init_result(&mut app);
         crate::core::agent::stream::check_review_result(&mut app);
 
+        // Decay review-complete status bar message
+        if app.review_complete_timer > 0 {
+            app.review_complete_timer -= 1;
+            if app.review_complete_timer == 0 {
+                app.review_complete_message = None;
+            }
+        }
+
         terminal.draw(|f| crate::ui::ui(f, &mut app))?;
 
         // ── Native cursor styling (after frame flush) ──────────────────────
