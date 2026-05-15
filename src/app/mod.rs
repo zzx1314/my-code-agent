@@ -211,7 +211,9 @@ pub struct App {
     /// Receiver for review events (progress updates)
     pub review_event_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::commands::review::ReviewEvent>>,
     /// Receiver for review result
-    pub review_result_rx: Option<tokio::sync::mpsc::Receiver<String>>,
+    pub review_result_rx: Option<tokio::sync::mpsc::Receiver<crate::core::types::review::ReviewOutcome>>,
+    /// Current auto-review iteration count (0 = first review cycle)
+    pub review_iteration: usize,
 }
 
 impl App {
@@ -318,6 +320,7 @@ impl App {
             is_reviewing: false,
             review_event_rx: None,
             review_result_rx: None,
+            review_iteration: 0,
         }
     }
 }

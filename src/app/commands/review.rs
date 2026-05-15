@@ -102,7 +102,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
     // Take snapshot from chat_history
     let history_snapshot: Vec<crate::app::ChatEntry> = app.chat_history.clone();
 
-    let (result_tx, result_rx) = tokio::sync::mpsc::channel::<String>(1);
+    let (result_tx, result_rx) = tokio::sync::mpsc::channel::<crate::core::types::review::ReviewOutcome>(1);
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<ReviewEvent>();
 
     app.review_event_rx = Some(event_rx);
@@ -142,7 +142,13 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                 "No code changes detected for review. Please make changes with the main agent first, or use `/review <path>` to specify a path."
                     .to_string()
             };
-            let _ = result_tx.send(msg.clone()).await;
+            let _ = result_tx.send(crate::core::types::review::ReviewOutcome {
+                display_text: msg.clone(),
+                verdict: crate::core::types::review::ReviewVerdict::Approved,
+                report_summary: String::new(),
+                report: None,
+                auto_trigger: false,
+            }).await;
             let _ = event_tx.send(ReviewEvent::Error {
                 message: msg,
             });
@@ -155,13 +161,32 @@ fn spawn_review(app: &mut App, path: Option<String>) {
 
         match orchestrator.review(changed_files, None).await {
             Ok(report) => {
-                let output = orchestrator.format_review_report(&report);
-                let _ = result_tx.send(output).await;
+                let display_text = orchestrator.format_review_report(&report);
+                let verdict = report.summary.verdict.clone();
+                let report_summary = format!(
+                    "Verdict: {} | Score: {:.0}/100 | Issues: {}",
+                    verdict.label(),
+                    report.summary.overall_score,
+                    report.summary.total_issues,
+                );
+                let _ = result_tx.send(crate::core::types::review::ReviewOutcome {
+                    display_text,
+                    verdict,
+                    report_summary,
+                    report: Some(report.clone()),
+                    auto_trigger: false, // manual review: no auto-fix loop
+                }).await;
                 let _ = event_tx.send(ReviewEvent::Completed { report });
             }
             Err(e) => {
                 let err_msg = format!("⚠️ Review failed: {}", e);
-                let _ = result_tx.send(err_msg).await;
+                let _ = result_tx.send(crate::core::types::review::ReviewOutcome {
+                    display_text: err_msg.clone(),
+                    verdict: crate::core::types::review::ReviewVerdict::NeedsRevision,
+                    report_summary: String::new(),
+                    report: None,
+                    auto_trigger: false,
+                }).await;
                 let err_str: String = format!("{}", e);
                 let _ = event_tx.send(ReviewEvent::Error {
                     message: err_str,

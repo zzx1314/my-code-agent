@@ -162,6 +162,7 @@ pub struct ReviewConfig {
     pub categories: Vec<ReviewCategory>,// 要检查的类别
     pub max_issues: usize,              // 最大问题数
     pub include_suggestions: bool,      // 是否包含修复建议
+    pub max_review_iterations: usize,   // 最大自动审查迭代次数 (默认3)
 }
 
 impl ReviewConfig {
@@ -189,6 +190,22 @@ impl ReviewConfig {
             ],
             max_issues: app_config.max_issues,
             include_suggestions: true,
+            max_review_iterations: app_config.max_review_iterations,
         }
     }
+}
+
+/// 审查结果 (用于自动审查迭代循环)
+#[derive(Debug, Clone)]
+pub struct ReviewOutcome {
+    /// 显示的审查报告文本
+    pub display_text: String,
+    /// 审查结论
+    pub verdict: ReviewVerdict,
+    /// 审查摘要 (用于构建修复提示)
+    pub report_summary: String,
+    /// 审查报告 (用于构建修复提示)
+    pub report: Option<ReviewReport>,
+    /// 是否自动触发修复 (auto-review=true, manual=false)
+    pub auto_trigger: bool,
 }

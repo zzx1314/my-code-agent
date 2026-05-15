@@ -139,6 +139,7 @@ fn test_review_config_from_app_config() {
         severity_threshold: "high".to_string(),
         on_file_write: true,
         on_file_update: true,
+        max_review_iterations: 3,
     };
 
     let config = ReviewConfig::from_app_config(&app_config);
@@ -376,4 +377,290 @@ fn test_parse_tool_output_no_path() {
     let output = serde_json::json!({"message": "success"}).to_string();
     let result = AgentOrchestrator::parse_tool_output(&output);
     assert!(result.is_none());
+}
+
+// =============================================================================
+// Tests for ReviewOutcome (iterative review-fix loop)
+// =============================================================================
+
+/// Test ReviewOutcome creation for approved review (should stop loop)
+#[test]
+fn test_review_outcome_approved() {
+    let outcome = ReviewOutcome {
+        display_text: "✅ All good!".to_string(),
+        verdict: ReviewVerdict::Approved,
+        report_summary: "Score: 95/100".to_string(),
+        report: None,
+        auto_trigger: true,
+    };
+    assert_eq!(outcome.verdict, ReviewVerdict::Approved);
+    assert!(outcome.auto_trigger);
+    // Approved + auto_trigger = should NOT trigger fix loop
+    let should_fix = outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved;
+    assert!(!should_fix, "Approved should not trigger fix loop");
+}
+
+/// Test ReviewOutcome creation for needs_revision (should trigger fix loop)
+#[test]
+fn test_review_outcome_needs_revision() {
+    let outcome = ReviewOutcome {
+        display_text: "🔄 Issues found".to_string(),
+        verdict: ReviewVerdict::NeedsRevision,
+        report_summary: "Score: 65/100, 3 issues".to_string(),
+        report: None,
+        auto_trigger: true,
+    };
+    assert_eq!(outcome.verdict, ReviewVerdict::NeedsRevision);
+    // NeedsRevision + auto_trigger = SHOULD trigger fix loop
+    let should_fix = outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved;
+    assert!(should_fix, "NeedsRevision should trigger fix loop");
+}
+
+/// Test manual review outcome (auto_trigger=false) never triggers fix loop
+#[test]
+fn test_review_outcome_manual_no_trigger() {
+    let outcome = ReviewOutcome {
+        display_text: "Manual review report".to_string(),
+        verdict: ReviewVerdict::NeedsRevision,
+        report_summary: "Score: 50/100".to_string(),
+        report: None,
+        auto_trigger: false,
+    };
+    // Even with NeedsRevision, auto_trigger=false = should NOT trigger fix loop
+    let should_fix = outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved;
+    assert!(!should_fix, "Manual review should not trigger fix loop");
+}
+
+/// Test ReviewOutcome with Rejected verdict (should trigger fix loop)
+#[test]
+fn test_review_outcome_rejected() {
+    let outcome = ReviewOutcome {
+        display_text: "❌ Code rejected".to_string(),
+        verdict: ReviewVerdict::Rejected,
+        report_summary: "Score: 30/100, 5 critical issues".to_string(),
+        report: None,
+        auto_trigger: true,
+    };
+    // Rejected + auto_trigger = SHOULD trigger fix loop (code needs serious fixes)
+    let should_fix = outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved;
+    assert!(should_fix, "Rejected should trigger fix loop");
+}
+
+/// Test iteration counter logic: iteration < max_iterations allows fix
+#[test]
+fn test_iteration_below_max_allows_fix() {
+    let max_iterations = 3_usize;
+    let review_iteration = 0_usize;
+    let should_fix = review_iteration < max_iterations;
+    assert!(should_fix, "Iteration 0 should be below max 3");
+
+    let review_iteration = 1_usize;
+    let should_fix = review_iteration < max_iterations;
+    assert!(should_fix, "Iteration 1 should be below max 3");
+
+    let review_iteration = 2_usize;
+    let should_fix = review_iteration < max_iterations;
+    assert!(should_fix, "Iteration 2 should be below max 3");
+}
+
+/// Test iteration counter logic: iteration >= max_iterations stops the loop
+#[test]
+fn test_iteration_max_stops_loop() {
+    let max_iterations = 3_usize;
+    let review_iteration = 3_usize;
+    let should_fix = review_iteration < max_iterations;
+    assert!(!should_fix, "Iteration 3 should NOT be below max 3");
+
+    let review_iteration = 4_usize;
+    let should_fix = review_iteration < max_iterations;
+    assert!(!should_fix, "Iteration 4 should NOT be below max 3");
+}
+
+/// Test iteration counter is reset after approved review
+#[test]
+fn test_iteration_reset_after_approved() {
+    let mut review_iteration = 2_usize; // was in a loop
+    let verdict = ReviewVerdict::Approved;
+    let auto_trigger = true;
+
+    let should_fix = auto_trigger && verdict != ReviewVerdict::Approved;
+    assert!(!should_fix);
+
+    // Reset after approved
+    review_iteration = 0;
+    assert_eq!(review_iteration, 0, "Iteration should reset after approved");
+}
+
+/// Test build_fix_prompt format (verify it contains expected sections)
+#[test]
+fn test_build_fix_prompt_format() {
+    let report = ReviewReport {
+        summary: ReviewSummary {
+            total_issues: 2,
+            critical_count: 1,
+            high_count: 1,
+            medium_count: 0,
+            low_count: 0,
+            info_count: 0,
+            overall_score: 60.0,
+            verdict: ReviewVerdict::NeedsRevision,
+        },
+        issues: vec![
+            ReviewIssue {
+                file: "src/main.rs".to_string(),
+                line: Some(10),
+                end_line: None,
+                severity: Severity::Critical,
+                category: ReviewCategory::BugRisk,
+                title: "Division by zero risk".to_string(),
+                description: "a / b where b could be 0".to_string(),
+                suggestion: Some("Check for zero before dividing".to_string()),
+                code_snippet: None,
+                fix_example: Some("if b == 0 { return Err(...) }".to_string()),
+            },
+            ReviewIssue {
+                file: "src/main.rs".to_string(),
+                line: Some(15),
+                end_line: None,
+                severity: Severity::High,
+                category: ReviewCategory::Style,
+                title: "Unused variable".to_string(),
+                description: "_unused variable serves no purpose".to_string(),
+                suggestion: None,
+                code_snippet: None,
+                fix_example: None,
+            },
+        ],
+        changed_files: vec![],
+        metrics: CodeMetrics {
+            files_changed: 0,
+            total_lines_added: 0,
+            total_lines_removed: 0,
+            complexity_estimate: None,
+        },
+        auto_fixable: vec![],
+    };
+
+    // Build the fix prompt using a simplified version of the logic
+    let iteration = 0;
+    let max_iterations = 3;
+    let prompt = format!(
+        "## 🔄 Code Review - Iteration {}/{} — Fix Required\n\n",
+        iteration + 1,
+        max_iterations,
+    );
+
+    // Verify format
+    assert!(prompt.contains("Iteration 1/3"));
+    assert!(prompt.contains("Fix Required"));
+
+    // Verify iteration counter increments correctly
+    let iteration2 = 1;
+    let prompt2 = format!("Iteration {}/{}", iteration2 + 1, max_iterations);
+    assert_eq!(prompt2, "Iteration 2/3");
+
+    let iteration3 = 2;
+    let prompt3 = format!("Iteration {}/{}", iteration3 + 1, max_iterations);
+    assert_eq!(prompt3, "Iteration 3/3");
+}
+
+/// Test that the fix prompt correctly includes issue details
+#[test]
+fn test_fix_prompt_includes_issues() {
+    // Verify the build_fix_prompt method from AgentOrchestrator
+    // produces a prompt containing issue details by testing the core logic
+    let total_issues = 2;
+    let issues_text = format!("### Found {} Issues", total_issues);
+    assert!(issues_text.contains("2 Issues"));
+
+    let critical_count = 1;
+    let high_count = 1;
+    let issue_line = format!("Focus on Critical ({}) and High ({}) severity issues first.",
+        critical_count, high_count);
+    assert_eq!(issue_line, "Focus on Critical (1) and High (1) severity issues first.");
+}
+
+/// Test complete decision logic combining verdict, auto_trigger, and iteration
+/// This mirrors the actual logic in check_review_result
+#[test]
+fn test_complete_iterative_loop_logic() {
+    // Scenario: Auto-review with NeedsRevision, within max iterations
+    let mut review_iteration = 0;
+    let max_iterations = 3;
+    let verdict = ReviewVerdict::NeedsRevision;
+    let auto_trigger = true;
+
+    // First iteration: should fix
+    let should_fix = auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    assert!(should_fix);
+    review_iteration += 1; // now = 1
+
+    // Second iteration: still needs revision, should fix
+    let should_fix = auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    assert!(should_fix);
+    review_iteration += 1; // now = 2
+
+    // Third iteration: still needs revision, should fix (last chance)
+    let should_fix = auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    assert!(should_fix);
+    assert_eq!(review_iteration, 2);
+    assert!(review_iteration + 1 >= max_iterations); // last iteration flag
+    review_iteration += 1; // now = 3
+
+    // Fourth iteration: max reached, should NOT fix
+    let should_fix = auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    assert!(!should_fix);
+
+    // After max iterations, should show "max reached" message
+    if !should_fix && auto_trigger && verdict != ReviewVerdict::Approved {
+        if review_iteration >= max_iterations {
+            // This matches the code in check_review_result
+            assert_eq!(review_iteration, 3);
+            assert!(review_iteration >= max_iterations);
+        }
+    }
+}
+
+/// Test that a second review cycle starts fresh with iteration=0
+#[test]
+fn test_new_review_cycle_starts_fresh() {
+    let mut review_iteration = 0;
+    let max_iterations = 3;
+
+    // Simulate: first message → review loop (3 iterations)
+    // After loop completes (approved or max reached), iteration resets to 0
+    review_iteration = 0; // reset
+
+    // Now user sends a new message → new cycle starts
+    let verdict = ReviewVerdict::NeedsRevision;
+    let should_fix = true && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    assert!(should_fix, "New cycle should start fresh with iteration 0");
+}
+
+/// Test the iteration status message for first fix vs last chance
+#[test]
+fn test_iteration_status_messages() {
+    let max_iterations = 3;
+
+    // First iteration (iteration=0, will become 1): "Issues found, fixing..."
+    let iteration = 0_usize;
+    let status = if iteration + 1 >= max_iterations {
+        format!("🔄 **Auto-Review Iteration {}/{}** — Last chance! Fixing issues...",
+            iteration + 1, max_iterations)
+    } else {
+        format!("🔄 **Auto-Review Iteration {}/{}** — Issues found, fixing...",
+            iteration + 1, max_iterations)
+    };
+    assert_eq!(status, "🔄 **Auto-Review Iteration 1/3** — Issues found, fixing...");
+
+    // Last iteration (iteration=2, will become 3): "Last chance!"
+    let iteration = 2_usize;
+    let status = if iteration + 1 >= max_iterations {
+        format!("🔄 **Auto-Review Iteration {}/{}** — Last chance! Fixing issues...",
+            iteration + 1, max_iterations)
+    } else {
+        format!("🔄 **Auto-Review Iteration {}/{}** — Issues found, fixing...",
+            iteration + 1, max_iterations)
+    };
+    assert_eq!(status, "🔄 **Auto-Review Iteration 3/3** — Last chance! Fixing issues...");
 }

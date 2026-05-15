@@ -327,6 +327,75 @@ impl AgentOrchestrator {
         output
     }
 
+    /// Build a fix prompt from a review report, asking the main agent to fix the issues.
+    pub fn build_fix_prompt(&self, report: &ReviewReport, iteration: usize, max_iterations: usize) -> String {
+        let mut prompt = format!(
+            "## 🔄 Code Review - Iteration {}/{} — Fix Required\n\n",
+            iteration + 1,
+            max_iterations,
+        );
+
+        prompt.push_str("The code review has identified issues that need to be fixed. ");
+        prompt.push_str(&format!(
+            "Verdict: {} (Score: {:.0}/100)\n\n",
+            report.summary.verdict.label(),
+            report.summary.overall_score,
+        ));
+
+        if report.summary.total_issues > 0 {
+            prompt.push_str(&format!(
+                "### Found {} Issues\n\n",
+                report.summary.total_issues
+            ));
+            prompt.push_str(&format!(
+                "| Severity | Count |\n|---------|:-----:|\n"));
+            prompt.push_str(&format!("| 🔴 Critical | {} |\n", report.summary.critical_count));
+            prompt.push_str(&format!("| 🟠 High | {} |\n", report.summary.high_count));
+            prompt.push_str(&format!("| 🟡 Medium | {} |\n", report.summary.medium_count));
+            prompt.push_str(&format!("| 🔵 Low | {} |\n\n", report.summary.low_count));
+
+            prompt.push_str("### Issues to Fix\n\n");
+            for (i, issue) in report.issues.iter().enumerate() {
+                prompt.push_str(&format!(
+                    "{}. **{}** [{}] `{}`\n",
+                    i + 1,
+                    issue.title,
+                    issue.severity.label(),
+                    issue.file,
+                ));
+                if let Some(line) = issue.line {
+                    prompt.push_str(&format!("   - Line: {}\n", line));
+                }
+                prompt.push_str(&format!("   - Description: {}\n", issue.description));
+                if let Some(ref suggestion) = issue.suggestion {
+                    prompt.push_str(&format!("   - Suggestion: {}\n", suggestion));
+                }
+                if let Some(ref fix) = issue.fix_example {
+                    prompt.push_str(&format!("   - Fix example: `{}`\n", fix.lines().next().unwrap_or("").trim()));
+                }
+                prompt.push_str("\n");
+            }
+
+            prompt.push_str("\nPlease fix ALL of the above issues. ");
+            prompt.push_str(&format!(
+                "Focus on Critical ({}) and High ({}) severity issues first. ",
+                report.summary.critical_count,
+                report.summary.high_count,
+            ));
+            prompt.push_str("After making the fixes, the code will be automatically reviewed again.\n");
+        } else {
+            prompt.push_str("No specific issues were listed. Please review the code carefully and make any necessary improvements.\n");
+        }
+
+        prompt.push_str(&format!(
+            "\n---\n*Auto-review iteration {}/{}*\n",
+            iteration + 1,
+            max_iterations,
+        ));
+
+        prompt
+    }
+
     /// Determine whether auto-review should be triggered
     pub fn should_auto_review(&self, history: &[Message]) -> bool {
         if !self.auto_review_enabled || !self.config.enabled {

@@ -1,6 +1,7 @@
 use tokio::sync::mpsc;
 
 use crate::app::App;
+use crate::core::types::review::{ReviewOutcome, ReviewVerdict};
 
 use super::state::cleanup_stream_state;
 
@@ -8,16 +9,81 @@ use super::state::cleanup_stream_state;
 pub fn check_review_result(app: &mut App) {
     if let Some(ref mut rx) = app.review_result_rx {
         match rx.try_recv() {
-            Ok(result) => {
-                app.chat_history.push(crate::app::ChatEntry::assistant(result));
-                app.is_reviewing = false;
-                app.review_result_rx = None;
+            Ok(outcome) => {
+                // Add the display text to chat history
+                app.chat_history.push(crate::app::ChatEntry::assistant(outcome.display_text));
                 app.auto_scroll = true;
+
+                // Determine whether to re-trigger the main agent for fixes
+                let should_fix = outcome.auto_trigger
+                    && outcome.verdict != ReviewVerdict::Approved
+                    && app.review_iteration < app.config.review.max_review_iterations;
+
+                if should_fix {
+                    let iteration = app.review_iteration;
+                    let max_iterations = app.config.review.max_review_iterations;
+
+                    // Build fix prompt from the report
+                    let fix_prompt = if let Some(ref report) = outcome.report {
+                        if let Some(ref orchestrator) = app.orchestrator {
+                            orchestrator.build_fix_prompt(report, iteration, max_iterations)
+                        } else {
+                            format!(
+                                "Please fix the issues found in the code review (iteration {}/{}). The review needs revision.",
+                                iteration + 1,
+                                max_iterations,
+                            )
+                        }
+                    } else {
+                        format!(
+                            "Please fix the issues found in the code review (iteration {}/{}) so the code passes review.",
+                            iteration + 1,
+                            max_iterations,
+                        )
+                    };
+
+                    app.review_iteration += 1;
+                    app.is_reviewing = false;
+                    app.review_result_rx = None;
+
+                    // Add a status message indicating re-review cycle
+                    let iteration_status = if iteration + 1 >= max_iterations {
+                        format!(
+                            "🔄 **Auto-Review Iteration {}/{}** — Last chance! Fixing issues...",
+                            iteration + 1,
+                            max_iterations,
+                        )
+                    } else {
+                        format!(
+                            "🔄 **Auto-Review Iteration {}/{}** — Issues found, fixing...",
+                            iteration + 1,
+                            max_iterations,
+                        )
+                    };
+                    app.chat_history.push(crate::app::ChatEntry::assistant(iteration_status));
+                    app.auto_scroll = true;
+
+                    // Push the fix prompt to message queue so the event loop picks it up
+                    app.message_queue.push(fix_prompt);
+                } else {
+                    // Review complete — show final status
+                    if outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved {
+                        if app.review_iteration >= app.config.review.max_review_iterations {
+                            app.chat_history.push(crate::app::ChatEntry::assistant(
+                                "⚠️ **Max review iterations reached.** Manual intervention may be required.".to_string(),
+                            ));
+                        }
+                    }
+                    app.is_reviewing = false;
+                    app.review_result_rx = None;
+                    app.review_iteration = 0; // Reset for next cycle
+                }
             }
             Err(mpsc::error::TryRecvError::Empty) => {}
             Err(mpsc::error::TryRecvError::Disconnected) => {
                 app.review_result_rx = None;
                 app.is_reviewing = false;
+                app.review_iteration = 0;
             }
         }
     }
@@ -130,7 +196,7 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         if should_review {
             app.is_reviewing = true;
             tracing::info!("Auto-review triggered after main agent response");
-            
+
             // Add a visible message to chat history
             app.chat_history.push(crate::app::ChatEntry::assistant(
                 "🔍 **Auto-Review Started** — Analyzing recent code changes...".to_string(),
@@ -141,7 +207,7 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
             let history_snapshot = app.chat_history.clone();
 
             // Create channels for review result communication
-            let (result_tx, result_rx) = tokio::sync::mpsc::channel::<String>(1);
+            let (result_tx, result_rx) = tokio::sync::mpsc::channel::<ReviewOutcome>(1);
             app.review_result_rx = Some(result_rx);
 
             tokio::spawn(async move {
@@ -160,7 +226,14 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
 
                 if changed_files.is_empty() {
                     tracing::info!("Auto-review: no changed files detected");
-                    let _ = result_tx.send("ℹ️ **Auto-Review Complete** — No code changes detected.".to_string()).await;
+                    let outcome = ReviewOutcome {
+                        display_text: "ℹ️ **Auto-Review Complete** — No code changes detected.".to_string(),
+                        verdict: ReviewVerdict::Approved,
+                        report_summary: String::new(),
+                        report: None,
+                        auto_trigger: false,
+                    };
+                    let _ = result_tx.send(outcome).await;
                     return;
                 }
 
@@ -168,17 +241,44 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
 
                 match orchestrator.review(changed_files, None).await {
                     Ok(report) => {
-                        let output = orchestrator.format_review_report(&report);
+                        let display_text = orchestrator.format_review_report(&report);
+                        let report_summary = format!(
+                            "Verdict: {} | Score: {:.0}/100 | Issues: {} (Critical: {}, High: {}, Medium: {}, Low: {})",
+                            report.summary.verdict.label(),
+                            report.summary.overall_score,
+                            report.summary.total_issues,
+                            report.summary.critical_count,
+                            report.summary.high_count,
+                            report.summary.medium_count,
+                            report.summary.low_count,
+                        );
+                        let verdict = report.summary.verdict.clone();
+
                         tracing::info!(
                             issues = report.summary.total_issues,
-                            verdict = ?report.summary.verdict,
+                            verdict = ?verdict,
                             "Auto-review completed"
                         );
-                        let _ = result_tx.send(output).await;
+
+                        let outcome = ReviewOutcome {
+                            display_text,
+                            verdict,
+                            report_summary,
+                            report: Some(report),
+                            auto_trigger: true, // auto-review triggers iterative fix loop
+                        };
+                        let _ = result_tx.send(outcome).await;
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Auto-review failed");
-                        let _ = result_tx.send(format!("⚠️ **Auto-Review Failed** — {}", e)).await;
+                        let outcome = ReviewOutcome {
+                            display_text: format!("⚠️ **Auto-Review Failed** — {e}"),
+                            verdict: ReviewVerdict::NeedsRevision,
+                            report_summary: String::new(),
+                            report: None,
+                            auto_trigger: false, // don't loop on errors
+                        };
+                        let _ = result_tx.send(outcome).await;
                     }
                 }
             });

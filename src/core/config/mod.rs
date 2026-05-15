@@ -112,6 +112,9 @@ pub struct ReviewConfig {
     /// Enable review on file_update. Default: `true`.
     #[serde(default = "default_true")]
     pub on_file_update: bool,
+    /// Maximum auto-review iterations (fix → review loop). Default: `3`.
+    #[serde(default = "default_review_max_iterations")]
+    pub max_review_iterations: usize,
 }
 
 fn default_review_threshold() -> usize {
@@ -124,6 +127,10 @@ fn default_review_max_issues() -> usize {
 
 fn default_review_severity() -> String {
     "low".to_string()
+}
+
+fn default_review_max_iterations() -> usize {
+    3
 }
 
 /// File reading and attachment limits.
@@ -284,6 +291,7 @@ impl Default for ReviewConfig {
             severity_threshold: "low".to_string(),
             on_file_write: true,
             on_file_update: true,
+            max_review_iterations: 3,
         }
     }
 }
