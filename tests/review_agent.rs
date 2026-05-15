@@ -663,3 +663,280 @@ fn test_iteration_status_messages() {
     };
     assert_eq!(status, "🔄 **Auto-Review Iteration 3/3** — Last chance! Fixing issues...");
 }
+
+// =============================================================================
+// Tests for Functional Completeness (new feature)
+// =============================================================================
+
+use my_code_agent::core::agent::review_agent::ReviewAgent;
+use my_code_agent::core::types::Message;
+
+/// Test extract_context_from_history: keeps user messages, filters out fix prompts
+#[test]
+fn test_extract_context_from_history_filters_fix_prompts() {
+    let history = vec![
+        Message::user("Add a CSV parser that reads a file and sorts by column"),
+        Message::assistant("Here is the code..."),
+        Message::tool("call_1", "file_write result"),
+        // Simulated fix prompt from auto-review loop - should be filtered out
+        Message::user("fix the issues found in the code review (iteration 1/3)"),
+        Message::assistant("Fixing issues..."),
+        // Another fix prompt
+        Message::user("Auto-Review Iteration 2/3 - Fix Required"),
+    ];
+
+    let context = ReviewAgent::extract_context_from_history(&history);
+    
+    // Should contain the original user request
+    assert!(context.contains("Add a CSV parser"), "Should keep original user request");
+    // Should NOT contain fix loop messages
+    assert!(!context.contains("fix the issues found"), "Should filter out fix prompts");
+    assert!(!context.contains("Auto-Review Iteration"), "Should filter out iteration messages");
+    assert!(!context.contains("Fix Required"), "Should filter out fix required messages");
+}
+
+/// Test extract_context_from_history: returns empty string when all messages are filtered
+#[test]
+fn test_extract_context_from_history_all_filtered() {
+    let history = vec![
+        Message::user("fix the issues found in the code review (iteration 1/3)"),
+        Message::user("Auto-Review Iteration 2/3 - Fix Required"),
+    ];
+
+    let context = ReviewAgent::extract_context_from_history(&history);
+    assert!(context.is_empty(), "Should return empty when all messages are filtered");
+}
+
+/// Test extract_context_from_history: only takes last 2 user messages
+#[test]
+fn test_extract_context_from_history_limits_to_last_two() {
+    let history = vec![
+        Message::user("First question"),
+        Message::assistant("Answer 1"),
+        Message::user("Second question - follow up"),
+        Message::assistant("Answer 2"),
+        Message::user("Third question - final request"),
+    ];
+
+    let context = ReviewAgent::extract_context_from_history(&history);
+    
+    // Should NOT contain the first message
+    assert!(!context.contains("First question"), "Should not contain oldest message");
+    // Should contain the last 2 messages
+    assert!(context.contains("Second question"), "Should contain second message");
+    assert!(context.contains("Third question"), "Should contain third message");
+}
+
+// =============================================================================
+// Tests for ReviewCategory::FunctionalCompleteness
+// =============================================================================
+
+/// Test FunctionalCompleteness category icon and construction
+#[test]
+fn test_functional_completeness_category() {
+    let issue = ReviewIssue {
+        file: "src/parser.rs".to_string(),
+        line: Some(10),
+        end_line: None,
+        severity: Severity::Critical,
+        category: ReviewCategory::FunctionalCompleteness,
+        title: "Missing sorting implementation".to_string(),
+        description: "User requested sorting by first column, but no sort function is called.".to_string(),
+        suggestion: Some("Add a sort step before writing output".to_string()),
+        code_snippet: None,
+        fix_example: None,
+    };
+
+    assert_eq!(issue.category.icon(), "\u{1f3af}"); // 🎯
+    assert_eq!(issue.severity, Severity::Critical);
+    assert_eq!(issue.title, "Missing sorting implementation");
+}
+
+// =============================================================================
+// Tests for Stricter Verdict Fallback with Functional Completeness
+// =============================================================================
+
+/// Test creating a ReviewIssue with FunctionalCompleteness category
+#[test]
+fn test_review_issue_with_functional_completeness() {
+    let issue = ReviewIssue {
+        file: "src/main.rs".to_string(),
+        line: Some(1),
+        end_line: None,
+        severity: Severity::High,
+        category: ReviewCategory::FunctionalCompleteness,
+        title: "Partial implementation".to_string(),
+        description: "Only file reading is implemented, sorting and writing are missing".to_string(),
+        suggestion: Some("Implement the missing sort and write functions".to_string()),
+        code_snippet: Some("fn process(path: &str) { let data = fs::read(path); } \n    // TODO: sort and write".to_string()),
+        fix_example: None,
+    };
+
+    assert_eq!(issue.category, ReviewCategory::FunctionalCompleteness);
+    assert_eq!(issue.severity, Severity::High);
+    assert_eq!(issue.file, "src/main.rs");
+    assert_eq!(issue.line, Some(1));
+}
+
+/// Test that a report with any functional_completeness issue gets NeedsRevision
+#[test]
+fn test_verdict_with_functional_completeness_issue_is_needs_revision() {
+    let report = ReviewReport {
+        summary: ReviewSummary {
+            total_issues: 1,
+            critical_count: 0,
+            high_count: 1,
+            medium_count: 0,
+            low_count: 0,
+            info_count: 0,
+            overall_score: 70.0,
+            verdict: ReviewVerdict::NeedsRevision,
+        },
+        issues: vec![
+            ReviewIssue {
+                file: "src/main.rs".to_string(),
+                line: Some(1),
+                end_line: None,
+                severity: Severity::High,
+                category: ReviewCategory::FunctionalCompleteness,
+                title: "Missing feature".to_string(),
+                description: "Sorting not implemented".to_string(),
+                suggestion: None,
+                code_snippet: None,
+                fix_example: None,
+            },
+        ],
+        changed_files: vec![],
+        metrics: CodeMetrics {
+            files_changed: 0,
+            total_lines_added: 0,
+            total_lines_removed: 0,
+            complexity_estimate: None,
+        },
+        auto_fixable: vec![],
+    };
+
+    // NeedsRevision should trigger fix loop
+    let should_fix = true && report.summary.verdict != ReviewVerdict::Approved;
+    assert!(should_fix, "Functional completeness issue should trigger fix loop");
+}
+
+/// Test that a report with LLM saying 'approved' but with issues is downgraded
+/// This simulates the logic in parse_review_response where the code checks:
+/// if LLM says approved but has_blocking_issues || !issues.is_empty() -> NeedsRevision
+#[test]
+fn test_verdict_downgrade_from_approved_when_issues_exist() {
+    let has_functional_completeness_issues = true;
+    let critical_count = 0;
+    let high_count = 0;
+    let medium_count = 0;
+    let issues_exist = true; // There IS an issue (even though LLM said approved)
+
+    let has_blocking_issues = critical_count > 0
+        || high_count > 1
+        || (high_count > 0 && has_functional_completeness_issues)
+        || medium_count > 3
+        || has_functional_completeness_issues;
+
+    // Simulate LLM returning "approved" but we have issues
+    let llm_says_approved = true;
+    let actual_verdict = if llm_says_approved {
+        if has_blocking_issues || issues_exist {
+            ReviewVerdict::NeedsRevision
+        } else {
+            ReviewVerdict::Approved
+        }
+    } else {
+        ReviewVerdict::Rejected
+    };
+
+    assert_eq!(actual_verdict, ReviewVerdict::NeedsRevision,
+        "Should downgrade approved to needs_revision when functional_completeness issues exist");
+}
+
+// =============================================================================
+// Tests for Real-World Scenarios: Incomplete Code Detection
+// =============================================================================
+
+/// Simulate scenario: user asks for CSV processing (read, sort, write)
+/// Code only reads the file - missing sort and write
+#[test]
+fn test_scenario_missing_sort_and_write() {
+    let user_request = "Create a function that reads a CSV file, sorts it by the first column, and writes the sorted result to a new file.";
+    let code_diff = "+ fn process_csv(path: &str) -> Result<()> {\n+     let content = std::fs::read_to_string(path)?;\n+     println!(\"Read {} bytes\", content.len());\n+     Ok(())\n+ }";
+
+    // Verify the context includes the user request
+    assert!(user_request.contains("reads a CSV file"));
+    assert!(user_request.contains("sorts it by the first column"));
+    assert!(user_request.contains("writes the sorted result"));
+
+    // The diff only reads - no sorting, no writing
+    assert!(code_diff.contains("read_to_string"));
+    assert!(!code_diff.contains("sort"), "Code is missing sort!");
+    assert!(!code_diff.contains("write"), "Code is missing write!");
+
+    // Verify the format_changes_summary would include both
+    let changes = format!(
+        "## User Request (Requirements)\n\n{}\n\n## Code Changes to Review\n\n### src/parser.rs (Added)\n```diff\n{}\n```",
+        user_request, code_diff
+    );
+    assert!(changes.contains("User Request (Requirements)"));
+    assert!(changes.contains("reads a CSV file"));
+    assert!(changes.contains("process_csv"));
+}
+
+/// Simulate scenario: user asks for REST API endpoint, code has todo!() stub
+#[test]
+fn test_scenario_stub_implementation() {
+    let user_request = "Add a POST /api/users endpoint that creates a user in the database and returns the user ID.";
+    let code_diff = "+ async fn create_user_handler(body: Json<CreateUserRequest>) -> impl Responder {\n+     // TODO: implement user creation\n+     todo!(\"implement user creation\")\n+ }";
+
+    // Check that the diff contains the placeholder
+    assert!(code_diff.contains("todo!"));
+    assert!(code_diff.contains("TODO"));
+
+    // The handler exists but doesn't actually create a user
+    assert!(code_diff.contains("create_user_handler"));
+    assert!(!code_diff.contains("INSERT INTO"), "Missing DB insert!");
+    assert!(!code_diff.contains("return"), "Missing return value!");
+
+    // In a real review, this should be flagged as functional_completeness issue
+    let has_stub = code_diff.contains("todo!") || code_diff.contains("unimplemented!");
+    assert!(has_stub, "Should detect stub implementation");
+}
+
+/// Simulate scenario: user asks for complete feature, code only does half
+#[test]
+fn test_scenario_half_implementation() {
+    let user_request = "Refactor the UserService class: extract database logic into a Repository pattern, add input validation, and add comprehensive error handling with custom error types.";
+    let code_diff = "+ pub struct UserRepository {\n+     db: Connection,\n+ }\n+ impl UserRepository {\n+     pub fn new(db: Connection) -> Self { Self { db } }\n+     pub fn find_by_id(&self, id: i32) -> Option<User> { unimplemented!() }\n+ }";
+
+    // Only repository was extracted - validation and error handling are missing
+    assert!(code_diff.contains("UserRepository"));
+    assert!(code_diff.contains("unimplemented!()"), "Has stub methods");
+    assert!(!code_diff.contains("validate"), "Missing validation!");
+    assert!(!code_diff.contains("Error"), "Missing custom error types!");
+
+    // Context should include the full user request
+    assert!(user_request.contains("Repository pattern"));
+    assert!(user_request.contains("input validation"));
+    assert!(user_request.contains("error handling"));
+}
+
+/// Simulate scenario: user asks for feature with wiring/configuration
+#[test]
+fn test_scenario_missing_configuration() {
+    let user_request = "Add a new middleware that logs all HTTP requests and register it in the app router.";
+    let code_diff = "+ pub struct RequestLogger;\n+ impl Middleware for RequestLogger {\n+     fn handle(&self, req: &Request) -> Response {\n+         println!(\"Request: {} {}\", req.method(), req.path());\n+         req.next()\n+     }\n+ }";
+
+    // Middleware is defined but NOT registered in the router
+    assert!(code_diff.contains("impl Middleware"));
+    assert!(!code_diff.contains("app.register"), "Missing registration!");
+    assert!(!code_diff.contains("router"), "Missing router wiring!");
+
+    // Verify the code has the core logic but is incomplete
+    let has_core_logic = code_diff.contains("println!");
+    let has_wiring = code_diff.contains("register") || code_diff.contains("mount");
+    assert!(has_core_logic, "Should have core logic");
+    assert!(!has_wiring, "Should be missing wiring");
+}

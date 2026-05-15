@@ -1,6 +1,7 @@
 use tokio::sync::mpsc;
 
 use crate::app::App;
+use crate::core::agent::review_agent::ReviewAgent;
 use crate::core::types::review::{ReviewOutcome, ReviewVerdict};
 
 use super::state::cleanup_stream_state;
@@ -259,7 +260,11 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
 
                 tracing::info!(count = changed_files.len(), "Auto-review started");
 
-                match orchestrator.review(changed_files, None).await {
+                // Extract user's original request from chat history as review context
+                let context = ReviewAgent::extract_context_from_history(&messages);
+                let context_opt = if context.is_empty() { None } else { Some(context) };
+
+                match orchestrator.review(changed_files, context_opt.as_deref()).await {
                     Ok(report) => {
                         let display_text = orchestrator.format_review_report(&report);
                         let report_summary = format!(

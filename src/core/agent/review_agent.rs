@@ -45,18 +45,28 @@ impl ReviewAgent {
 ## Review Categories
 Analyze code across all of the following categories:
 
-1. **security** — SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies
-2. **performance** — Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning/allocation
-3. **bug_risk** — Null/unchecked pointers, off-by-one errors, edge cases, type confusion, logic errors
-4. **error_handling** — Missing error propagation, ignored Results, unwrap/expect panics, silent failures
-5. **maintainability** — Code duplication, overlong functions, poor naming, magic numbers, dead code
-6. **style** — Inconsistent formatting, non-idiomatic patterns, lint violations, naming convention breaks
-7. **documentation** — Missing/misleading doc comments, stale comments, missing public API docs
-8. **concurrency** — Data races, deadlocks, missing synchronization, async misuse, Send/Sync issues
+1. **functional_completeness** — 🎯 **CRITICAL: Does the code actually fulfill the user's requirements?** Check if:
+   - The implementation fully addresses ALL aspects of the user's request (not just part of it)
+   - There are no placeholder/stub implementations (e.g. `todo!()`, `unimplemented!()`, `throw new Error("Not implemented")`, FIXME comments)
+   - All required functions/endpoints/components are actually implemented, not just declared
+   - Edge cases mentioned in the requirements are handled
+   - Return values and outputs match what was asked for
+   - Configuration and wiring (imports, routes, registrations) is complete — not just the core logic
+2. **security** — SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies
+3. **performance** — Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning/allocation
+4. **bug_risk** — Null/unchecked pointers, off-by-one errors, edge cases, type confusion, logic errors
+5. **error_handling** — Missing error propagation, ignored Results, unwrap/expect panics, silent failures
+6. **maintainability** — Code duplication, overlong functions, poor naming, magic numbers, dead code
+7. **style** — Inconsistent formatting, non-idiomatic patterns, lint violations, naming convention breaks
+8. **documentation** — Missing/misleading doc comments, stale comments, missing public API docs
+9. **concurrency** — Data races, deadlocks, missing synchronization, async misuse, Send/Sync issues
+
+## CRITICAL: Functional Completeness Always Check
+**You MUST always verify functional_completeness against the user's requirements before the other categories.** If the code doesn't actually do what the user asked, report this as a high or critical severity `functional_completeness` issue — regardless of how clean the code looks.
 
 ## Valid Values
 - **severity**: `"critical"` | `"high"` | `"medium"` | `"low"` | `"info"`
-- **category**: one of the 8 categories listed above (`"security"`, `"performance"`, etc.)
+- **category**: one of the 9 categories listed above (`"functional_completeness"`, `"security"`, `"performance"`, etc.)
 - **verdict**: `"approved"` (no blocking issues) | `"needs_revision"` (fixes required) | `"rejected"` (fundamental problems)
 - **overall_score**: integer 0–100 (higher = better)
 
@@ -85,16 +95,22 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
 }
 ```
 
+## Verdict Guidelines
+- Use `"rejected"` when functional_completeness has critical issues — the code fundamentally does not do what was asked.
+- Use `"needs_revision"` when there are any high/critical severity issues of ANY category, or when parts of the requirements are missing.
+- Use `"approved"` ONLY when ALL requirements are fully met AND there are no high/critical issues.
+- **Be strict about functional_completeness.** It is better to catch a missing feature than to approve incomplete code.
+
 ## Review Principles
 - Focus on high-impact issues, avoid nitpicking. It's better to report 3 real bugs than 20 minor style nits.
 - Provide concrete fix code examples for every issue where possible.
 - Explain the root cause of issues, not just the symptom.
 - Adapt the review to the language of each file (detected by file extension):
   - **Rust** — ownership/borrowing, unsafe blocks, unwrap/expect
-  - **TypeScript/JavaScript** — type safety, null handling, async/promise hygiene
+  - **TypeScript/JavaScript** — type safety, null handling, async/promise hygiene, `any` types, `as` casts
   - **Python** — exception handling, type hints, dynamic pitfalls
   - **Other languages** — apply language-appropriate best practices
-- Prioritize correctness, security, and stability over style preferences.
+- Prioritize correctness and functional completeness over style preferences.
 "#.to_string()
     }
 
@@ -104,11 +120,20 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
         let changes_summary = self.format_changes_summary(&request.changed_files);
 
         // 2. Build review request
-        let user_message = format!(
-            "Please review the following code changes:\n\n{changes_summary}\n\n{context}",
-            changes_summary = changes_summary,
-            context = request.context.as_deref().unwrap_or("")
-        );
+        // IMPORTANT: context (user's original request) comes FIRST so the LLM
+        // knows what the code is supposed to do before looking at the diff.
+        let user_message = if let Some(ref context) = request.context {
+            format!(
+                "## User Request (Requirements)\n\n{context}\n\n## Code Changes to Review\n\n{changes_summary}",
+                context = context,
+                changes_summary = changes_summary,
+            )
+        } else {
+            format!(
+                "Please review the following code changes:\n\n{changes_summary}",
+                changes_summary = changes_summary,
+            )
+        };
 
         // 3. Call LLM for review
         let response = self.call_llm(&user_message).await?;
@@ -141,6 +166,29 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
             .to_string();
 
         Ok(content)
+    }
+
+    /// Extract user's original request from conversation history for review context.
+    /// Returns the concatenated user messages (excluding auto-generated fix prompts from review iterations).
+    pub fn extract_context_from_history(history: &[crate::core::types::Message]) -> String {
+        let mut user_messages: Vec<&str> = history
+            .iter()
+            .filter(|m| {
+                m.role == "user"
+                    && !m.content.contains("fix the issues found in the code review")
+                    && !m.content.contains("Auto-Review Iteration")
+                    && !m.content.contains("Fix Required")
+            })
+            .map(|m| m.content.as_str())
+            .collect();
+
+        // Take the last 2 user messages (original request + any followups)
+        let count = user_messages.len();
+        if count > 2 {
+            user_messages = user_messages[count.saturating_sub(2)..].to_vec();
+        }
+
+        user_messages.join("\n\n---\n\n")
     }
 
     /// Format changes summary
@@ -196,6 +244,7 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
                 };
 
                 let category = match issue.get("category").and_then(|v| v.as_str()) {
+                    Some("functional_completeness") => ReviewCategory::FunctionalCompleteness,
                     Some("security") => ReviewCategory::Security,
                     Some("performance") => ReviewCategory::Performance,
                     Some("bug_risk") => ReviewCategory::BugRisk,
@@ -234,16 +283,30 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
             .and_then(|v| v.as_f64())
             .unwrap_or(100.0);
 
+        let has_functional_completeness_issues = issues.iter().any(|i| matches!(i.category, ReviewCategory::FunctionalCompleteness));
+        let has_blocking_issues = critical_count > 0
+            || high_count > 1
+            || (high_count > 0 && has_functional_completeness_issues)
+            || medium_count > 3
+            || has_functional_completeness_issues;
+
         let verdict = match parsed
             .get("summary")
             .and_then(|s| s.get("verdict"))
             .and_then(|v| v.as_str())
         {
-            Some("approved") => ReviewVerdict::Approved,
+            Some("approved") => {
+                // Even if LLM says approved, downgrade to needs_revision if there are any issues
+                if has_blocking_issues || !issues.is_empty() {
+                    ReviewVerdict::NeedsRevision
+                } else {
+                    ReviewVerdict::Approved
+                }
+            }
             Some("needs_revision") => ReviewVerdict::NeedsRevision,
             Some("rejected") => ReviewVerdict::Rejected,
             _ => {
-                if critical_count > 0 || high_count > 2 {
+                if has_blocking_issues || !issues.is_empty() {
                     ReviewVerdict::NeedsRevision
                 } else {
                     ReviewVerdict::Approved

@@ -37,14 +37,15 @@ impl Severity {
 /// Review issue category
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ReviewCategory {
-    Security,        // Security vulnerability
-    Performance,     // Performance issue
-    BugRisk,         // Potential bug
-    Style,           // Code style
-    Maintainability, // Maintainability
-    Documentation,   // Documentation issue
-    ErrorHandling,   // Error handling
-    Concurrency,     // Concurrency issue
+    Security,              // Security vulnerability
+    Performance,           // Performance issue
+    BugRisk,               // Potential bug
+    Style,                 // Code style
+    Maintainability,       // Maintainability
+    Documentation,         // Documentation issue
+    ErrorHandling,         // Error handling
+    Concurrency,           // Concurrency issue
+    FunctionalCompleteness, // Code does NOT fulfill the user's requirements
 }
 
 impl ReviewCategory {
@@ -58,6 +59,7 @@ impl ReviewCategory {
             ReviewCategory::Documentation => "📝",
             ReviewCategory::ErrorHandling => "⚠️",
             ReviewCategory::Concurrency => "🔄",
+            ReviewCategory::FunctionalCompleteness => "🎯",
         }
     }
 }
@@ -182,6 +184,7 @@ impl ReviewConfig {
             severity_threshold,
             categories: vec![
                 ReviewCategory::Security,
+                ReviewCategory::FunctionalCompleteness,
                 ReviewCategory::BugRisk,
                 ReviewCategory::Performance,
                 ReviewCategory::ErrorHandling,

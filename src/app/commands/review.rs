@@ -6,6 +6,7 @@
 //!   /review --auto       — Toggle auto-review mode on/off
 
 use crate::app::App;
+use crate::core::agent::review_agent::ReviewAgent;
 use crate::core::context::context_manager::ContextManager;
 use crate::core::types::review::{ChangedFile, ChangeType};
 
@@ -112,6 +113,18 @@ fn spawn_review(app: &mut App, path: Option<String>) {
     app.review_result_rx = Some(result_rx);
 
     tokio::spawn(async move {
+        // Convert chat entries to messages once (for both file detection and context extraction)
+        let messages: Vec<crate::core::types::Message> = history_snapshot
+            .iter()
+            .map(|e| crate::core::types::Message {
+                role: e.role.clone(),
+                content: e.content.clone(),
+                reasoning_content: e.reasoning_content.clone(),
+                tool_calls: e.tool_calls.clone(),
+                tool_call_id: e.tool_call_id.clone(),
+            })
+            .collect();
+
         let changed_files = if let Some(ref path) = path {
             vec![ChangedFile {
                 path: path.clone(),
@@ -122,16 +135,6 @@ fn spawn_review(app: &mut App, path: Option<String>) {
             }]
         } else {
             // Detect changes from conversation history snapshot
-            let messages: Vec<crate::core::types::Message> = history_snapshot
-                .iter()
-                .map(|e| crate::core::types::Message {
-                    role: e.role.clone(),
-                    content: e.content.clone(),
-                    reasoning_content: e.reasoning_content.clone(),
-                    tool_calls: e.tool_calls.clone(),
-                    tool_call_id: e.tool_call_id.clone(),
-                })
-                .collect();
             orchestrator.detect_changed_files(&messages)
         };
 
@@ -155,11 +158,15 @@ fn spawn_review(app: &mut App, path: Option<String>) {
             return;
         }
 
+        // Extract user's original request from chat history as review context
+        let context = ReviewAgent::extract_context_from_history(&messages);
+        let context_opt = if context.is_empty() { None } else { Some(context) };
+
         let _ = event_tx.send(ReviewEvent::Started {
             file_count: changed_files.len(),
         });
 
-        match orchestrator.review(changed_files, None).await {
+        match orchestrator.review(changed_files, context_opt.as_deref()).await {
             Ok(report) => {
                 let display_text = orchestrator.format_review_report(&report);
                 let verdict = report.summary.verdict.clone();
