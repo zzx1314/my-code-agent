@@ -168,7 +168,32 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             app.history_index = None; // Exit history browsing on any typed character
             if c == '/' || c == '@' {
                 app.input.input(key);
-                trigger_completion(app, c);
+                if c == '/' {
+                    let cursor = app.input.cursor();
+                    if cursor.1 == 1 {
+                        // '/' at beginning of input triggers command completion
+                        trigger_completion(app, '/');
+                    } else {
+                        // Check if '/' continues an '@' file path (e.g., '@src/')
+                        let lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
+                        if cursor.0 < lines.len() {
+                            let line = &lines[cursor.0];
+                            let byte_pos = line
+                                .char_indices()
+                                .nth(cursor.1)
+                                .map(|(i, _)| i)
+                                .unwrap_or(line.len());
+                            let before_cursor = &line[..byte_pos];
+                            if let Some(at_pos) = before_cursor.rfind('@') {
+                                if !before_cursor[at_pos + 1..].contains(' ') {
+                                    trigger_completion(app, '@');
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    trigger_completion(app, '@');
+                }
             } else {
                 app.input.input(key);
                 if app.show_completion {
