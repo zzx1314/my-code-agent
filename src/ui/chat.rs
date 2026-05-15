@@ -236,6 +236,7 @@ fn render_collapsible_block<'a>(
 
 /// Render a single message with role-based styling.
 fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry_idx: usize, app: &mut App, max_width: Option<usize>, show_tool_calls: bool, show_tool_details: bool) {
+    let area_width = max_width.unwrap_or(80) as u16;
     match entry.role.as_str() {
         "user" => {
             lines.push(Line::from(vec![
@@ -291,7 +292,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
         "tool" => {
             // File tool results (file_write, file_update, file_delete) with git_diff
             // are ALWAYS shown — they contain substantive code changes.
-            if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true).is_some() {
+            if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true, area_width).is_some() {
                 lines.push(Line::default());
                 return;
             }
@@ -342,7 +343,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
                                     .map(|l| Line::from(format!("  {}", l)))
                                     .collect();
                                 let section_id = format!("so_{}", entry_idx);
-                                render_collapsible_block(lines, app, &section_id, stdout_lines);
+                                render_collapsible_block(lines, app, &section_id, stdout_lines, area_width);
                             }
                         }
                         if let Some(stderr) = output.get("stderr").and_then(|s| s.as_str()) {
@@ -356,7 +357,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
                                     .map(|l| Line::from(format!("  {}", l)))
                                     .collect();
                                 let section_id = format!("se_{}", entry_idx);
-                                render_collapsible_block(lines, app, &section_id, stderr_lines);
+                                render_collapsible_block(lines, app, &section_id, stderr_lines, area_width);
                             }
                         }
                         lines.push(Line::default());
@@ -364,7 +365,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
                     }
                 }
                 // Check if it's a file_outline result
-                if try_render_file_outline(lines, &entry.content, entry_idx, app).is_some() {
+                if try_render_file_outline(lines, &entry.content, entry_idx, app, area_width).is_some() {
                     lines.push(Line::default());
                     return;
                 }
@@ -442,6 +443,7 @@ fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str,
 
 /// Render streaming content (text and tool calls).
 fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App, max_width: Option<usize>) {
+    let area_width = max_width.unwrap_or(80) as u16;
     if !app.is_streaming {
         return;
     }
@@ -504,9 +506,9 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
                 // Try rendering as file tool result (git diff) first
                 // Use a special high index for streaming section IDs — only one
                 // streaming tool result exists at a time, so section IDs won't clash.
-                if try_render_file_tool_result(lines, content, usize::MAX, app, false).is_none()
-                    && try_render_shell_exec_result(lines, content, usize::MAX, app, true).is_none()
-                    && try_render_file_outline(lines, content, usize::MAX, app).is_none()
+                if try_render_file_tool_result(lines, content, usize::MAX, app, false, area_width).is_none()
+                    && try_render_shell_exec_result(lines, content, usize::MAX, app, true, area_width).is_none()
+                    && try_render_file_outline(lines, content, usize::MAX, app, area_width).is_none()
                 {
                     // Lightweight rendering: only show first few lines with a note
                     let total_lines = content.lines().count();
@@ -558,6 +560,7 @@ fn try_render_file_tool_result(
     entry_idx: usize,
     app: &mut App,
     show_git_diff: bool,
+    area_width: u16,
 ) -> Option<()> {
     let value: serde_json::Value = serde_json::from_str(content).ok()?;
 
@@ -637,7 +640,7 @@ fn try_render_file_tool_result(
             .collect();
 
         let section_id = format!("gd_{}", entry_idx);
-        render_collapsible_block(lines, app, &section_id, diff_lines);
+        render_collapsible_block(lines, app, &section_id, diff_lines, area_width);
     }
 
     Some(())
@@ -652,6 +655,7 @@ fn try_render_shell_exec_result(
     entry_idx: usize,
     app: &mut App,
     show_tool_details: bool,
+    area_width: u16,
 ) -> Option<()> {
     // When details are hidden, don't render shell results at all
     if !show_tool_details {
@@ -704,7 +708,7 @@ fn try_render_shell_exec_result(
                 .map(|l| Line::from(format!("  {}", l)))
                 .collect();
             let section_id = format!("so_{}", entry_idx);
-            render_collapsible_block(lines, app, &section_id, stdout_lines);
+            render_collapsible_block(lines, app, &section_id, stdout_lines, area_width);
         }
     }
 
@@ -719,7 +723,7 @@ fn try_render_shell_exec_result(
                 .map(|l| Line::from(format!("  {}", l)))
                 .collect();
             let section_id = format!("se_{}", entry_idx);
-            render_collapsible_block(lines, app, &section_id, stderr_lines);
+            render_collapsible_block(lines, app, &section_id, stderr_lines, area_width);
         }
     }
 
@@ -733,6 +737,7 @@ fn try_render_file_outline(
     content: &str,
     entry_idx: usize,
     app: &mut App,
+    area_width: u16,
 ) -> Option<()> {
     let value: serde_json::Value = serde_json::from_str(content).ok()?;
     let outline = value.get("outline")?.as_str()?;
@@ -849,7 +854,7 @@ fn try_render_file_outline(
 
     // Render collapsible outline content
     let section_id = format!("ol_{}", entry_idx);
-    render_collapsible_block(lines, app, &section_id, outline_content);
+    render_collapsible_block(lines, app, &section_id, outline_content, area_width);
 
     Some(())
 }
