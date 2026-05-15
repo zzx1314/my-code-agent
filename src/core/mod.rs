@@ -14,6 +14,5 @@ pub mod parser;
 // Session persistence
 pub mod session;
 
-// Core types, tool trait
+// Core types
 pub mod types;
-pub mod tool;

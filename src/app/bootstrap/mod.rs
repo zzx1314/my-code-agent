@@ -91,12 +91,12 @@ pub async fn init_app() -> Result<InitState> {
     let mcp_tools = create_mcp_tools(&config).await;
     let (confirmation_handle, confirmation_rx) = ConfirmationHandle::new();
 
-    let mut all_tools = crate::core::tool::ToolRegistry::from_config_and_handle(
+    let mut all_tools = crate::tools::ToolRegistry::from_config_and_handle(
         &config,
         confirmation_handle,
     );
     for tool in mcp_tools {
-        all_tools.register_dyn(tool);
+        all_tools.register_boxed(tool);
     }
 
     let client = build_client(&config);

@@ -78,13 +78,13 @@ pub fn build_init_result(
 /// Rebuild the agent (used for /init)
 fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> {
     use crate::core::agent::preamble::{build_client, build_preamble};
-    use crate::core::tool::ToolRegistry;
+    use crate::tools::ToolRegistry;
     let client = build_client(config);
     let system_prompt = build_preamble();
     let mut tools = ToolRegistry::from_config(config);
     let mcp_tools = futures::executor::block_on(create_mcp_tools(config));
     for tool in mcp_tools {
-        tools.register_dyn(tool);
+        tools.register_boxed(tool);
     }
     Ok(Agent::new(client, system_prompt, tools))
 }

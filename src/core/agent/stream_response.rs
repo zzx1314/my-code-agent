@@ -5,7 +5,7 @@ use crate::core::agent::client::LlmClient;
 use crate::core::config::AgentConfig;
 use crate::core::context::context_manager::ContextManager;
 use crate::core::context::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
-use crate::core::tool::ToolRegistry;
+use crate::tools::ToolRegistry;
 use crate::core::types::{Message, ToolCall};
 use crate::ui::render::ReasoningTracker;
 

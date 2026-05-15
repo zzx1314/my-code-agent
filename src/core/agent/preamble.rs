@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use crate::core::agent::client::LlmClient;
 use crate::core::config::Config;
-use crate::core::tool::ToolRegistry;
+use crate::tools::ToolRegistry;
 
 /// Agent holds the LLM client, system prompt, and tools.
 /// Follows the reference architecture design.

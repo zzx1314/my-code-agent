@@ -20,41 +20,80 @@ pub use exec::safety::{
 };
 
 use crate::core::config::Config;
-use crate::core::tool::ToolRegistry as CoreToolRegistry;
 use crate::core::types::ToolDefinition;
-use crate::tools::exec::confirmation::ConfirmationHandle as _ConfirmationHandle;
 
-/// Our own Tool trait for tool implementations.
-/// Replaces `rig::tool::Tool` / `rig::tool::ToolDyn`.
+/// A tool that can be called by the LLM.
+///
+/// Analogous to `rig::tool::Tool` / `rig::tool::ToolDyn`, but simplified:
+/// - `call` takes a `serde_json::Value` (already-parsed JSON arguments) and returns a `String`.
+/// - Tools are registered in a [`ToolRegistry`] keyed by name.
 #[async_trait::async_trait]
 pub trait Tool: Send + Sync {
+    /// The tool's name (must match the name in [`ToolDefinition`]).
     fn name(&self) -> &str;
+
+    /// The tool's definition for API registration.
     fn definition(&self) -> ToolDefinition;
+
+    /// Execute the tool with the given JSON arguments.
     async fn call(&self, args: serde_json::Value) -> Result<String, String>;
 }
 
-/// Wrap our Tool trait so it can be used with the core ToolRegistry.
-struct ToolWrapper {
-    inner: Box<dyn Tool>,
+/// A registry of tools, keyed by name.
+///
+/// Provides lookup by name for tool execution during the agent loop.
+#[derive(Default)]
+pub struct ToolRegistry {
+    tools: Vec<Box<dyn Tool>>,
 }
 
-#[async_trait::async_trait]
-impl crate::core::tool::Tool for ToolWrapper {
-    fn name(&self) -> &str {
-        self.inner.name()
+impl ToolRegistry {
+    pub fn new() -> Self {
+        Self { tools: Vec::new() }
     }
 
-    fn definition(&self) -> ToolDefinition {
-        self.inner.definition()
+    /// Register a tool.
+    pub fn register<T: Tool + 'static>(&mut self, tool: T) {
+        self.tools.push(Box::new(tool));
     }
 
-    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
-        self.inner.call(args).await
+    /// Register a pre-boxed tool.
+    pub fn register_boxed(&mut self, tool: Box<dyn Tool>) {
+        self.tools.push(tool);
     }
-}
 
-/// Extension: build a ToolRegistry from config and confirmation handle.
-impl CoreToolRegistry {
+    /// Get a tool by name.
+    pub fn get(&self, name: &str) -> Option<&dyn Tool> {
+        self.tools.iter().find(|t| t.name() == name).map(|t| t.as_ref())
+    }
+
+    /// Iterate over all registered tools.
+    pub fn iter(&self) -> impl Iterator<Item = &dyn Tool> {
+        self.tools.iter().map(|t| t.as_ref())
+    }
+
+    /// Number of registered tools.
+    pub fn len(&self) -> usize {
+        self.tools.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tools.is_empty()
+    }
+
+    /// Get all tool definitions for API registration.
+    pub fn definitions(&self) -> Vec<ToolDefinition> {
+        self.tools.iter().map(|t| t.definition()).collect()
+    }
+
+    /// Execute a tool by name with JSON arguments.
+    pub async fn execute(&self, name: &str, args: serde_json::Value) -> Result<String, String> {
+        match self.get(name) {
+            Some(tool) => tool.call(args).await,
+            None => Err(format!("Tool not found: {}", name)),
+        }
+    }
+
     /// Create a new ToolRegistry with all built-in tools.
     pub fn from_config(config: &Config) -> Self {
         let handle = ConfirmationHandle::disabled();
@@ -62,8 +101,8 @@ impl CoreToolRegistry {
     }
 
     /// Create a new ToolRegistry with all built-in tools and a confirmation handle.
-    pub fn from_config_and_handle(config: &Config, handle: _ConfirmationHandle) -> Self {
-        let mut registry = CoreToolRegistry::new();
+    pub fn from_config_and_handle(config: &Config, handle: ConfirmationHandle) -> Self {
+        let mut registry = ToolRegistry::new();
 
         let tools: Vec<Box<dyn Tool>> = vec![
             Box::new(FileRead::from_config(config)),
@@ -84,16 +123,10 @@ impl CoreToolRegistry {
         ];
 
         for tool in tools {
-            registry.register_dyn(tool);
+            registry.register_boxed(tool);
         }
 
         registry
-    }
-
-    /// Register a tool using our local Tool trait.
-    pub fn register_dyn(&mut self, tool: Box<dyn Tool>) {
-        let wrapper = ToolWrapper { inner: tool };
-        self.register(wrapper);
     }
 }
 
