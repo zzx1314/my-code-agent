@@ -15,7 +15,7 @@ fn test_language_from_extension() {
     assert_eq!(Language::from_extension("htm"), Some(Language::Html));
     assert_eq!(Language::from_extension("vue"), Some(Language::Vue));
     assert_eq!(Language::from_extension("py"), None);
-    assert_eq!(Language::from_extension("ts"), None);
+    assert_eq!(Language::from_extension("ts"), Some(Language::TypeScript));
 }
 
 #[test]
@@ -25,7 +25,7 @@ fn test_language_from_path() {
     assert_eq!(Language::from_path("page.html"), Some(Language::Html));
     assert_eq!(Language::from_path("App.vue"), Some(Language::Vue));
     assert_eq!(Language::from_path("noext"), None);
-    assert_eq!(Language::from_path("src/file.ts"), None);
+    assert_eq!(Language::from_path("src/file.ts"), Some(Language::TypeScript));
 }
 
 // =============================================================================
