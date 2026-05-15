@@ -39,6 +39,7 @@ pub fn process_streaming_events(app: &mut App) {
                     app.streaming_status = msg;
                 }
                 Ok(crate::core::agent::stream_response::StreamEvent::ReasoningActive(active)) => {
+                    app.is_reasoning_active = active;
                     if !active {
                         if !app.streaming_reasoning.is_empty() {
                             // Reasoning just ended — the upcoming text should be

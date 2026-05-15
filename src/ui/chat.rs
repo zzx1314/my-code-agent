@@ -18,7 +18,7 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let has_reasoning = app.config.agent.thinking_display != "hidden"
-        && (app.is_streaming || !app.last_reasoning.is_empty());
+        && (app.is_reasoning_active || !app.last_reasoning.is_empty());
 
     let width = Some(area.width as usize);
 
@@ -165,22 +165,42 @@ fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &mut App, max
 /// `COLLAPSE_THRESHOLD` and the section is in the collapsed set, only the first
 /// `COLLAPSE_THRESHOLD` lines are shown with a toggle to expand. If expanded, all
 /// lines are shown with a toggle to collapse.
+///
+/// `area_width` is the terminal width used to compute visual line positions (after
+/// word-wrap). Toggle positions are stored as visual line indices so that mouse clicks
+/// (which also operate in visual line space) hit the correct toggle even when lines wrap.
 fn render_collapsible_block<'a>(
     lines: &mut Vec<ratatui::text::Line<'a>>,
     app: &mut App,
     section_id: &str,
     content: Vec<ratatui::text::Line<'a>>,
+    area_width: u16,
 ) {
     let total = content.len();
     let collapsed = app.collapsed_sections.contains(section_id);
+
+    /// Compute how many visual lines a `Line` occupies after word-wrap at `width`.
+    fn visual_lines(line: &ratatui::text::Line<'_>, width: u16) -> u16 {
+        let line_width = line.width() as u16;
+        if line_width == 0 || width == 0 {
+            1 // empty lines still occupy one row
+        } else {
+            (line_width + width - 1) / width
+        }
+    }
+
+    // The current visual line position (after word-wrap) in the `lines` buffer.
+    let mut vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
 
     if total > COLLAPSE_THRESHOLD {
         if collapsed {
             // Show first COLLAPSE_THRESHOLD lines
             for line in content.into_iter().take(COLLAPSE_THRESHOLD) {
+                vis_pos += visual_lines(&line, area_width);
                 lines.push(line);
             }
-            let toggle_line = lines.len() as u16;
+            // vis_pos is now the visual line index of the toggle text
+            app.collapsed_toggles.push((vis_pos, section_id.to_string()));
             lines.push(ratatui::text::Line::from(vec![
                 ratatui::text::Span::styled(
                     format!("  [+ {} more lines - click to expand]", total - COLLAPSE_THRESHOLD),
@@ -189,13 +209,14 @@ fn render_collapsible_block<'a>(
                         .add_modifier(ratatui::style::Modifier::BOLD),
                 ),
             ]));
-            app.collapsed_toggles.push((toggle_line, section_id.to_string()));
         } else {
             // Show all lines
             for line in content {
+                vis_pos += visual_lines(&line, area_width);
                 lines.push(line);
             }
-            let toggle_line = lines.len() as u16;
+            // vis_pos is now the visual line index of the toggle text
+            app.collapsed_toggles.push((vis_pos, section_id.to_string()));
             lines.push(ratatui::text::Line::from(vec![
                 ratatui::text::Span::styled(
                     "  [-] click to collapse",
@@ -204,7 +225,6 @@ fn render_collapsible_block<'a>(
                         .add_modifier(ratatui::style::Modifier::BOLD),
                 ),
             ]));
-            app.collapsed_toggles.push((toggle_line, section_id.to_string()));
         }
     } else {
         // Small enough, show all without toggle

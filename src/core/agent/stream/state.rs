@@ -9,6 +9,7 @@ pub fn reset_streaming_state(app: &mut App) {
     app.streaming_text.clear();
     app.streaming_reasoning.clear();
     app.last_reasoning.clear();
+    app.is_reasoning_active = false;
     app.current_tool_call = None;
     app.current_response.clear();
     app.streaming_status.clear();

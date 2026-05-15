@@ -110,6 +110,10 @@ pub struct App {
     pub streaming_events_rx: Option<mpsc::UnboundedReceiver<StreamEvent>>,
     pub streaming_text: String,
     pub streaming_reasoning: String,
+    /// Whether the model is actively producing reasoning in the current response.
+    /// Set by ReasoningActive events during streaming. Prevents showing the thinking
+    /// area for models that don't produce reasoning output.
+    pub is_reasoning_active: bool,
     /// Currently executing tool call (displayed inline, replaces previous)
     pub current_tool_call: Option<CurrentToolCall>,
     /// Most recent completed tool result during streaming (tool name, content)
@@ -253,6 +257,7 @@ impl App {
             streaming_events_rx: None,
             streaming_text: String::new(),
             streaming_reasoning: String::new(),
+            is_reasoning_active: false,
             current_tool_call: None,
             status_messages: Vec::new(),
             turn_usage_line: None,
