@@ -166,32 +166,63 @@ impl AgentOrchestrator {
         self.review_agent.review(&request).await
     }
 
-    /// Execute review and return event stream (for UI progress display)
+    /// Execute review and return event stream (for phased progress display)
     pub async fn review_with_events(
         &self,
         changed_files: Vec<ChangedFile>,
         context: Option<&str>,
         event_tx: tokio::sync::mpsc::UnboundedSender<ReviewEvent>,
     ) -> Result<ReviewReport> {
-        let file_count = changed_files.len();
-        let _ = event_tx.send(ReviewEvent::Started { file_count });
-
         let request = ReviewRequest {
             changed_files,
             context: context.map(|s| s.to_string()),
         };
 
-        let _ = event_tx.send(ReviewEvent::Progress {
-            message: "Calling review model...".to_string(),
-        });
+        // Use phased review — runs 3 sequential phases with progress events
+        self.review_agent.review_phased(&request, event_tx).await
+    }
 
-        let report = self.review_agent.review(&request).await?;
+    /// Format a review coverage summary table showing what categories were checked
+    /// and how many issues were found in each.
+    pub fn format_review_coverage(&self, report: &ReviewReport) -> String {
+        let all_categories: Vec<(ReviewCategory, &str)> = vec![
+            (ReviewCategory::FunctionalCompleteness, "Functional Completeness"),
+            (ReviewCategory::Security, "Security"),
+            (ReviewCategory::BugRisk, "Bug Risk"),
+            (ReviewCategory::Performance, "Performance"),
+            (ReviewCategory::ErrorHandling, "Error Handling"),
+            (ReviewCategory::Maintainability, "Maintainability"),
+            (ReviewCategory::Style, "Style"),
+            (ReviewCategory::Documentation, "Documentation"),
+            (ReviewCategory::Concurrency, "Concurrency"),
+        ];
 
-        let _ = event_tx.send(ReviewEvent::Completed {
-            report: report.clone(),
-        });
+        let mut output = String::new();
+        output.push_str("### 🔍 Review Coverage\n\n");
+        output.push_str("| Category | Status | Issues |\n");
+        output.push_str("|----------|--------|:-----:|\n");
 
-        Ok(report)
+        for (category, label) in &all_categories {
+            let count = report.issues.iter().filter(|i| i.category == *category).count();
+            let icon = category.icon();
+            let (status, status_icon) = if count > 0 {
+                ("Needs Attention", "⚠️")
+            } else {
+                ("Passed", "✅")
+            };
+            let count_str = if count > 0 {
+                format!("{}", count)
+            } else {
+                "—".to_string()
+            };
+            output.push_str(&format!(
+                "| {} {} | {} {} | {} |\n",
+                icon, label, status_icon, status, count_str
+            ));
+        }
+
+        output.push_str("\n");
+        output
     }
 
     /// Format review report as Markdown
@@ -209,6 +240,9 @@ impl AgentOrchestrator {
             report.summary.verdict.label(),
             report.summary.overall_score,
         ));
+
+        // Inject review coverage summary
+        output.push_str(&self.format_review_coverage(report));
 
         output.push_str("### Statistics Summary\n");
         output.push_str(&format!(
@@ -341,6 +375,9 @@ impl AgentOrchestrator {
             report.summary.verdict.label(),
             report.summary.overall_score,
         ));
+
+        // Inject review coverage summary — shows what was checked and what was found
+        prompt.push_str(&self.format_review_coverage(report));
 
         if report.summary.total_issues > 0 {
             prompt.push_str(&format!(

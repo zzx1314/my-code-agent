@@ -97,6 +97,7 @@ pub async fn run_app(
         app.marquee_frame = app.marquee_frame.wrapping_add(1);
 
         crate::core::agent::stream::process_streaming_events(&mut app);
+        crate::core::agent::stream::process_review_events(&mut app);
         crate::core::agent::stream::check_stream_result(&mut app);
         crate::core::agent::stream::check_init_result(&mut app);
         crate::core::agent::stream::check_review_result(&mut app);

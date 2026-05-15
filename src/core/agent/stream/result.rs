@@ -1,10 +1,72 @@
 use tokio::sync::mpsc;
 
-use crate::app::App;
-use crate::core::agent::review_agent::ReviewAgent;
+use crate::app::{App, ChatEntry};
+use crate::core::agent::review_agent::{ReviewAgent, ReviewEvent};
 use crate::core::types::review::{ReviewOutcome, ReviewVerdict};
 
 use super::state::cleanup_stream_state;
+
+/// Process review events (phase progress updates) from the review agent
+/// and write them to chat_history in real-time.
+pub fn process_review_events(app: &mut App) {
+    if let Some(ref mut rx) = app.review_event_rx {
+        loop {
+            match rx.try_recv() {
+                Ok(ReviewEvent::PhaseCompleted {
+                    phase_index,
+                    total_phases,
+                    phase_name,
+                    categories: _,
+                    issues_found,
+                    passed: _passed,
+                    details,
+                }) => {
+                    let prefix = if issues_found > 0 {
+                        format!("⚠️ **Phase {}/{} — {}** ({} issue(s))\n",
+                            phase_index, total_phases, phase_name, issues_found)
+                    } else {
+                        format!("✅ **Phase {}/{} — {}** (passed)\n",
+                            phase_index, total_phases, phase_name)
+                    };
+                    let msg = format!("{}   {}", prefix, details);
+                    app.chat_history.push(ChatEntry::assistant(msg));
+                    app.auto_scroll = true;
+
+                    // If this is the last phase, phase events are done;
+                    // the final completed event will be handled by check_review_result.
+                }
+                Ok(ReviewEvent::Started { .. }) => {
+                    // Already shown via the "Auto-Review Started" or "Reviewing..." message
+                    // in result.rs or commands/review.rs respectively.
+                    // Just leave it as visible status.
+                }
+                Ok(ReviewEvent::Progress { message }) => {
+                    // Brief progress updates — write to chat_history so the user sees them
+                    let msg = format!("🔍 {}", message);
+                    app.chat_history.push(ChatEntry::assistant(msg));
+                    app.auto_scroll = true;
+                }
+                Ok(ReviewEvent::FileAnalyzed { file, issues_found }) => {
+                    let msg = format!("📄 Analyzed `{}` — {} issue(s) found", file, issues_found);
+                    app.chat_history.push(ChatEntry::assistant(msg));
+                    app.auto_scroll = true;
+                }
+                Ok(ReviewEvent::Completed { .. }) => {
+                    // Handled by check_review_result — it sends the final display_text
+                }
+                Ok(ReviewEvent::Error { message }) => {
+                    app.chat_history.push(ChatEntry::assistant(format!("❌ {}", message)));
+                    app.auto_scroll = true;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    app.review_event_rx = None;
+                    break;
+                }
+            }
+        }
+    }
+}
 
 /// Check if an auto-review result has arrived from the async task
 pub fn check_review_result(app: &mut App) {
@@ -224,12 +286,15 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
             ));
             app.auto_scroll = true;
 
+            // Create channels: one for real-time phase events, one for the final result
+            let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<ReviewEvent>();
+            let (result_tx, result_rx) = tokio::sync::mpsc::channel::<ReviewOutcome>(1);
+
+            app.review_event_rx = Some(event_rx);
+            app.review_result_rx = Some(result_rx);
+
             let orchestrator = orchestrator.clone();
             let history_snapshot = app.chat_history.clone();
-
-            // Create channels for review result communication
-            let (result_tx, result_rx) = tokio::sync::mpsc::channel::<ReviewOutcome>(1);
-            app.review_result_rx = Some(result_rx);
 
             tokio::spawn(async move {
                 let messages: Vec<crate::core::types::Message> = history_snapshot
@@ -247,6 +312,9 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
 
                 if changed_files.is_empty() {
                     tracing::info!("Auto-review: no changed files detected");
+                    let _ = event_tx.send(ReviewEvent::Error {
+                        message: "No code changes detected.".to_string(),
+                    });
                     let outcome = ReviewOutcome {
                         display_text: "ℹ️ **Auto-Review Complete** — No code changes detected.".to_string(),
                         verdict: ReviewVerdict::Approved,
@@ -264,7 +332,8 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
                 let context = ReviewAgent::extract_context_from_history(&messages);
                 let context_opt = if context.is_empty() { None } else { Some(context) };
 
-                match orchestrator.review(changed_files, context_opt.as_deref()).await {
+                // Use phased review with events — sends phase progress through event_tx
+                match orchestrator.review_with_events(changed_files, context_opt.as_deref(), event_tx).await {
                     Ok(report) => {
                         let display_text = orchestrator.format_review_report(&report);
                         let report_summary = format!(

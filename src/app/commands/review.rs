@@ -162,11 +162,8 @@ fn spawn_review(app: &mut App, path: Option<String>) {
         let context = ReviewAgent::extract_context_from_history(&messages);
         let context_opt = if context.is_empty() { None } else { Some(context) };
 
-        let _ = event_tx.send(ReviewEvent::Started {
-            file_count: changed_files.len(),
-        });
-
-        match orchestrator.review(changed_files, context_opt.as_deref()).await {
+        // Use phased review with events — sends phase progress through event_tx
+        match orchestrator.review_with_events(changed_files, context_opt.as_deref(), event_tx).await {
             Ok(report) => {
                 let display_text = orchestrator.format_review_report(&report);
                 let verdict = report.summary.verdict.clone();
@@ -180,10 +177,9 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                     display_text,
                     verdict,
                     report_summary,
-                    report: Some(report.clone()),
+                    report: Some(report),
                     auto_trigger: false, // manual review: no auto-fix loop
                 }).await;
-                let _ = event_tx.send(ReviewEvent::Completed { report });
             }
             Err(e) => {
                 let err_msg = format!("⚠️ Review failed: {}", e);
@@ -194,10 +190,6 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                     report: None,
                     auto_trigger: false,
                 }).await;
-                let err_str: String = format!("{}", e);
-                let _ = event_tx.send(ReviewEvent::Error {
-                    message: err_str,
-                });
             }
         }
     });

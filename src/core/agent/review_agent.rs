@@ -29,99 +29,279 @@ pub enum ReviewEvent {
     Started { file_count: usize },
     FileAnalyzed { file: String, issues_found: usize },
     Progress { message: String },
+    /// Emitted when a review phase completes (used for phased/multi-category review)
+    PhaseCompleted {
+        phase_index: usize,           // 1-based phase number
+        total_phases: usize,          // total number of phases
+        phase_name: String,           // e.g. "Core Correctness"
+        categories: Vec<String>,      // category names checked in this phase
+        issues_found: usize,          // number of issues found
+        passed: bool,                 // true if no issues
+        details: String,              // brief summary
+    },
     Completed { report: ReviewReport },
     Error { message: String },
 }
+
+/// Phase definition for phased review
+struct ReviewPhase {
+    pub name: &'static str,
+    pub categories: &'static [ReviewCategory],
+}
+
+/// The 3 phases for phased review — ordered from most critical to least critical.
+const REVIEW_PHASES: &[ReviewPhase] = &[
+    // Phase 1: Does the code actually work and handle errors?
+    ReviewPhase {
+        name: "Core Correctness",
+        categories: &[
+            ReviewCategory::FunctionalCompleteness,
+            ReviewCategory::BugRisk,
+            ReviewCategory::ErrorHandling,
+        ],
+    },
+    // Phase 2: Is it safe, fast, and concurrent?
+    ReviewPhase {
+        name: "Safety & Reliability",
+        categories: &[
+            ReviewCategory::Security,
+            ReviewCategory::Performance,
+            ReviewCategory::Concurrency,
+        ],
+    },
+    // Phase 3: Is the code well-structured and documented?
+    ReviewPhase {
+        name: "Code Quality",
+        categories: &[
+            ReviewCategory::Maintainability,
+            ReviewCategory::Style,
+            ReviewCategory::Documentation,
+        ],
+    },
+];
 
 impl ReviewAgent {
     pub fn new(client: LlmClient, config: ReviewConfig) -> Self {
         Self { client, config }
     }
 
-    /// Get the review system prompt
-    fn system_prompt(&self) -> String {
-        r#"You are a professional code review expert. Your task is to analyze code changes, identify issues, and provide improvement suggestions.
+    /// Build the system prompt, optionally filtering to only include specified categories
+    fn system_prompt(&self, phase_categories: Option<&[ReviewCategory]>) -> String {
+        // Build category filter set
+        let category_filter = phase_categories.map(|cats| {
+            cats.iter().map(|c| std::mem::discriminant(c)).collect::<std::collections::HashSet<_>>()
+        });
 
-## Review Categories
-Analyze code across all of the following categories:
+        let mut prompt = String::from(
+            "You are a professional code review expert. Your task is to analyze code changes, identify issues, and provide improvement suggestions.\n\n"
+        );
 
-1. **functional_completeness** — 🎯 **CRITICAL: Does the code actually fulfill the user's requirements?** Check if:
-   - The implementation fully addresses ALL aspects of the user's request (not just part of it)
-   - There are no placeholder/stub implementations (e.g. `todo!()`, `unimplemented!()`, `throw new Error("Not implemented")`, FIXME comments)
-   - All required functions/endpoints/components are actually implemented, not just declared
-   - Edge cases mentioned in the requirements are handled
-   - Return values and outputs match what was asked for
-   - Configuration and wiring (imports, routes, registrations) is complete — not just the core logic
-2. **security** — SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies
-3. **performance** — Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning/allocation
-4. **bug_risk** — Null/unchecked pointers, off-by-one errors, edge cases, type confusion, logic errors
-5. **error_handling** — Missing error propagation, ignored Results, unwrap/expect panics, silent failures
-6. **maintainability** — Code duplication, overlong functions, poor naming, magic numbers, dead code
-7. **style** — Inconsistent formatting, non-idiomatic patterns, lint violations, naming convention breaks
-8. **documentation** — Missing/misleading doc comments, stale comments, missing public API docs
-9. **concurrency** — Data races, deadlocks, missing synchronization, async misuse, Send/Sync issues
+        prompt.push_str("## Review Categories\n");
+        if phase_categories.is_some() {
+            prompt.push_str("Focus ONLY on the following categories for this review phase:\n\n");
+        } else {
+            prompt.push_str("Analyze code across all of the following categories:\n\n");
+        }
 
-## CRITICAL: Functional Completeness Always Check
-**You MUST always verify functional_completeness against the user's requirements before the other categories.** If the code doesn't actually do what the user asked, report this as a high or critical severity `functional_completeness` issue — regardless of how clean the code looks.
+        let all_categories: Vec<(ReviewCategory, &str)> = vec![
+            (ReviewCategory::FunctionalCompleteness, "🎯 **CRITICAL: Does the code actually fulfill the user's requirements?** Check if:\n   - The implementation fully addresses ALL aspects of the user's request (not just part of it)\n   - There are no placeholder/stub implementations (e.g. `todo!()`, `unimplemented!()`, `throw new Error(\"Not implemented\")`, FIXME comments)\n   - All required functions/endpoints/components are actually implemented, not just declared\n   - Edge cases mentioned in the requirements are handled\n   - Return values and outputs match what was asked for\n   - Configuration and wiring (imports, routes, registrations) is complete — not just the core logic"),
+            (ReviewCategory::Security, "Security — SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies"),
+            (ReviewCategory::Performance, "Performance — Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning/allocation"),
+            (ReviewCategory::BugRisk, "Bug Risk — Null/unchecked pointers, off-by-one errors, edge cases, type confusion, logic errors"),
+            (ReviewCategory::ErrorHandling, "Error Handling — Missing error propagation, ignored Results, unwrap/expect panics, silent failures"),
+            (ReviewCategory::Maintainability, "Maintainability — Code duplication, overlong functions, poor naming, magic numbers, dead code"),
+            (ReviewCategory::Style, "Style — Inconsistent formatting, non-idiomatic patterns, lint violations, naming convention breaks"),
+            (ReviewCategory::Documentation, "Documentation — Missing/misleading doc comments, stale comments, missing public API docs"),
+            (ReviewCategory::Concurrency, "Concurrency — Data races, deadlocks, missing synchronization, async misuse, Send/Sync issues"),
+        ];
 
-## Valid Values
-- **severity**: `"critical"` | `"high"` | `"medium"` | `"low"` | `"info"`
-- **category**: one of the 9 categories listed above (`"functional_completeness"`, `"security"`, `"performance"`, etc.)
-- **verdict**: `"approved"` (no blocking issues) | `"needs_revision"` (fixes required) | `"rejected"` (fundamental problems)
-- **overall_score**: integer 0–100 (higher = better)
+        let mut idx = 1;
+        for (category, description) in &all_categories {
+            let include = match &category_filter {
+                Some(filter) => filter.contains(&std::mem::discriminant(category)),
+                None => true,
+            };
+            if include {
+                let cat_name = match category {
+                    ReviewCategory::FunctionalCompleteness => "functional_completeness",
+                    ReviewCategory::Security => "security",
+                    ReviewCategory::Performance => "performance",
+                    ReviewCategory::BugRisk => "bug_risk",
+                    ReviewCategory::ErrorHandling => "error_handling",
+                    ReviewCategory::Maintainability => "maintainability",
+                    ReviewCategory::Style => "style",
+                    ReviewCategory::Documentation => "documentation",
+                    ReviewCategory::Concurrency => "concurrency",
+                };
+                let icon = category.icon();
+                prompt.push_str(&format!("{}. **{}** — {} {}\n", idx, cat_name, icon, description));
+                idx += 1;
+            }
+        }
+        prompt.push_str("\n");
 
-## Output Format
-You MUST output ONLY a valid JSON object. Do NOT include any other text or explanation. Output the JSON directly (either raw or wrapped in a ```json code block).
-```json
-{
-  "issues": [
-    {
-      "file": "src/example.rs",
-      "line": 42,
-      "end_line": 50,
-      "severity": "high",
-      "category": "security",
-      "title": "Issue title",
-      "description": "Detailed description",
-      "suggestion": "Fix suggestion",
-      "code_snippet": "Problem code",
-      "fix_example": "Fix example code"
+        prompt.push_str("## Valid Values\n");
+        prompt.push_str("- **severity**: `\"critical\"` | `\"high\"` | `\"medium\"` | `\"low\"` | `\"info\"`\n");
+        prompt.push_str("- **category**: one of the category names listed above (`\"functional_completeness\"`, `\"security\"`, `\"performance\"`, etc.)\n");
+        prompt.push_str("- **verdict**: `\"approved\"` (no blocking issues) | `\"needs_revision\"` (fixes required) | `\"rejected\"` (fundamental problems)\n");
+        prompt.push_str("- **overall_score**: integer 0–100 (higher = better)\n\n");
+
+        prompt.push_str("## Output Format\n");
+        prompt.push_str("You MUST output ONLY a valid JSON object. Do NOT include any other text or explanation. Output the JSON directly (either raw or wrapped in a ```json code block).\n");
+        prompt.push_str("```json\n");
+        prompt.push_str("{\n");
+        prompt.push_str("  \"issues\": [\n");
+        prompt.push_str("    {\n");
+        prompt.push_str("      \"file\": \"src/example.rs\",\n");
+        prompt.push_str("      \"line\": 42,\n");
+        prompt.push_str("      \"end_line\": 50,\n");
+        prompt.push_str("      \"severity\": \"high\",\n");
+        prompt.push_str("      \"category\": \"security\",\n");
+        prompt.push_str("      \"title\": \"Issue title\",\n");
+        prompt.push_str("      \"description\": \"Detailed description\",\n");
+        prompt.push_str("      \"suggestion\": \"Fix suggestion\",\n");
+        prompt.push_str("      \"code_snippet\": \"Problem code\",\n");
+        prompt.push_str("      \"fix_example\": \"Fix example code\"\n");
+        prompt.push_str("    }\n");
+        prompt.push_str("  ],\n");
+        prompt.push_str("  \"summary\": {\n");
+        prompt.push_str("    \"overall_score\": 85,\n");
+        prompt.push_str("    \"verdict\": \"approved\"\n");
+        prompt.push_str("  }\n");
+        prompt.push_str("}\n");
+        prompt.push_str("```\n\n");
+
+        prompt.push_str("## Verdict Guidelines\n");
+        prompt.push_str("- Use `\"rejected\"` when functional_completeness has critical issues — the code fundamentally does not do what was asked.\n");
+        prompt.push_str("- Use `\"needs_revision\"` when there are any high/critical severity issues of ANY category, or when parts of the requirements are missing.\n");
+        prompt.push_str("- Use `\"approved\"` ONLY when ALL requirements are fully met AND there are no high/critical issues.\n");
+        prompt.push_str("- **Be strict about functional_completeness.** It is better to catch a missing feature than to approve incomplete code.\n\n");
+
+        prompt.push_str("## Review Principles\n");
+        prompt.push_str("- Focus on high-impact issues, avoid nitpicking. It's better to report 3 real bugs than 20 minor style nits.\n");
+        prompt.push_str("- Provide concrete fix code examples for every issue where possible.\n");
+        prompt.push_str("- Explain the root cause of issues, not just the symptom.\n");
+        prompt.push_str("- Adapt the review to the language of each file (detected by file extension):\n");
+        prompt.push_str("  - **Rust** — ownership/borrowing, unsafe blocks, unwrap/expect\n");
+        prompt.push_str("  - **TypeScript/JavaScript** — type safety, null handling, async/promise hygiene, `any` types, `as` casts\n");
+        prompt.push_str("  - **Python** — exception handling, type hints, dynamic pitfalls\n");
+        prompt.push_str("  - **Other languages** — apply language-appropriate best practices\n");
+        prompt.push_str("- Prioritize correctness and functional completeness over style preferences.\n");
+
+        prompt
     }
-  ],
-  "summary": {
-    "overall_score": 85,
-    "verdict": "approved"
-  }
-}
-```
 
-## Verdict Guidelines
-- Use `"rejected"` when functional_completeness has critical issues — the code fundamentally does not do what was asked.
-- Use `"needs_revision"` when there are any high/critical severity issues of ANY category, or when parts of the requirements are missing.
-- Use `"approved"` ONLY when ALL requirements are fully met AND there are no high/critical issues.
-- **Be strict about functional_completeness.** It is better to catch a missing feature than to approve incomplete code.
-
-## Review Principles
-- Focus on high-impact issues, avoid nitpicking. It's better to report 3 real bugs than 20 minor style nits.
-- Provide concrete fix code examples for every issue where possible.
-- Explain the root cause of issues, not just the symptom.
-- Adapt the review to the language of each file (detected by file extension):
-  - **Rust** — ownership/borrowing, unsafe blocks, unwrap/expect
-  - **TypeScript/JavaScript** — type safety, null handling, async/promise hygiene, `any` types, `as` casts
-  - **Python** — exception handling, type hints, dynamic pitfalls
-  - **Other languages** — apply language-appropriate best practices
-- Prioritize correctness and functional completeness over style preferences.
-"#.to_string()
-    }
-
-    /// Execute review
+    /// Execute review (single phase — all categories at once)
     pub async fn review(&self, request: &ReviewRequest) -> Result<ReviewReport> {
-        // 1. Gather change information
+        let (all_issues, changed_files) = self.execute_phase(request, None).await?;
+        self.build_report(&all_issues, &changed_files)
+    }
+
+    /// Execute phased review — runs 3 sequential phases, each reporting results via event_tx
+    pub async fn review_phased(
+        &self,
+        request: &ReviewRequest,
+        event_tx: tokio::sync::mpsc::UnboundedSender<ReviewEvent>,
+    ) -> Result<ReviewReport> {
+        let file_count = request.changed_files.len();
+        let _ = event_tx.send(ReviewEvent::Started { file_count });
+
         let changes_summary = self.format_changes_summary(&request.changed_files);
 
-        // 2. Build review request
-        // IMPORTANT: context (user's original request) comes FIRST so the LLM
-        // knows what the code is supposed to do before looking at the diff.
+        // Build the base user message (context + diff) once, reused across all phases
+        let base_message = if let Some(ref context) = request.context {
+            format!(
+                "## User Request (Requirements)\n\n{context}\n\n## Code Changes to Review\n\n{changes_summary}",
+                context = context,
+                changes_summary = changes_summary,
+            )
+        } else {
+            format!(
+                "Please review the following code changes:\n\n{changes_summary}",
+                changes_summary = changes_summary,
+            )
+        };
+
+        let mut all_issues = Vec::new();
+        let total_phases = REVIEW_PHASES.len();
+
+        for (phase_index, phase) in REVIEW_PHASES.iter().enumerate() {
+            // Build phase-specific user message
+            let cat_names: Vec<String> = phase.categories.iter().map(|c| {
+                match c {
+                    ReviewCategory::FunctionalCompleteness => "functional_completeness".to_string(),
+                    ReviewCategory::Security => "security".to_string(),
+                    ReviewCategory::Performance => "performance".to_string(),
+                    ReviewCategory::BugRisk => "bug_risk".to_string(),
+                    ReviewCategory::ErrorHandling => "error_handling".to_string(),
+                    ReviewCategory::Maintainability => "maintainability".to_string(),
+                    ReviewCategory::Style => "style".to_string(),
+                    ReviewCategory::Documentation => "documentation".to_string(),
+                    ReviewCategory::Concurrency => "concurrency".to_string(),
+                }
+            }).collect();
+
+            let phase_message = format!(
+                "{}\n\n## Review Phase Focus\nFocus ONLY on the following categories in this phase:\n- {}\n\nDo NOT report issues in categories outside this phase. They will be checked in separate phases.",
+                base_message,
+                cat_names.join("\n- "),
+            );
+
+            let _ = event_tx.send(ReviewEvent::Progress {
+                message: format!("Phase {}/{}: {} — Reviewing...", phase_index + 1, total_phases, phase.name),
+            });
+
+            // Call LLM for this phase
+            let response = self.call_llm(Some(phase.categories), &phase_message).await?;
+
+            // Parse issues for this phase — extract raw issues from JSON
+            let phase_issues = self.parse_issues_from_response(&response)?;
+
+            // Filter to only include issues in our phase's categories
+            let filtered: Vec<ReviewIssue> = phase_issues
+                .into_iter()
+                .filter(|i| phase.categories.contains(&i.category))
+                .collect();
+
+            let passed = filtered.is_empty();
+            let issues_found = filtered.len();
+
+            // Send phase completed event with details
+            let _ = event_tx.send(ReviewEvent::PhaseCompleted {
+                phase_index: phase_index + 1,
+                total_phases,
+                phase_name: phase.name.to_string(),
+                categories: cat_names,
+                issues_found,
+                passed,
+                details: if passed {
+                    format!("✅ No issues in {}", phase.name)
+                } else {
+                    format!("⚠️ Found {} issue(s) in {}", issues_found, phase.name)
+                },
+            });
+
+            all_issues.extend(filtered);
+        }
+
+        // Build final report from all aggregated issues
+        let report = self.build_report(&all_issues, &request.changed_files)?;
+
+        let _ = event_tx.send(ReviewEvent::Completed {
+            report: report.clone(),
+        });
+
+        Ok(report)
+    }
+
+    /// Execute a single review phase (or full review if phase_categories is None)
+    async fn execute_phase(
+        &self,
+        request: &ReviewRequest,
+        phase_categories: Option<&[ReviewCategory]>,
+    ) -> Result<(Vec<ReviewIssue>, Vec<ChangedFile>)> {
+        let changes_summary = self.format_changes_summary(&request.changed_files);
+
         let user_message = if let Some(ref context) = request.context {
             format!(
                 "## User Request (Requirements)\n\n{context}\n\n## Code Changes to Review\n\n{changes_summary}",
@@ -135,13 +315,10 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
             )
         };
 
-        // 3. Call LLM for review
-        let response = self.call_llm(&user_message).await?;
+        let response = self.call_llm(phase_categories, &user_message).await?;
+        let issues = self.parse_issues_from_response(&response)?;
 
-        // 4. Parse review results
-        let report = self.parse_review_response(&response, &request.changed_files)?;
-
-        Ok(report)
+        Ok((issues, request.changed_files.clone()))
     }
 
     /// Call LLM for review (non-streaming, returns full response)
@@ -150,10 +327,10 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
     /// The review agent should analyze the diffs we provide directly,
     /// not call additional tools. Passing tools causes the LLM to
     /// return tool calls instead of JSON review output.
-    async fn call_llm(&self, user_message: &str) -> Result<String> {
+    async fn call_llm(&self, phase_categories: Option<&[ReviewCategory]>, user_message: &str) -> Result<String> {
         use crate::core::types::Message;
         let messages = vec![
-            Message::system(self.system_prompt()),
+            Message::system(self.system_prompt(phase_categories)),
             Message::user(user_message),
         ];
 
@@ -220,15 +397,21 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
         summary
     }
 
-    /// Parse review response
-    fn parse_review_response(
+    /// Parse review response — full pipeline: extract JSON, parse issues, build report.
+    /// (Kept for backward compatibility with tests.)
+    pub fn parse_review_response(
         &self,
         response: &str,
         changed_files: &[ChangedFile],
     ) -> Result<ReviewReport> {
-        // Try to extract JSON from response
-        let json_str = self.extract_json(response)?;
+        let issues = self.parse_issues_from_response(response)?;
+        self.build_report(&issues, changed_files)
+    }
 
+    /// Extract issues from a JSON review response (without building the full report).
+    /// Returns the raw list of ReviewIssue structs.
+    fn parse_issues_from_response(&self, response: &str) -> Result<Vec<ReviewIssue>> {
+        let json_str = self.extract_json(response)?;
         let parsed: serde_json::Value = serde_json::from_str(&json_str)?;
 
         let mut issues = Vec::new();
@@ -270,18 +453,17 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
             }
         }
 
-        // Calculate summary
+        Ok(issues)
+    }
+
+    /// Build a complete ReviewReport from a list of issues and changed files.
+    /// Calculates summary statistics, verdict, and auto-fixable list.
+    fn build_report(&self, issues: &[ReviewIssue], changed_files: &[ChangedFile]) -> Result<ReviewReport> {
         let critical_count = issues.iter().filter(|i| i.severity == Severity::Critical).count();
         let high_count = issues.iter().filter(|i| i.severity == Severity::High).count();
         let medium_count = issues.iter().filter(|i| i.severity == Severity::Medium).count();
         let low_count = issues.iter().filter(|i| i.severity == Severity::Low).count();
         let info_count = issues.iter().filter(|i| i.severity == Severity::Info).count();
-
-        let overall_score = parsed
-            .get("summary")
-            .and_then(|s| s.get("overall_score"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(100.0);
 
         let has_functional_completeness_issues = issues.iter().any(|i| matches!(i.category, ReviewCategory::FunctionalCompleteness));
         let has_blocking_issues = critical_count > 0
@@ -290,28 +472,23 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
             || medium_count > 3
             || has_functional_completeness_issues;
 
-        let verdict = match parsed
-            .get("summary")
-            .and_then(|s| s.get("verdict"))
-            .and_then(|v| v.as_str())
-        {
-            Some("approved") => {
-                // Even if LLM says approved, downgrade to needs_revision if there are any issues
-                if has_blocking_issues || !issues.is_empty() {
-                    ReviewVerdict::NeedsRevision
-                } else {
-                    ReviewVerdict::Approved
-                }
+        let verdict = if has_blocking_issues || !issues.is_empty() {
+            if critical_count > 0 && has_functional_completeness_issues {
+                ReviewVerdict::Rejected
+            } else if has_blocking_issues {
+                ReviewVerdict::NeedsRevision
+            } else {
+                ReviewVerdict::Approved
             }
-            Some("needs_revision") => ReviewVerdict::NeedsRevision,
-            Some("rejected") => ReviewVerdict::Rejected,
-            _ => {
-                if has_blocking_issues || !issues.is_empty() {
-                    ReviewVerdict::NeedsRevision
-                } else {
-                    ReviewVerdict::Approved
-                }
-            }
+        } else {
+            ReviewVerdict::Approved
+        };
+
+        let overall_score = if issues.is_empty() {
+            100.0
+        } else {
+            let penalty = (critical_count * 25 + high_count * 10 + medium_count * 5 + low_count * 2 + info_count) as f64;
+            (100.0 - penalty).max(0.0)
         };
 
         let auto_fixable: Vec<ReviewIssue> = issues
@@ -331,7 +508,7 @@ You MUST output ONLY a valid JSON object. Do NOT include any other text or expla
                 overall_score,
                 verdict,
             },
-            issues,
+            issues: issues.to_vec(),
             changed_files: changed_files.to_vec(),
             metrics: CodeMetrics {
                 files_changed: changed_files.len(),
