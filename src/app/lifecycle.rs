@@ -107,30 +107,23 @@ pub async fn run_app(
         // (which may send its own cursor sequences via the crossterm backend)
         // doesn't overwrite our DECSCUSR / OSC 12 sequences.
         //
-        // During streaming the cursor is hidden; otherwise it's shown as a
-        // blinking bar (narrow shape) with a dynamically cycling color.
+        // Cursor is always shown as a blinking bar (narrow shape) with a
+        // dynamically cycling color.
         //
         // Using write! + flush() directly — BufWriter would buffer and never
         // deliver the sequences to the terminal.
-        if app.is_streaming {
-            let _ = std::io::Write::write_fmt(
-                &mut std::io::stdout(),
-                format_args!("\x1b[?25l"),
-            );
+        let cursor_color = if app.shell_mode {
+            "#64c85a".to_string() // shell mode: static bright green
         } else {
-            let cursor_color = if app.shell_mode {
-                "#64c85a".to_string() // shell mode: static bright green
-            } else {
-                let elapsed_ms = app.cursor_anim_start.elapsed().as_millis();
-                cursor_color_at(elapsed_ms)
-            };
-            let _ = std::io::Write::write_fmt(
-                &mut std::io::stdout(),
-                format_args!(
-                    "\x1b]12;{cursor_color}\x1b\\\x1b[?25h\x1b[5 q"
-                ),
-            );
-        }
+            let elapsed_ms = app.cursor_anim_start.elapsed().as_millis();
+            cursor_color_at(elapsed_ms)
+        };
+        let _ = std::io::Write::write_fmt(
+            &mut std::io::stdout(),
+            format_args!(
+                "\x1b]12;{cursor_color}\x1b\\\x1b[?25h\x1b[5 q"
+            ),
+        );
         let _ = std::io::stdout().flush();
 
         crate::core::agent::stream::process_message_queue(&mut app, &mut context_manager);

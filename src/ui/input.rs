@@ -331,25 +331,21 @@ pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Position the native cursor at the textarea's cursor position
     // +1 for border offset on each axis
-    if !app.is_streaming {
-        let (cursor_row, cursor_col) = app.input.cursor();
-        // Convert character index to display width (CJK chars are 2 columns wide)
-        let display_col: usize = app
-            .input
-            .lines()
-            .get(cursor_row)
-            .map(|line| line.chars().take(cursor_col).map(|c| c.width().unwrap_or(0)).sum())
-            .unwrap_or(cursor_col);
-        let cursor_x = area.x + 1 + display_col as u16;
-        let cursor_y = area.y + 1 + cursor_row as u16;
+    let (cursor_row, cursor_col) = app.input.cursor();
+    // Convert character index to display width (CJK chars are 2 columns wide)
+    let display_col: usize = app
+        .input
+        .lines()
+        .get(cursor_row)
+        .map(|line| line.chars().take(cursor_col).map(|c| c.width().unwrap_or(0)).sum())
+        .unwrap_or(cursor_col);
+    let cursor_x = area.x + 1 + display_col as u16;
+    let cursor_y = area.y + 1 + cursor_row as u16;
 
-        // Clamp to area bounds (inside borders)
-        let max_x = area.x + area.width.saturating_sub(2);
-        let max_y = area.y + area.height.saturating_sub(2);
-        if cursor_x <= max_x && cursor_y <= max_y {
-            f.set_cursor_position((cursor_x, cursor_y));
-        }
+    // Clamp to area bounds (inside borders)
+    let max_x = area.x + area.width.saturating_sub(2);
+    let max_y = area.y + area.height.saturating_sub(2);
+    if cursor_x <= max_x && cursor_y <= max_y {
+        f.set_cursor_position((cursor_x, cursor_y));
     }
-    // Cursor visibility and style are set in lifecycle.rs after frame flush
-    // to avoid being overwritten by the terminal backend.
 }

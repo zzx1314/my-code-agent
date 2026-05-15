@@ -1,5 +1,5 @@
 use my_code_agent::core::config::Config;
-use my_code_agent::core::tool::ToolRegistry;
+use my_code_agent::tools::ToolRegistry;
 
 #[test]
 fn test_all_tools_count() {
