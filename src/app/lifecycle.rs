@@ -99,6 +99,7 @@ pub async fn run_app(
         crate::core::agent::stream::process_streaming_events(&mut app);
         crate::core::agent::stream::check_stream_result(&mut app);
         crate::core::agent::stream::check_init_result(&mut app);
+        crate::core::agent::stream::check_review_result(&mut app);
 
         terminal.draw(|f| crate::ui::ui(f, &mut app))?;
 

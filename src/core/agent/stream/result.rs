@@ -3,6 +3,26 @@ use tokio::sync::mpsc;
 use crate::app::App;
 
 use super::state::cleanup_stream_state;
+
+/// Check if an auto-review result has arrived from the async task
+pub fn check_review_result(app: &mut App) {
+    if let Some(ref mut rx) = app.review_result_rx {
+        match rx.try_recv() {
+            Ok(result) => {
+                app.chat_history.push(crate::app::ChatEntry::assistant(result));
+                app.is_reviewing = false;
+                app.review_result_rx = None;
+                app.auto_scroll = true;
+            }
+            Err(mpsc::error::TryRecvError::Empty) => {}
+            Err(mpsc::error::TryRecvError::Disconnected) => {
+                app.review_result_rx = None;
+                app.is_reviewing = false;
+            }
+        }
+    }
+}
+
 /// Check if a streaming result has arrived from the async task
 pub fn check_stream_result(app: &mut App) {
     if let Some(ref mut rx) = app.response_rx {
@@ -110,9 +130,19 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         if should_review {
             app.is_reviewing = true;
             tracing::info!("Auto-review triggered after main agent response");
+            
+            // Add a visible message to chat history
+            app.chat_history.push(crate::app::ChatEntry::assistant(
+                "🔍 **Auto-Review Started** — Analyzing recent code changes...".to_string(),
+            ));
+            app.auto_scroll = true;
 
             let orchestrator = orchestrator.clone();
             let history_snapshot = app.chat_history.clone();
+
+            // Create channels for review result communication
+            let (result_tx, result_rx) = tokio::sync::mpsc::channel::<String>(1);
+            app.review_result_rx = Some(result_rx);
 
             tokio::spawn(async move {
                 let messages: Vec<crate::core::types::Message> = history_snapshot
@@ -130,6 +160,7 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
 
                 if changed_files.is_empty() {
                     tracing::info!("Auto-review: no changed files detected");
+                    let _ = result_tx.send("ℹ️ **Auto-Review Complete** — No code changes detected.".to_string()).await;
                     return;
                 }
 
@@ -137,15 +168,17 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
 
                 match orchestrator.review(changed_files, None).await {
                     Ok(report) => {
-                        let _output = orchestrator.format_review_report(&report);
+                        let output = orchestrator.format_review_report(&report);
                         tracing::info!(
                             issues = report.summary.total_issues,
                             verdict = ?report.summary.verdict,
                             "Auto-review completed"
                         );
+                        let _ = result_tx.send(output).await;
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Auto-review failed");
+                        let _ = result_tx.send(format!("⚠️ **Auto-Review Failed** — {}", e)).await;
                     }
                 }
             });

@@ -37,6 +37,13 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             format!(" | Streaming{}", dots),
             Style::default().fg(Color::Yellow),
         ));
+    } else if app.is_reviewing {
+        let dot_cycle = (app.marquee_frame / 4) % 4;
+        let dots = ".".repeat(dot_cycle as usize);
+        spans.push(Span::styled(
+            format!(" | 🔍 Reviewing{}", dots),
+            Style::default().fg(Color::Cyan),
+        ));
     } else if app.shell_mode {
         spans.push(Span::styled(
             " | 🐚 Shell",
