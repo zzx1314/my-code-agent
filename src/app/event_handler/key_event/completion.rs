@@ -156,6 +156,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 "/connect".to_string(),
                 "/model".to_string(),
                 "/init".to_string(),
+                "/review".to_string(),
                 "/undo".to_string(),
                 "/plan".to_string(),
                 "/shell".to_string(),

@@ -29,6 +29,7 @@ fn generate_help_text() -> String {
 | `/model` | Select model from dropdown menu |
 | `/think` | Show last reasoning/thinking content |
 | `/init` | Initialize or update project knowledge file |
+| `/review` | Review code changes or toggle auto-review mode |
 | `/undo` | Undo all file changes made in this session (restore to session start) |
 | `/plan <task>` | Enter plan mode — analyze and create an implementation plan without executing |
 | `/shell` | Toggle shell mode (all input executed as shell commands) |
