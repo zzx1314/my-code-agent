@@ -315,3 +315,49 @@ async fn test_build_line_diff_with_trailing_newline() {
     assert_eq!(plus_count, 1, "Diff should have exactly 1 + line, not 2");
 }
 
+#[tokio::test]
+async fn test_closing_bracket_indent_mismatch() {
+    // LLM sends "}" (no indent) but preserved line is "    }" (indented).
+    // Without bracket-aware dedup, this produces "}}\n    }" → double bracket.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.rs");
+    fs::write(
+        &path,
+        "fn foo() {\n    body();\n}",
+    )
+    .unwrap();
+
+    // LLM replaces body but includes "}" without indent; preserved line is "}"
+    let result = call_update(path.to_str().unwrap(), 2, 1, "    new_body();\n}")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "fn foo() {\n    new_body();\n}"
+    );
+    assert_eq!(output.replacements, 1);
+}
+
+#[tokio::test]
+async fn test_closing_bracket_with_punctuation() {
+    // LLM sends "};" but preserved line is "    };" — should still dedup.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.rs");
+    fs::write(
+        &path,
+        "struct Foo {\n    x: i32,\n};",
+    )
+    .unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 1, "    y: i32,\n};")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "struct Foo {\n    y: i32,\n};"
+    );
+    assert_eq!(output.replacements, 1);
+}
+

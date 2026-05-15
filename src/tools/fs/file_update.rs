@@ -103,32 +103,7 @@ impl Tool for FileUpdate {
         } else {
             new_content_trimmed.split('\n').collect()
         };
-        // Detect potential bracket/line duplication:
-        // If new_content's last line matches the first preserved line after the
-        // deletion range, the model likely included an extra copy of that line.
-        // e.g. replacing line 2 with "    baz();\n}" but delete_count=1 preserves
-        // the original "}" on line 3, producing double "}}".
-        let mut duplication_warning: Option<String> = None;
-        if let Some(last_new) = new_lines.last() {
-            let preserved_start = args.start_line - 1 + args.delete_count;
-            if preserved_start < total_lines && !last_new.is_empty() {
-                let first_preserved = lines[preserved_start];
-                if *last_new == first_preserved {
-                    duplication_warning = Some(format!(
-                        "WARNING: new_content's last line {:?} matches line {} ({:?}) \
-                         which would also be preserved. This may create a duplicate. \
-                         Consider increasing delete_count to {} or removing \"{}\" from new_content.",
-                        last_new,
-                        preserved_start + 1,
-                        first_preserved,
-                        args.delete_count + 1,
-                        last_new,
-                    ));
-                }
-            }
-        }
-
-
+        let new_lines = deduplicate_closing_brackets(new_lines, args.start_line, args.delete_count, &lines, total_lines);
 
         let mut result_lines: Vec<&str> = Vec::with_capacity(
             total_lines - args.delete_count + new_lines.len(),
@@ -155,10 +130,7 @@ impl Tool for FileUpdate {
         .await?;
 
         // Build a diff showing the line-level change
-        let mut diff = build_line_diff(args.start_line, args.delete_count, &args.new_content, &lines);
-        if let Some(warning) = duplication_warning {
-            diff.push_str(&format!("\n{}\n", warning));
-        }
+        let diff = build_line_diff(args.start_line, args.delete_count, &args.new_content, &lines);
 
         serde_json::to_string(&FileUpdateOutput {
             path: args.path,
@@ -168,6 +140,32 @@ impl Tool for FileUpdate {
         })
         .map_err(|e| e.to_string())
     }
+}
+
+/// Remove a trailing closing-bracket line from `new_lines` when it would duplicate
+/// the first preserved line after the deletion range. LLMs often include closing
+/// brackets that already exist in the original file, producing `}}` or `])`.
+fn deduplicate_closing_brackets<'a>(
+    mut new_lines: Vec<&'a str>,
+    start_line: usize,
+    delete_count: usize,
+    original_lines: &[&'a str],
+    total_lines: usize,
+) -> Vec<&'a str> {
+    let Some(last_new) = new_lines.last() else { return new_lines };
+    if last_new.trim().is_empty() {
+        return new_lines;
+    }
+    let preserved_start = start_line - 1 + delete_count;
+    if preserved_start >= total_lines {
+        return new_lines;
+    }
+    let first_preserved = original_lines[preserved_start];
+    let is_closing = |s: &str| matches!(s.trim(), "}" | ")" | "]" | ">" | "}," | ");" | "]," | "};");
+    if is_closing(last_new) && is_closing(first_preserved) {
+        new_lines.pop();
+    }
+    new_lines
 }
 
 /// Build a human-readable diff showing what lines were removed and added.
