@@ -6,6 +6,7 @@ mod load;
 mod model;
 mod plan;
 mod quit;
+pub mod review;
 mod save;
 mod shell;
 mod status;
@@ -40,6 +41,7 @@ pub fn handle_command(
         "/undo" => undo::handle(app),
         "/shell" => shell::handle(app),
         cmd if cmd.starts_with("/plan") => plan::handle(app, input, context_manager),
+        cmd if cmd.starts_with("/review") => review::handle(app, input, context_manager),
         _ => {
             // Unknown command, send to the LLM for handling
             false

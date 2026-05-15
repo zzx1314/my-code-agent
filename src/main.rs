@@ -13,6 +13,7 @@ async fn main() -> Result<()> {
         state.last_reasoning,
         state.config,
         state.agent,
+        state.orchestrator,
         state.interrupt_tx,
         state.confirmation_rx,
         state.context_manager,

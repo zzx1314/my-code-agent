@@ -83,6 +83,47 @@ pub struct Config {
     /// MCP (Model Context Protocol) settings.
     #[serde(default)]
     pub mcp: McpConfig,
+    /// Code review settings.
+    #[serde(default)]
+    pub review: ReviewConfig,
+}
+
+/// Code review settings.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReviewConfig {
+    /// Enable code review functionality. Default: `true`.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Automatically review code after main agent completes. Default: `true`.
+    #[serde(default = "default_true")]
+    pub auto_review: bool,
+    /// Minimum lines changed to trigger auto-review. Default: `5`.
+    #[serde(default = "default_review_threshold")]
+    pub threshold_lines: usize,
+    /// Maximum issues to report. Default: `50`.
+    #[serde(default = "default_review_max_issues")]
+    pub max_issues: usize,
+    /// Review severity threshold. Default: `"low"`.
+    #[serde(default = "default_review_severity")]
+    pub severity_threshold: String,
+    /// Enable review on file_write. Default: `true`.
+    #[serde(default = "default_true")]
+    pub on_file_write: bool,
+    /// Enable review on file_update. Default: `true`.
+    #[serde(default = "default_true")]
+    pub on_file_update: bool,
+}
+
+fn default_review_threshold() -> usize {
+    5
+}
+
+fn default_review_max_issues() -> usize {
+    50
+}
+
+fn default_review_severity() -> String {
+    "low".to_string()
 }
 
 /// File reading and attachment limits.
@@ -229,13 +270,22 @@ pub struct SessionConfig {
     #[serde(default)]
     pub save_file: Option<String>,
     /// Whether to clean up undo history entries for the current session on exit.
-    /// Default: `false` (undo history is preserved across sessions).
     #[serde(default)]
     pub cleanup_undo_history: bool,
 }
 
-fn default_session_enabled() -> bool {
-    false
+impl Default for ReviewConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_review: true,
+            threshold_lines: 5,
+            max_issues: 50,
+            severity_threshold: "low".to_string(),
+            on_file_write: true,
+            on_file_update: true,
+        }
+    }
 }
 
 impl Default for SessionConfig {
@@ -246,6 +296,10 @@ impl Default for SessionConfig {
             cleanup_undo_history: false,
         }
     }
+}
+
+fn default_session_enabled() -> bool {
+    false
 }
 
 impl Default for FileConfig {

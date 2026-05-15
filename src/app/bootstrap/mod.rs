@@ -18,6 +18,7 @@ pub struct InitState {
     pub token_usage: TokenUsage,
     pub last_reasoning: String,
     pub agent: Arc<Agent>,
+    pub orchestrator: Arc<crate::core::agent::orchestrator::AgentOrchestrator>,
     pub confirmation_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ConfirmationRequest>>,
     pub interrupt_tx: tokio::sync::broadcast::Sender<()>,
     pub context_manager: ContextManager,
@@ -103,6 +104,11 @@ pub async fn init_app() -> Result<InitState> {
     let system_prompt = build_preamble();
     let agent = Arc::new(Agent::new(client, system_prompt, all_tools));
 
+    // ── 6b. Orchestrator (multi-agent coordination) ─────────────────────────
+    let orchestrator = Arc::new(
+        crate::core::agent::orchestrator::AgentOrchestrator::new(agent.clone(), &config),
+    );
+
     // ── 7. Context manager & interrupt channel ──────────────────────────────
     let context_manager = ContextManager::new(&config);
     let (interrupt_tx, _) = tokio::sync::broadcast::channel::<()>(16);
@@ -121,6 +127,7 @@ pub async fn init_app() -> Result<InitState> {
         token_usage,
         last_reasoning,
         agent,
+        orchestrator,
         confirmation_rx: Some(confirmation_rx),
         interrupt_tx,
         context_manager,

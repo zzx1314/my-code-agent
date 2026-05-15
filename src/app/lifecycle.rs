@@ -2,7 +2,6 @@
 
 use std::io::Write;
 use std::sync::Arc;
-
 use anyhow::Result;
 use ratatui::crossterm::event::{Event, poll, read};
 use ratatui::{Terminal, backend::CrosstermBackend};
@@ -69,6 +68,7 @@ pub async fn run_app(
     last_reasoning: String,
     config: crate::core::config::Config,
     agent: Arc<crate::core::agent::preamble::Agent>,
+    orchestrator: Arc<crate::core::agent::orchestrator::AgentOrchestrator>,
     interrupt_tx: tokio::sync::broadcast::Sender<()>,
     confirmation_rx: Option<
         tokio::sync::mpsc::UnboundedReceiver<
@@ -77,7 +77,6 @@ pub async fn run_app(
     >,
     mut context_manager: ContextManager,
 ) -> Result<()> {
-    // Enter alternate screen
     let mut terminal = app::terminal::enter_terminal()?;
 
     // Build the App
@@ -90,6 +89,7 @@ pub async fn run_app(
         interrupt_tx,
     );
     app.confirmation_rx = confirmation_rx;
+    app.orchestrator = Some(orchestrator);
 
     // ── Event loop ──────────────────────────────────────────────────────────
     loop {

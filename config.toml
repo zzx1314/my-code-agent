@@ -101,3 +101,21 @@ enabled = true
 # Get one at https://platform.parallel.ai for higher rate limits
 # Or set PARALLEL_API_KEY environment variable in .env
 # parallel_api_key = ""
+
+# ── Code Review Settings ──
+[review]
+# Enable code review functionality. Default: true
+enabled = true
+
+# Automatically review code after main agent completes. Default: true
+auto_review = true
+
+# Minimum lines changed to trigger auto-review. Default: 5
+# threshold_lines = 5
+
+# Maximum issues to report. Default: 50
+# max_issues = 50
+
+# Review severity threshold: "critical" | "high" | "medium" | "low"
+# Only issues at or above this severity will be reported. Default: "low"
+# severity_threshold = "low"

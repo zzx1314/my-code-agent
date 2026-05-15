@@ -3,7 +3,6 @@ use tokio::sync::mpsc;
 use crate::app::App;
 
 use super::state::cleanup_stream_state;
-
 /// Check if a streaming result has arrived from the async task
 pub fn check_stream_result(app: &mut App) {
     if let Some(ref mut rx) = app.response_rx {
@@ -89,6 +88,68 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
 
     if result.should_exit {
         app.should_exit = true;
+    }
+
+    // ── Auto-review: trigger after main agent completes file changes ──────────
+    if let Some(ref orchestrator) = app.orchestrator {
+        let should_review = {
+            let history: Vec<crate::core::types::Message> = app
+                .chat_history
+                .iter()
+                .map(|e| crate::core::types::Message {
+                    role: e.role.clone(),
+                    content: e.content.clone(),
+                    reasoning_content: e.reasoning_content.clone(),
+                    tool_calls: e.tool_calls.clone(),
+                    tool_call_id: e.tool_call_id.clone(),
+                })
+                .collect();
+            orchestrator.should_auto_review(&history) && !app.is_reviewing
+        };
+
+        if should_review {
+            app.is_reviewing = true;
+            tracing::info!("Auto-review triggered after main agent response");
+
+            let orchestrator = orchestrator.clone();
+            let history_snapshot = app.chat_history.clone();
+
+            tokio::spawn(async move {
+                let messages: Vec<crate::core::types::Message> = history_snapshot
+                    .iter()
+                    .map(|e| crate::core::types::Message {
+                        role: e.role.clone(),
+                        content: e.content.clone(),
+                        reasoning_content: e.reasoning_content.clone(),
+                        tool_calls: e.tool_calls.clone(),
+                        tool_call_id: e.tool_call_id.clone(),
+                    })
+                    .collect();
+
+                let changed_files = orchestrator.detect_changed_files(&messages);
+
+                if changed_files.is_empty() {
+                    tracing::info!("Auto-review: no changed files detected");
+                    return;
+                }
+
+                tracing::info!(count = changed_files.len(), "Auto-review started");
+
+                match orchestrator.review(changed_files, None).await {
+                    Ok(report) => {
+                        let _output = orchestrator.format_review_report(&report);
+                        tracing::info!(
+                            issues = report.summary.total_issues,
+                            verdict = ?report.summary.verdict,
+                            "Auto-review completed"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Auto-review failed");
+                    }
+                }
+            });
+        }
     }
 }
 

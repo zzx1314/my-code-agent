@@ -9,6 +9,7 @@ use crate::core::types::{Message, StreamChunk, ToolDefinition};
 ///
 /// Replaces `rig::providers::openai::CompletionsClient` and
 /// `rig::providers::openrouter::Client`.
+#[derive(Clone)]
 pub struct LlmClient {
     http_client: reqwest::Client,
     base_url: String,

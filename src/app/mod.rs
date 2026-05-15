@@ -203,6 +203,15 @@ pub struct App {
     pub collapsed_sections: std::collections::HashSet<String>,
     /// Toggle positions for mouse click handling: (logical_line_index, section_id)
     pub collapsed_toggles: Vec<(u16, String)>,
+    // === Code Review state ===
+    /// Agent orchestrator for multi-agent coordination
+    pub orchestrator: Option<std::sync::Arc<crate::core::agent::orchestrator::AgentOrchestrator>>,
+    /// Whether a review is in progress
+    pub is_reviewing: bool,
+    /// Receiver for review events (progress updates)
+    pub review_event_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::commands::review::ReviewEvent>>,
+    /// Receiver for review result
+    pub review_result_rx: Option<tokio::sync::mpsc::Receiver<String>>,
 }
 
 impl App {
@@ -304,6 +313,11 @@ impl App {
             cursor_anim_start: Instant::now(),
             collapsed_sections: std::collections::HashSet::new(),
             collapsed_toggles: Vec::new(),
+            // Code Review state
+            orchestrator: None,
+            is_reviewing: false,
+            review_event_rx: None,
+            review_result_rx: None,
         }
     }
 }
