@@ -78,16 +78,13 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 hide_completion(app);
                 return;
             }
-            KeyCode::Char(c) => {
-                if c == '/' && app.completion_type != Some('/') {
-                    hide_completion(app);
-                    trigger_completion(app, '/');
-                    return;
-                } else if c == '@' && app.completion_type != Some('@') {
-                    hide_completion(app);
-                    trigger_completion(app, '@');
-                    return;
-                }
+            KeyCode::Char(_c) => {
+                // When completion is already active, treat all characters as
+                // part of the query (e.g., '/' in '@src/main.rs' should not
+                // switch to command completion)
+                app.input.input(key);
+                update_completion_query(app);
+                return;
             }
             KeyCode::Backspace => {}
             _ => {}
