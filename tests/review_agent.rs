@@ -219,7 +219,7 @@ fn test_review_event_creation() {
 // Tests for extract_json_from_response
 // =============================================================================
 
-use my_code_agent::core::agent::review_agent::extract_json_from_response;
+use my_code_agent::core::agent::review_agent::{extract_json_from_response, repair_truncated_json, sanitize_json_escapes};
 
 const VALID_JSON: &str = r#"{"issues":[],"summary":{"overall_score":100,"verdict":"approved"}}"#;
 
@@ -304,6 +304,85 @@ fn test_extract_json_single_object_with_nested_text() {
     let response = format!("Some text {} more text", json);
     let result = extract_json_from_response(&response).unwrap();
     assert_eq!(result, json);
+}
+
+// =============================================================================
+// Tests for repair_truncated_json
+// =============================================================================
+
+/// Valid JSON should pass through unchanged
+#[test]
+fn test_repair_truncated_already_valid() {
+    let json = r#"{"issues":[],"summary":{"score":100}}"#;
+    let result = repair_truncated_json(json);
+    assert_eq!(result, json);
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
+}
+
+/// Unclosed string at end should be closed
+#[test]
+fn test_repair_truncated_unclosed_string() {
+    let result = repair_truncated_json(r#"{"key": "value"#);
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON, got: {result}");
+}
+
+/// Unclosed nested brace should be closed
+#[test]
+fn test_repair_truncated_unclosed_brace() {
+    let result = repair_truncated_json(r#"{"a": {"b": 1}"#);
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON, got: {result}");
+}
+
+/// Unclosed array bracket should be closed
+#[test]
+fn test_repair_truncated_unclosed_bracket() {
+    let result = repair_truncated_json(r#"{"items": [1, 2, 3"#);
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON, got: {result}");
+}
+
+/// Trailing comma should be removed
+#[test]
+fn test_repair_truncated_trailing_comma() {
+    let result = repair_truncated_json(r#"{"a": 1,}"#);
+    assert!(!result.contains(",}"), "unexpected trailing comma in: {result}");
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON, got: {result}");
+}
+
+/// Full truncated review JSON should be repairable
+/// (uses the same sanitize-then-repair pipeline as the real code)
+#[test]
+fn test_repair_truncated_full_review() {
+    let truncated = r#"{"issues":[{"file":"src/main.rs","line":42,"severity":"high","title":"Issue","description":"Found a bug in C:\Users\test"}"#;
+    let sanitized = sanitize_json_escapes(truncated);
+    let result = repair_truncated_json(&sanitized);
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON after sanitize+repair, got: {result}");
+}
+
+/// String with escaped quotes inside should not break repair
+#[test]
+fn test_repair_truncated_escaped_quotes() {
+    let truncated = r#"{"desc": "value with \" quote"}"#;
+    let result = repair_truncated_json(truncated);
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
+}
+
+/// Nested brackets in various orders
+#[test]
+fn test_repair_truncated_nested_brackets() {
+    let result = repair_truncated_json(r#"{"arr": [[[1, 2"#);
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
+}
+
+/// Multiple unclosed levels
+#[test]
+fn test_repair_truncated_multi_level() {
+    let result = repair_truncated_json(r#"{"a": {"b": {"c": 1"#);
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
 }
 
 // =============================================================================
@@ -844,7 +923,7 @@ fn test_scenario_missing_sort_and_write() {
 /// Simulate scenario: user asks for REST API endpoint, code has todo!() stub
 #[test]
 fn test_scenario_stub_implementation() {
-    let user_request = "Add a POST /api/users endpoint that creates a user in the database and returns the user ID.";
+    let _user_request = "Add a POST /api/users endpoint that creates a user in the database and returns the user ID.";
     let code_diff = "+ async fn create_user_handler(body: Json<CreateUserRequest>) -> impl Responder {\n+     // TODO: implement user creation\n+     todo!(\"implement user creation\")\n+ }";
 
     // Check that the diff contains the placeholder
@@ -882,7 +961,7 @@ fn test_scenario_half_implementation() {
 /// Simulate scenario: user asks for feature with wiring/configuration
 #[test]
 fn test_scenario_missing_configuration() {
-    let user_request = "Add a new middleware that logs all HTTP requests and register it in the app router.";
+    let _user_request = "Add a new middleware that logs all HTTP requests and register it in the app router.";
     let code_diff = "+ pub struct RequestLogger;\n+ impl Middleware for RequestLogger {\n+     fn handle(&self, req: &Request) -> Response {\n+         println!(\"Request: {} {}\", req.method(), req.path());\n+         req.next()\n+     }\n+ }";
 
     // Middleware is defined but NOT registered in the router
@@ -1086,4 +1165,41 @@ fn test_review_coverage_empty_report() {
         let count = report.issues.iter().filter(|i| i.category == *category).count();
         assert_eq!(count, 0, "Category {:?} should have 0 issues in empty report", category);
     }
+}
+
+// =============================================================================
+// Tests for is_auto_fix_prompt (fix prompt visibility hiding)
+// =============================================================================
+
+use my_code_agent::core::agent::stream::is_auto_fix_prompt;
+
+#[test]
+fn test_is_auto_fix_prompt_build_fix_prompt() {
+    assert!(is_auto_fix_prompt("## 🔄 Code Review - Iteration 1/3 — Fix Required\n\nSome issues found..."));
+    assert!(is_auto_fix_prompt("## 🔄 Code Review - Iteration 2/3 — Fix Required\n\nMore issues..."));
+    assert!(is_auto_fix_prompt("## 🔄 Code Review - Iteration 3/3 — Last chance!\n\nFinal fixes..."));
+}
+
+#[test]
+fn test_is_auto_fix_prompt_fallback_format() {
+    assert!(is_auto_fix_prompt("Please fix the issues found in the code review (iteration 1/3). The review needs revision."));
+    assert!(is_auto_fix_prompt("Please fix the issues found in the code review (iteration 2/3) so the code passes review."));
+}
+
+#[test]
+fn test_is_auto_fix_prompt_negative_cases() {
+    assert!(!is_auto_fix_prompt("Add a CSV parser that reads a file and sorts by column"));
+    assert!(!is_auto_fix_prompt("Here's the implementation of the sort function"));
+    assert!(!is_auto_fix_prompt(""));
+    assert!(!is_auto_fix_prompt("Code Review - Iteration"));
+    assert!(!is_auto_fix_prompt("Please fix the issues found in the linter"));
+    assert!(!is_auto_fix_prompt("## Code Review - Iteration 1/3")); // missing 🔄
+}
+
+#[test]
+fn test_is_auto_fix_prompt_edge_cases() {
+    assert!(!is_auto_fix_prompt("🔄 Code Review - Iteration 1/3")); // missing ##
+    assert!(!is_auto_fix_prompt("## 🔄 Code Review"));
+    assert!(!is_auto_fix_prompt("fix the issues found")); // wrong case
+    assert!(!is_auto_fix_prompt("Please fix the issues")); // incomplete match
 }

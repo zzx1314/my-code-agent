@@ -1,4 +1,4 @@
-use my_code_agent::tools::infra::write_todos::{TodoItem, TodoStatus, WriteTodos, WriteTodosOutput};
+use my_code_agent::tools::infra::write_todos::{TodoItem, TodoStatus, TODOS_FILE_PATH, WriteTodos, WriteTodosOutput};
 use my_code_agent::tools::Tool;
 use tempfile::TempDir;
 
@@ -218,7 +218,7 @@ async fn test_default_status_is_pending() {
 
 #[tokio::test]
 async fn test_todos_json_file_written() {
-    // The tool writes .todos.json to the current directory.
+    // The tool writes .mycode/.todos.json to the .mycode/ subdirectory.
     // Use a temp dir to avoid polluting the project root.
     let tmp = TempDir::new().unwrap();
     let original = std::env::current_dir().unwrap();
@@ -231,9 +231,9 @@ async fn test_todos_json_file_written() {
     let args = serde_json::json!({ "todos": todos });
     let _result = make_tool().call(args).await.unwrap();
 
-    // Verify .todos.json exists and contains the right data
-    let json_path = tmp.path().join(".todos.json");
-    assert!(json_path.exists(), ".todos.json should be written");
+    // Verify .mycode/.todos.json exists and contains the right data
+    let json_path = tmp.path().join(TODOS_FILE_PATH);
+    assert!(json_path.exists(), ".mycode/.todos.json should be written");
 
     let content = std::fs::read_to_string(&json_path).unwrap();
     let written: Vec<TodoItem> = serde_json::from_str(&content).unwrap();

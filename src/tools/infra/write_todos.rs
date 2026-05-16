@@ -1,7 +1,17 @@
+//! Tool for writing a todo list JSON file to `.mycode/.todos.json` to
+//! track multi-step task progress. The `.mycode` directory is created
+//! automatically with restricted permissions on first write.
+
 use crate::core::types::ToolDefinition;
 use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+/// Path (relative to project root) where the todos JSON file is stored.
+pub const TODOS_FILE_PATH: &str = ".mycode/.todos.json";
+
+/// Directory that contains the todos file.
+const TODOS_DIR: &str = ".mycode";
 
 /// The status of a todo item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +57,30 @@ pub struct WriteTodosOutput {
 
 #[derive(Debug, Clone, Default)]
 pub struct WriteTodos;
+/// Ensure the `.mycode` directory exists. Safe to call repeatedly.
+fn ensure_todos_dir() -> Result<(), String> {
+    std::fs::create_dir_all(TODOS_DIR)
+        .map_err(|e| format!("Failed to create {} directory: {}", TODOS_DIR, e))
+}
+struct TodoStats {
+    completed: usize,
+    pending: usize,
+    in_progress: usize,
+    failed: usize,
+}
+
+fn compute_stats(todos: &[TodoItem]) -> TodoStats {
+    let mut s = TodoStats { completed: 0, pending: 0, in_progress: 0, failed: 0 };
+    for t in todos {
+        match t.status {
+            TodoStatus::Completed => s.completed += 1,
+            TodoStatus::Pending => s.pending += 1,
+            TodoStatus::InProgress => s.in_progress += 1,
+            TodoStatus::Failed => s.failed += 1,
+        }
+    }
+    s
+}
 
 #[async_trait::async_trait]
 impl Tool for WriteTodos {
@@ -97,22 +131,20 @@ impl Tool for WriteTodos {
     async fn call(&self, args: serde_json::Value) -> Result<String, String> {
         let args: WriteTodosArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        let completed_count = args.todos.iter().filter(|t| matches!(t.status, TodoStatus::Completed)).count();
-        let total_count = args.todos.len();
-
         let content = serde_json::to_string_pretty(&args.todos)
             .map_err(|e| format!("Failed to serialize todos: {}", e))?;
-        std::fs::write(".todos.json", content)
-            .map_err(|e| format!("Failed to write .todos.json: {}", e))?;
+
+        ensure_todos_dir()?;
+        std::fs::write(TODOS_FILE_PATH, &content)
+            .map_err(|e| format!("Failed to write {}: {}", TODOS_FILE_PATH, e))?;
+
+        let stats = compute_stats(&args.todos);
+        let total = args.todos.len();
 
         let output = WriteTodosOutput {
             message: format!(
                 "🔄 Todos: {}/{} completed · {} pending · {} in progress · {} failed",
-                completed_count,
-                total_count,
-                args.todos.iter().filter(|t| matches!(t.status, TodoStatus::Pending)).count(),
-                args.todos.iter().filter(|t| matches!(t.status, TodoStatus::InProgress)).count(),
-                args.todos.iter().filter(|t| matches!(t.status, TodoStatus::Failed)).count(),
+                stats.completed, total, stats.pending, stats.in_progress, stats.failed,
             ),
             todos: args.todos,
         };

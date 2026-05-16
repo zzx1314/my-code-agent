@@ -608,7 +608,14 @@ impl ReviewAgent {
     fn parse_issues_from_response(&self, response: &str) -> Result<Vec<ReviewIssue>> {
         let json_str = self.extract_json(response)?;
         let sanitized = sanitize_json_escapes(&json_str);
-        let parsed: serde_json::Value = serde_json::from_str(&sanitized)?;
+        let parsed: serde_json::Value = match serde_json::from_str(&sanitized) {
+            Ok(v) => v,
+            Err(_) => {
+                // Attempt JSON repair for truncated/malformed responses
+                let repaired = repair_truncated_json(&sanitized);
+                serde_json::from_str(&repaired)?
+            }
+        };
 
         let mut issues = Vec::new();
 
@@ -995,4 +1002,62 @@ fn truncate_content(content: &str, max_bytes: usize) -> String {
     let mut s = content[..boundary].to_string();
     s.push_str("...");
     s
+}
+
+/// Attempt to repair a truncated/malformed JSON string from LLM output.
+///
+/// LLM responses sometimes get cut off mid-JSON (typically hitting output token limits).
+/// This function handles the common truncation patterns:
+/// 1. Trailing comma before closing bracket (`...,` → `...}`)
+/// 2. Unclosed string literals (appends `"`)
+/// 3. Unbalanced braces `{}` and brackets `[]` (appends missing closers)
+///
+/// Uses proper string-aware tracking to avoid misinterpreting
+/// braces/brackets inside string values.
+pub fn repair_truncated_json(s: &str) -> String {
+    let mut result = s.trim_end().to_string();
+
+    if let Some('}' | ']') = result.chars().last() {
+        let closer = result.pop().unwrap();
+        result = result.trim_end_matches(',').to_string();
+        result.push(closer);
+    }
+
+    let mut in_string = false;
+    let mut prev_was_escape = false;
+    let mut stack: Vec<char> = Vec::new();
+
+    for ch in result.chars() {
+        if ch == '"' && !prev_was_escape {
+            in_string = !in_string;
+        }
+        prev_was_escape = ch == '\\' && !prev_was_escape;
+
+        if in_string {
+            continue;
+        }
+
+        match ch {
+            '{' => stack.push('}'),
+            '[' => stack.push(']'),
+            '}' | ']' => {
+                if let Some(&top) = stack.last() {
+                    if top == ch {
+                        stack.pop();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if in_string {
+        result.push('"');
+    }
+
+    while let Some(closing) = stack.pop() {
+        result.push(closing);
+    }
+
+    result
 }

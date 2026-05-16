@@ -4,6 +4,7 @@ use crate::app::App;
 use crate::core::context::context_manager::ContextManager;
 use crate::core::agent::preamble::Agent;
 
+use super::result::is_auto_fix_prompt;
 use super::state::reset_streaming_state;
 
 /// Send a message to the LLM (extracted for reuse by message queue)
@@ -15,7 +16,17 @@ pub fn send_message_to_llm(
     use tui_textarea::TextArea;
 
     app.show_banner = false; // Hide startup banner
-    app.chat_history.push(crate::app::ChatEntry::user(input_text.clone()));
+    let display_text = if is_auto_fix_prompt(&input_text) {
+        let max_iterations = app.config.review.max_review_iterations;
+        let iteration = app.review_iteration.min(max_iterations);
+        format!(
+            "🔄 Fixing issues (auto-review iteration {}/{})...",
+            iteration, max_iterations,
+        )
+    } else {
+        input_text.clone()
+    };
+    app.chat_history.push(crate::app::ChatEntry::user(display_text));
     app.input = {
         let mut ta = TextArea::default();
         ta.set_block(
