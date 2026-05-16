@@ -742,9 +742,9 @@ fn test_extract_context_from_history_all_filtered() {
     assert!(context.is_empty(), "Should return empty when all messages are filtered");
 }
 
-/// Test extract_context_from_history: only takes last 2 user messages
+/// Test extract_context_from_history: includes original request + recent follow-up
 #[test]
-fn test_extract_context_from_history_limits_to_last_two() {
+fn test_extract_context_from_history_includes_original_and_recent() {
     let history = vec![
         Message::user("First question"),
         Message::assistant("Answer 1"),
@@ -755,11 +755,12 @@ fn test_extract_context_from_history_limits_to_last_two() {
 
     let context = ReviewAgent::extract_context_from_history(&history);
     
-    // Should NOT contain the first message
-    assert!(!context.contains("First question"), "Should not contain oldest message");
-    // Should contain the last 2 messages
-    assert!(context.contains("Second question"), "Should contain second message");
-    assert!(context.contains("Third question"), "Should contain third message");
+    // Should contain the original request (always included)
+    assert!(context.contains("First question"), "Should contain original request");
+    // Should contain the follow-up (between first user and last assistant)
+    assert!(context.contains("Second question"), "Should contain follow-up message");
+    // Messages after last assistant are not included
+    assert!(!context.contains("Third question"), "Should NOT contain message after last assistant");
 }
 
 // =============================================================================

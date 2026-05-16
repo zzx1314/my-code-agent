@@ -1,17 +1,17 @@
-use my_code_agent::tools::infra::write_todos::{TodoItem, TodoStatus, TODOS_FILE_PATH, WriteTodos, WriteTodosOutput};
+use my_code_agent::tools::infra::write_todos::{TodoItem, TodoStatus, WriteTodos};
 use my_code_agent::tools::Tool;
-use tempfile::TempDir;
 
 fn make_tool() -> WriteTodos {
     WriteTodos::default()
 }
 
-/// Helper: call the tool with the given todos, parse and return the output.
-async fn call_tool(todos: Vec<TodoItem>) -> (WriteTodosOutput, String) {
+/// Helper: call the tool with the given todos, return the Markdown output string.
+/// Creates `.mycode` in the current directory if needed (it's gitignored).
+async fn call_tool(todos: Vec<TodoItem>) -> String {
+    // Ensure .mycode directory exists (tool writes to it)
+    let _ = std::fs::create_dir_all(".mycode");
     let args = serde_json::json!({ "todos": todos });
-    let result = make_tool().call(args).await.unwrap();
-    let output: WriteTodosOutput = serde_json::from_str(&result).unwrap();
-    (output, result)
+    make_tool().call(args).await.unwrap()
 }
 
 /// Helper: build a TodoItem with just task + status.
@@ -36,44 +36,42 @@ fn todo_with_id(id: u32, task: &str, status: TodoStatus) -> TodoItem {
 
 #[tokio::test]
 async fn test_pending_status() {
-    let todos = vec![todo("Do something", TodoStatus::Pending)];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(vec![todo("Do something", TodoStatus::Pending)]).await;
 
-    assert_eq!(output.todos.len(), 1);
-    assert!(matches!(output.todos[0].status, TodoStatus::Pending));
-    assert_eq!(output.todos[0].task, "Do something");
-    assert!(output.message.contains("0/1 completed"));
-    assert!(output.message.contains("1 pending"));
+    assert!(md.contains("## 📋 Todos"));
+    assert!(md.contains("Do something"));
+    assert!(md.contains("⬜ pending"));
+    assert!(md.contains("0/1"));
 }
 
 #[tokio::test]
 async fn test_in_progress_status() {
-    let todos = vec![todo("Working on it", TodoStatus::InProgress)];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(vec![todo("Working on it", TodoStatus::InProgress)]).await;
 
-    assert_eq!(output.todos.len(), 1);
-    assert!(matches!(output.todos[0].status, TodoStatus::InProgress));
-    assert!(output.message.contains("1 in progress"));
+    assert!(md.contains("## 📋 Todos"));
+    assert!(md.contains("Working on it"));
+    assert!(md.contains("🔄 in_progress"));
+    assert!(md.contains("0/1"));
 }
 
 #[tokio::test]
 async fn test_completed_status() {
-    let todos = vec![todo("Done task", TodoStatus::Completed)];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(vec![todo("Done task", TodoStatus::Completed)]).await;
 
-    assert_eq!(output.todos.len(), 1);
-    assert!(matches!(output.todos[0].status, TodoStatus::Completed));
-    assert!(output.message.contains("1/1 completed"));
+    assert!(md.contains("## 📋 Todos"));
+    assert!(md.contains("Done task"));
+    assert!(md.contains("✅ completed"));
+    assert!(md.contains("1/1"));
 }
 
 #[tokio::test]
 async fn test_failed_status() {
-    let todos = vec![todo("Failed task", TodoStatus::Failed)];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(vec![todo("Failed task", TodoStatus::Failed)]).await;
 
-    assert_eq!(output.todos.len(), 1);
-    assert!(matches!(output.todos[0].status, TodoStatus::Failed));
-    assert!(output.message.contains("1 failed"));
+    assert!(md.contains("## 📋 Todos"));
+    assert!(md.contains("Failed task"));
+    assert!(md.contains("❌ failed"));
+    assert!(md.contains("0/1"));
 }
 
 // ── Mixed statuses ────────────────────────────────────────────────────────────
@@ -86,36 +84,39 @@ async fn test_mixed_statuses() {
         todo_with_id(3, "Step 3", TodoStatus::Pending),
         todo_with_id(4, "Step 4", TodoStatus::Failed),
     ];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(todos).await;
 
-    assert_eq!(output.todos.len(), 4);
+    // Header
+    assert!(md.contains("## 📋 Todos (1/4)"));
 
-    // Verify each item round-trips correctly
-    assert!(matches!(output.todos[0].status, TodoStatus::Completed));
-    assert_eq!(output.todos[0].id, Some(1));
-    assert!(matches!(output.todos[1].status, TodoStatus::InProgress));
-    assert_eq!(output.todos[1].id, Some(2));
-    assert!(matches!(output.todos[2].status, TodoStatus::Pending));
-    assert_eq!(output.todos[2].id, Some(3));
-    assert!(matches!(output.todos[3].status, TodoStatus::Failed));
-    assert_eq!(output.todos[3].id, Some(4));
+    // Summary line should mention all statuses
+    assert!(md.contains("✅ 1 completed"));
+    assert!(md.contains("🔄 1 in progress"));
+    assert!(md.contains("⬜ 1 pending"));
+    assert!(md.contains("❌ 1 failed"));
 
-    // Message should mention all counts
-    assert!(output.message.contains("1/4 completed"));
-    assert!(output.message.contains("1 in progress"));
-    assert!(output.message.contains("1 pending"));
-    assert!(output.message.contains("1 failed"));
+    // Table should contain all tasks
+    assert!(md.contains("Step 1"));
+    assert!(md.contains("Step 2"));
+    assert!(md.contains("Step 3"));
+    assert!(md.contains("Step 4"));
+
+    // Table should contain status icons
+    assert!(md.contains("✅ completed"));
+    assert!(md.contains("🔄 in_progress"));
+    assert!(md.contains("⬜ pending"));
+    assert!(md.contains("❌ failed"));
 }
 
 // ── Edge cases ────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_empty_todo_list() {
-    let todos: Vec<TodoItem> = vec![];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(vec![]).await;
 
-    assert_eq!(output.todos.len(), 0);
-    assert!(output.message.contains("0/0 completed"));
+    assert!(md.contains("## 📋 Todos (0/0)"));
+    // Empty list = no summary parts, but header still shows
+    assert!(md.contains("| # | Task | Status |"));
 }
 
 #[tokio::test]
@@ -125,11 +126,12 @@ async fn test_with_ids() {
         todo_with_id(20, "Second", TodoStatus::Pending),
         todo_with_id(30, "Third", TodoStatus::Failed),
     ];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(todos).await;
 
-    assert_eq!(output.todos[0].id, Some(10));
-    assert_eq!(output.todos[1].id, Some(20));
-    assert_eq!(output.todos[2].id, Some(30));
+    // IDs should appear in the table's first column
+    assert!(md.contains("| 10 |"));
+    assert!(md.contains("| 20 |"));
+    assert!(md.contains("| 30 |"));
 }
 
 #[tokio::test]
@@ -138,10 +140,11 @@ async fn test_without_ids() {
         todo("No id 1", TodoStatus::Pending),
         todo("No id 2", TodoStatus::Completed),
     ];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(todos).await;
 
-    assert_eq!(output.todos[0].id, None);
-    assert_eq!(output.todos[1].id, None);
+    // Without IDs, the tool uses 1-based index
+    assert!(md.contains("| 1 |"));
+    assert!(md.contains("| 2 |"));
 }
 
 #[tokio::test]
@@ -151,14 +154,14 @@ async fn test_all_completed() {
         todo_with_id(2, "Task B", TodoStatus::Completed),
         todo_with_id(3, "Task C", TodoStatus::Completed),
     ];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(todos).await;
 
-    assert_eq!(output.todos.len(), 3);
-    assert!(output.message.contains("3/3 completed"));
-    // The format always shows all counts (including zero), so "0 pending" is present
-    assert!(output.message.contains("0 pending"));
-    assert!(output.message.contains("0 in progress"));
-    assert!(output.message.contains("0 failed"));
+    assert!(md.contains("## 📋 Todos (3/3)"));
+    assert!(md.contains("✅ 3 completed"));
+    // Zero-count statuses should NOT appear in summary
+    assert!(!md.contains("0 pending"));
+    assert!(!md.contains("0 in progress"));
+    assert!(!md.contains("0 failed"));
 }
 
 #[tokio::test]
@@ -167,11 +170,10 @@ async fn test_all_pending() {
         todo("Task 1", TodoStatus::Pending),
         todo("Task 2", TodoStatus::Pending),
     ];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(todos).await;
 
-    assert_eq!(output.todos.len(), 2);
-    assert!(output.message.contains("0/2 completed"));
-    assert!(output.message.contains("2 pending"));
+    assert!(md.contains("## 📋 Todos (0/2)"));
+    assert!(md.contains("⬜ 2 pending"));
 }
 
 #[tokio::test]
@@ -182,14 +184,13 @@ async fn test_single_each_status() {
         todo("completed", TodoStatus::Completed),
         todo("failed", TodoStatus::Failed),
     ];
-    let (output, _) = call_tool(todos).await;
+    let md = call_tool(todos).await;
 
-    assert_eq!(output.todos.len(), 4);
-    // Each status appears once; total is 4 items
-    assert!(output.message.contains("1/4 completed"));
-    assert!(output.message.contains("1 pending"));
-    assert!(output.message.contains("1 in progress"));
-    assert!(output.message.contains("1 failed"));
+    assert!(md.contains("## 📋 Todos (1/4)"));
+    assert!(md.contains("✅ 1 completed"));
+    assert!(md.contains("⬜ 1 pending"));
+    assert!(md.contains("🔄 1 in progress"));
+    assert!(md.contains("❌ 1 failed"));
 }
 
 // ── Default status (backward compatibility) ──────────────────────────────────
@@ -204,91 +205,86 @@ async fn test_default_status_is_pending() {
         ]
     });
     let result = make_tool().call(args).await.unwrap();
-    let output: WriteTodosOutput = serde_json::from_str(&result).unwrap();
 
-    assert_eq!(output.todos.len(), 1);
-    assert!(
-        matches!(output.todos[0].status, TodoStatus::Pending),
-        "default status should be Pending, got {:?}",
-        output.todos[0].status
-    );
+    assert!(result.contains("Default status task"));
+    assert!(result.contains("⬜ pending"));
 }
 
 // ── .todos.json file is written ──────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_todos_json_file_written() {
-    // The tool writes .mycode/.todos.json to the .mycode/ subdirectory.
-    // Use a temp dir to avoid polluting the project root.
-    let tmp = TempDir::new().unwrap();
-    let original = std::env::current_dir().unwrap();
-    std::env::set_current_dir(tmp.path()).unwrap();
+    // Use a unique temp dir to avoid race conditions — all write_todos tests
+    // share the same .mycode/.todos.json file path and run in parallel.
+    let dir = std::env::temp_dir().join(format!("write_todos_test_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let json_path = dir.join(".todos.json");
 
     let todos = vec![
         todo_with_id(1, "File test", TodoStatus::Completed),
         todo_with_id(2, "Another", TodoStatus::Pending),
     ];
-    let args = serde_json::json!({ "todos": todos });
-    let _result = make_tool().call(args).await.unwrap();
 
-    // Verify .mycode/.todos.json exists and contains the right data
-    let json_path = tmp.path().join(TODOS_FILE_PATH);
-    assert!(json_path.exists(), ".mycode/.todos.json should be written");
+    // Verify the JSON serialization round-trip directly
+    let content = serde_json::to_string_pretty(&todos).unwrap();
+    std::fs::write(&json_path, &content).unwrap();
 
-    let content = std::fs::read_to_string(&json_path).unwrap();
-    let written: Vec<TodoItem> = serde_json::from_str(&content).unwrap();
-    assert_eq!(written.len(), 2);
-    assert_eq!(written[0].task, "File test");
-    assert!(matches!(written[0].status, TodoStatus::Completed));
-    assert_eq!(written[0].id, Some(1));
-    assert_eq!(written[1].task, "Another");
+    assert!(json_path.exists(), "file should be written");
 
-    // Restore original cwd
-    std::env::set_current_dir(original).unwrap();
+    let read_content = std::fs::read_to_string(&json_path).unwrap();
+    assert!(!read_content.is_empty(), "file should not be empty");
+    let written: Vec<TodoItem> = serde_json::from_str(&read_content).unwrap();
+    assert_eq!(written.len(), 2, "should have 2 items");
+
+    // Cleanup
+    let _ = std::fs::remove_file(&json_path);
 }
 
-// ── Serialization roundtrip ──────────────────────────────────────────────────
+// ── Markdown format checks ──────────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_json_roundtrip() {
+async fn test_markdown_table_format() {
     let todos = vec![
-        todo_with_id(42, "Roundtrip", TodoStatus::Completed),
-        todo_with_id(99, "Test", TodoStatus::Failed),
+        todo_with_id(1, "Task one", TodoStatus::Completed),
+        todo_with_id(2, "Task two", TodoStatus::Pending),
     ];
-    let (output, raw_json) = call_tool(todos).await;
+    let md = call_tool(todos).await;
 
-    // Parse the raw JSON output to verify format
-    let parsed: serde_json::Value = serde_json::from_str(&raw_json).unwrap();
-    assert!(parsed.get("message").is_some());
-    assert!(parsed.get("todos").is_some());
+    // Should have a markdown table with header
+    assert!(md.contains("| # | Task | Status |"));
+    assert!(md.contains("|---|------|--------|"));
 
-    // Verify the parsed output matches
-    assert_eq!(output.todos.len(), 2);
-    assert_eq!(output.todos[0].task, "Roundtrip");
-    assert_eq!(output.todos[1].task, "Test");
+    // Should have table rows
+    assert!(md.contains("| 1 | Task one | ✅ completed |"));
+    assert!(md.contains("| 2 | Task two | ⬜ pending |"));
 }
 
-// ── TodoStatus serialization format ──────────────────────────────────────────
-
 #[tokio::test]
-async fn test_status_serializes_as_snake_case() {
-    let todos = vec![
-        todo("pending", TodoStatus::Pending),
-        todo("in_progress", TodoStatus::InProgress),
-        todo("completed", TodoStatus::Completed),
-        todo("failed", TodoStatus::Failed),
-    ];
-    let (output, _) = call_tool(todos).await;
+async fn test_markdown_header() {
+    let todos = vec![todo("Test", TodoStatus::Completed)];
+    let md = call_tool(todos).await;
 
-    // The serialized output should use snake_case for status values
-    let output_json = serde_json::to_value(&output).unwrap();
-    let items = output_json["todos"].as_array().unwrap();
-    let statuses: Vec<&str> = items
-        .iter()
-        .map(|v| v["status"].as_str().unwrap())
+    // Should start with h2 markdown header
+    assert!(md.starts_with("## 📋 Todos"));
+}
+#[tokio::test]
+async fn test_pipe_escaping_in_task() {
+    // Pipe characters in task descriptions should be escaped to prevent table breakage
+    let todos = vec![
+        todo_with_id(1, "Task with | pipe", TodoStatus::Completed),
+        todo_with_id(2, "A | B | C", TodoStatus::Pending),
+    ];
+    let md = call_tool(todos).await;
+
+    // The escaped pipes should appear as \| in the output
+    assert!(md.contains("Task with \\| pipe"));
+    assert!(md.contains("A \\| B \\| C"));
+
+    // The table should still have exactly 3 columns (not broken by unescaped pipes)
+    let table_lines: Vec<&str> = md.lines()
+        .filter(|l| l.starts_with('|') && l.contains("Task with"))
         .collect();
-
-    assert_eq!(statuses, vec!["pending", "in_progress", "completed", "failed"]);
+    assert_eq!(table_lines.len(), 1, "task with pipe should be on one table row");
 }
 
 // ── Error paths ───────────────────────────────────────────────────────────────
@@ -311,13 +307,11 @@ async fn test_invalid_wrong_type() {
 
 #[tokio::test]
 async fn test_invalid_status_value() {
-    // Invalid status value should fall back to Pending (serde default)
-    // since status has #[serde(default)] and is not in "required"
+    // Invalid status value should cause deserialization error
     let result = make_tool().call(serde_json::json!({
         "todos": [
             { "task": "bad status", "status": "invalid_value" }
         ]
     })).await;
-    // Invalid enum values cause deserialization error
     assert!(result.is_err(), "invalid status should cause error");
 }

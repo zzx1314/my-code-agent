@@ -1,13 +1,15 @@
 use my_code_agent::app::App;
 use my_code_agent::core::config::Config;
-use my_code_agent::core::agent::preamble::{Agent, build_client, build_preamble};
+use my_code_agent::core::agent::client::LlmClient;
+use my_code_agent::core::agent::preamble::{Agent, build_preamble};
 use my_code_agent::core::context::token_usage::TokenUsage;
 use my_code_agent::tools::ToolRegistry;
 use std::sync::Arc;
 
 fn make_app(shell_mode: bool) -> App {
     let config = Config::default();
-    let client = build_client(&config);
+    // Dummy client — these tests only test shell_mode boolean, never make LLM calls.
+    let client = LlmClient::new("http://localhost:9999", "", "test-model");
     let system_prompt = build_preamble();
     let tools = ToolRegistry::from_config(&config);
     let agent = Arc::new(Agent::new(client, system_prompt, tools));

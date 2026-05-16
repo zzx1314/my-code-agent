@@ -289,10 +289,16 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
                 lines.push(Line::default());
             }
         }
-        "tool" => {
+"tool" => {
             // File tool results (file_write, file_update, file_delete) with git_diff
             // are ALWAYS shown — they contain substantive code changes.
             if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true, area_width).is_some() {
+                lines.push(Line::default());
+                return;
+            }
+
+            // Todos results are ALWAYS shown — they contain planning progress.
+            if try_render_todos(lines, &entry.content, max_width).is_some() {
                 lines.push(Line::default());
                 return;
             }
@@ -370,11 +376,6 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
                     return;
                 }
 
-                // Check if it's a write_todos result
-                if try_render_todos(lines, &entry.content, entry_idx, app, area_width).is_some() {
-                    lines.push(Line::default());
-                    return;
-                }
 
                 // Fallback: show raw content for non-shell tool results
                 if !entry.content.is_empty() {
@@ -868,76 +869,15 @@ fn try_render_file_outline(
 fn try_render_todos(
     lines: &mut Vec<ratatui::text::Line>,
     content: &str,
-    entry_idx: usize,
-    app: &mut App,
-    area_width: u16,
+    max_width: Option<usize>,
 ) -> Option<()> {
-    let parsed: serde_json::Value = serde_json::from_str(content).ok()?;
-    let todos = parsed.get("todos").and_then(|v| v.as_array())?;
-    if todos.is_empty() {
+    // Detect Markdown-formatted todos output (starts with the todos header)
+    if !content.starts_with("## 📋 Todos") {
         return None;
     }
 
-    let message = parsed.get("message").and_then(|v| v.as_str()).unwrap_or("Todos").to_string();
-
-    lines.push(Line::from(vec![
-        Span::styled("📋 ", Style::default().fg(Color::Cyan)),
-        Span::styled(message, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-    ]));
-
-    let completed = todos.iter().filter(|t| {
-        t.get("status").and_then(|v| v.as_str()) == Some("completed")
-    }).count();
-    let in_progress = todos.iter().filter(|t| {
-        t.get("status").and_then(|v| v.as_str()) == Some("in_progress")
-    }).count();
-    let failed = todos.iter().filter(|t| {
-        t.get("status").and_then(|v| v.as_str()) == Some("failed")
-    }).count();
-    let pending = todos.len() - completed - in_progress - failed;
-
-    let mut summary = Vec::new();
-    if completed > 0 { summary.push(format!("✅ {} completed", completed)); }
-    if pending > 0 { summary.push(format!("⬜ {} pending", pending)); }
-    if in_progress > 0 { summary.push(format!("🔄 {} in progress", in_progress)); }
-    if failed > 0 { summary.push(format!("❌ {} failed", failed)); }
-
-    lines.push(Line::from(Span::styled(
-        summary.join(" · "),
-        Style::default().fg(Color::DarkGray),
-    )));
-
-    let mut todo_content = Vec::new();
-    for (i, todo) in todos.iter().enumerate() {
-        let task = todo.get("task").and_then(|v| v.as_str()).unwrap_or("?");
-        let status = todo.get("status").and_then(|v| v.as_str()).unwrap_or("pending");
-
-        let (icon, style) = match status {
-            "completed" => ("✅", Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM)),
-            "in_progress" => ("🔄", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            "failed" => ("❌", Style::default().fg(Color::Red)),
-            _ => ("⬜", Style::default()),
-        };
-
-        let prefix = format!("{}. {} ", i + 1, icon);
-        let prefix_len = prefix.chars().count() as u16;
-        let max_task = area_width.saturating_sub(prefix_len).max(1) as usize;
-
-        let display = if task.len() > max_task {
-            format!("{}...", &task[..max_task.saturating_sub(3)])
-        } else {
-            task.to_string()
-        };
-
-        let mut spans = Vec::new();
-        spans.push(Span::styled(prefix, style));
-        spans.push(Span::styled(display, style));
-        todo_content.push(Line::from(spans));
-    }
-
-    let section_id = format!("todo_{}", entry_idx);
-    render_collapsible_block(lines, app, &section_id, todo_content, area_width);
-
+    let md = render_full(content, max_width);
+    lines.extend(md);
     Some(())
 }
 

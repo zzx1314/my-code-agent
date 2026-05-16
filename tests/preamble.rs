@@ -94,8 +94,9 @@ fn test_preamble_has_code_reading_rule() {
         "Code Reading Rule should mention file_outline"
     );
     assert!(
-        PREAMBLE_TEMPLATE.contains("NEVER") && PREAMBLE_TEMPLATE.contains("offset"),
-        "Code Reading Rule should have NEVER rules about reading entire files"
+        (PREAMBLE_TEMPLATE.contains("Avoid") || PREAMBLE_TEMPLATE.contains("Do NOT"))
+            && PREAMBLE_TEMPLATE.contains("offset"),
+        "Code Reading Rule should guide against reading entire files unnecessarily"
     );
 }
 
@@ -106,7 +107,7 @@ fn test_preamble_has_task_planning_section() {
         "Preamble should have a 'Task Planning' section"
     );
     assert!(
-        PREAMBLE_TEMPLATE.contains("When to create a plan"),
+        PREAMBLE_TEMPLATE.contains("When to use") || PREAMBLE_TEMPLATE.contains("write_todos"),
         "Preamble should guide the model on when to create a plan"
     );
 }
