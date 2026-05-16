@@ -201,8 +201,11 @@ fn render_collapsible_block<'a>(
                 vis_pos += visual_lines(&line, area_width);
                 lines.push(line);
             }
-            // vis_pos is now the visual line index of the toggle text
-            app.collapsed_toggles.push((vis_pos, section_id.to_string()));
+            // vis_pos is now the visual line index of the toggle text.
+            // Store content line count so the mouse handler can use a
+            // dynamic tolerance — word-wrap discrepancies compound with
+            // more lines, so larger sections need a wider search radius.
+            app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
             lines.push(ratatui::text::Line::from(vec![
                 ratatui::text::Span::styled(
                     format!("  [+ {} more lines - click to expand]", total - COLLAPSE_THRESHOLD),
@@ -217,8 +220,9 @@ fn render_collapsible_block<'a>(
                 vis_pos += visual_lines(&line, area_width);
                 lines.push(line);
             }
-            // vis_pos is now the visual line index of the toggle text
-            app.collapsed_toggles.push((vis_pos, section_id.to_string()));
+            // vis_pos is now the visual line index of the toggle text.
+            // Store content line count for dynamic tolerance calculation.
+            app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
             lines.push(ratatui::text::Line::from(vec![
                 ratatui::text::Span::styled(
                     "  [-] click to collapse",

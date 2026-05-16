@@ -205,8 +205,8 @@ pub struct App {
     // === Collapsible sections state ===
     /// Track which sections are collapsed (section_id -> collapsed)
     pub collapsed_sections: std::collections::HashSet<String>,
-    /// Toggle positions for mouse click handling: (logical_line_index, section_id)
-    pub collapsed_toggles: Vec<(u16, String)>,
+    /// Toggle positions for mouse click handling: (logical_line_index, section_id, content_line_count)
+    pub collapsed_toggles: Vec<(u16, String, usize)>,
     // === Code Review state ===
     /// Agent orchestrator for multi-agent coordination
     pub orchestrator: Option<std::sync::Arc<crate::core::agent::orchestrator::AgentOrchestrator>>,
