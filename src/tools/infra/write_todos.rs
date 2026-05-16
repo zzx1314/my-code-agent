@@ -35,13 +35,18 @@ impl Default for TodoStatus {
 }
 
 impl TodoStatus {
-    /// Return a Markdown-friendly icon + label for this status.
-    fn as_markdown(&self) -> &'static str {
+    /// Return a markdown checkbox marker for this status.
+    /// Uses the GitHub-Flavored Markdown task list convention:
+    ///   - [x]  completed
+    ///   - [/]  in progress
+    ///   - [ ]  pending
+    ///   - [-]  failed
+    fn checkbox(&self) -> &'static str {
         match self {
-            TodoStatus::Completed => "✅ completed",
-            TodoStatus::InProgress => "🔄 in_progress",
-            TodoStatus::Failed => "❌ failed",
-            TodoStatus::Pending => "⬜ pending",
+            TodoStatus::Completed => "[x]",
+            TodoStatus::InProgress => "[/]",
+            TodoStatus::Failed => "[-]",
+            TodoStatus::Pending => "[ ]",
         }
     }
 }
@@ -95,44 +100,45 @@ fn compute_stats(todos: &[TodoItem]) -> TodoStats {
 ///
 /// # Output format
 ///
+/// When 20 or fewer items, the summary shows per-status breakdown:
+///
 /// ```markdown
-/// ## 📋 Todos (N/M)
+/// ## Todos (N/M)
 ///
-/// ✅ X completed · ⬜ Y pending · 🔄 Z in progress · ❌ W failed
+/// X completed · Y pending · Z in progress · W failed
 ///
-/// | # | Task | Status |
-/// |---|------|--------|
-/// | 1 | task description | ✅ completed |
-/// | 2 | another task | ⬜ pending |
+/// - [x] Task description
+/// - [ ] Another task
+/// - [/] Work in progress
+/// - [-] Failed task
 /// ```
 ///
-/// Pipe characters (`|`) in task descriptions are escaped to `\|` to
-/// prevent breaking the Markdown table structure.
+/// When more than 20 items, the summary is compact: `X / Y completed`.
+/// The full checkbox list is still shown below.
 fn format_todos_markdown(todos: &[TodoItem]) -> String {
     let stats = compute_stats(todos);
     let total = todos.len();
 
-    // Build summary line
-    let mut parts = Vec::new();
-    if stats.completed > 0 { parts.push(format!("✅ {} completed", stats.completed)); }
-    if stats.pending > 0 { parts.push(format!("⬜ {} pending", stats.pending)); }
-    if stats.in_progress > 0 { parts.push(format!("🔄 {} in progress", stats.in_progress)); }
-    if stats.failed > 0 { parts.push(format!("❌ {} failed", stats.failed)); }
-    let summary = parts.join(" · ");
+    // Build summary line — for large lists (>20), only show total vs completed
+    let summary = if total > 20 {
+        format!("{} / {} completed", stats.completed, total)
+    } else {
+        let mut parts = Vec::new();
+        if stats.completed > 0 { parts.push(format!("{} completed", stats.completed)); }
+        if stats.pending > 0 { parts.push(format!("{} pending", stats.pending)); }
+        if stats.in_progress > 0 { parts.push(format!("{} in progress", stats.in_progress)); }
+        if stats.failed > 0 { parts.push(format!("{} failed", stats.failed)); }
+        parts.join(" · ")
+    };
 
-    // Pre-allocate capacity: header (~40) + summary (~60) + table header (~30) + rows (~60 each)
-    let mut md = String::with_capacity(130 + todos.len() * 60);
-    md.push_str(&format!("## 📋 Todos ({}/{})\n\n", stats.completed, total));
+    // Pre-allocate capacity: header (~40) + summary (~60) + items (~60 each)
+    let mut md = String::with_capacity(100 + todos.len() * 60);
+    md.push_str(&format!("## Todos ({}/{})\n\n", stats.completed, total));
     md.push_str(&format!("{}\n\n", summary));
-    md.push_str("| # | Task | Status |\n");
-    md.push_str("|---|------|--------|\n");
 
-    for (i, todo) in todos.iter().enumerate() {
-        let id = todo.id.unwrap_or((i + 1) as u32);
-        let status_str = todo.status.as_markdown();
-        // Escape pipe characters in task description to prevent table breakage
-        let task = todo.task.replace('|', "\\|");
-        md.push_str(&format!("| {} | {} | {} |\n", id, task, status_str));
+    for todo in todos.iter() {
+        let checkbox = todo.status.checkbox();
+        md.push_str(&format!("- {} {}\n", checkbox, todo.task));
     }
 
     md

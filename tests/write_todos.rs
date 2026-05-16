@@ -38,9 +38,9 @@ fn todo_with_id(id: u32, task: &str, status: TodoStatus) -> TodoItem {
 async fn test_pending_status() {
     let md = call_tool(vec![todo("Do something", TodoStatus::Pending)]).await;
 
-    assert!(md.contains("## 📋 Todos"));
+    assert!(md.contains("## Todos"));
     assert!(md.contains("Do something"));
-    assert!(md.contains("⬜ pending"));
+    assert!(md.contains("[ ]"));
     assert!(md.contains("0/1"));
 }
 
@@ -48,9 +48,9 @@ async fn test_pending_status() {
 async fn test_in_progress_status() {
     let md = call_tool(vec![todo("Working on it", TodoStatus::InProgress)]).await;
 
-    assert!(md.contains("## 📋 Todos"));
+    assert!(md.contains("## Todos"));
     assert!(md.contains("Working on it"));
-    assert!(md.contains("🔄 in_progress"));
+    assert!(md.contains("[/]"));
     assert!(md.contains("0/1"));
 }
 
@@ -58,9 +58,9 @@ async fn test_in_progress_status() {
 async fn test_completed_status() {
     let md = call_tool(vec![todo("Done task", TodoStatus::Completed)]).await;
 
-    assert!(md.contains("## 📋 Todos"));
+    assert!(md.contains("## Todos"));
     assert!(md.contains("Done task"));
-    assert!(md.contains("✅ completed"));
+    assert!(md.contains("[x]"));
     assert!(md.contains("1/1"));
 }
 
@@ -68,9 +68,9 @@ async fn test_completed_status() {
 async fn test_failed_status() {
     let md = call_tool(vec![todo("Failed task", TodoStatus::Failed)]).await;
 
-    assert!(md.contains("## 📋 Todos"));
+    assert!(md.contains("## Todos"));
     assert!(md.contains("Failed task"));
-    assert!(md.contains("❌ failed"));
+    assert!(md.contains("[-]"));
     assert!(md.contains("0/1"));
 }
 
@@ -87,25 +87,25 @@ async fn test_mixed_statuses() {
     let md = call_tool(todos).await;
 
     // Header
-    assert!(md.contains("## 📋 Todos (1/4)"));
+    assert!(md.contains("## Todos (1/4)"));
 
     // Summary line should mention all statuses
-    assert!(md.contains("✅ 1 completed"));
-    assert!(md.contains("🔄 1 in progress"));
-    assert!(md.contains("⬜ 1 pending"));
-    assert!(md.contains("❌ 1 failed"));
+    assert!(md.contains("1 completed"));
+    assert!(md.contains("1 in progress"));
+    assert!(md.contains("1 pending"));
+    assert!(md.contains("1 failed"));
 
-    // Table should contain all tasks
+    // List should contain all tasks
     assert!(md.contains("Step 1"));
     assert!(md.contains("Step 2"));
     assert!(md.contains("Step 3"));
     assert!(md.contains("Step 4"));
 
-    // Table should contain status icons
-    assert!(md.contains("✅ completed"));
-    assert!(md.contains("🔄 in_progress"));
-    assert!(md.contains("⬜ pending"));
-    assert!(md.contains("❌ failed"));
+    // Checkbox markers for each status
+    assert!(md.contains("[x]"));
+    assert!(md.contains("[/]"));
+    assert!(md.contains("[ ]"));
+    assert!(md.contains("[-]"));
 }
 
 // ── Edge cases ────────────────────────────────────────────────────────────────
@@ -114,9 +114,9 @@ async fn test_mixed_statuses() {
 async fn test_empty_todo_list() {
     let md = call_tool(vec![]).await;
 
-    assert!(md.contains("## 📋 Todos (0/0)"));
+    assert!(md.contains("## Todos (0/0)"));
     // Empty list = no summary parts, but header still shows
-    assert!(md.contains("| # | Task | Status |"));
+    assert!(md.contains("Todos (0/0)"));
 }
 
 #[tokio::test]
@@ -128,10 +128,10 @@ async fn test_with_ids() {
     ];
     let md = call_tool(todos).await;
 
-    // IDs should appear in the table's first column
-    assert!(md.contains("| 10 |"));
-    assert!(md.contains("| 20 |"));
-    assert!(md.contains("| 30 |"));
+    // IDs no longer appear in checkbox lines (removed per request)
+    assert!(md.contains("- [x] First"));
+    assert!(md.contains("- [ ] Second"));
+    assert!(md.contains("[-] Third"));
 }
 
 #[tokio::test]
@@ -142,9 +142,9 @@ async fn test_without_ids() {
     ];
     let md = call_tool(todos).await;
 
-    // Without IDs, the tool uses 1-based index
-    assert!(md.contains("| 1 |"));
-    assert!(md.contains("| 2 |"));
+    // Without IDs, no number appears in checkbox line
+    assert!(md.contains("- [ ] No id 1"));
+    assert!(md.contains("- [x] No id 2"));
 }
 
 #[tokio::test]
@@ -156,8 +156,8 @@ async fn test_all_completed() {
     ];
     let md = call_tool(todos).await;
 
-    assert!(md.contains("## 📋 Todos (3/3)"));
-    assert!(md.contains("✅ 3 completed"));
+    assert!(md.contains("## Todos (3/3)"));
+    assert!(md.contains("3 completed"));
     // Zero-count statuses should NOT appear in summary
     assert!(!md.contains("0 pending"));
     assert!(!md.contains("0 in progress"));
@@ -172,8 +172,8 @@ async fn test_all_pending() {
     ];
     let md = call_tool(todos).await;
 
-    assert!(md.contains("## 📋 Todos (0/2)"));
-    assert!(md.contains("⬜ 2 pending"));
+    assert!(md.contains("## Todos (0/2)"));
+    assert!(md.contains("2 pending"));
 }
 
 #[tokio::test]
@@ -186,11 +186,11 @@ async fn test_single_each_status() {
     ];
     let md = call_tool(todos).await;
 
-    assert!(md.contains("## 📋 Todos (1/4)"));
-    assert!(md.contains("✅ 1 completed"));
-    assert!(md.contains("⬜ 1 pending"));
-    assert!(md.contains("🔄 1 in progress"));
-    assert!(md.contains("❌ 1 failed"));
+    assert!(md.contains("## Todos (1/4)"));
+    assert!(md.contains("1 completed"));
+    assert!(md.contains("1 pending"));
+    assert!(md.contains("1 in progress"));
+    assert!(md.contains("1 failed"));
 }
 
 // ── Default status (backward compatibility) ──────────────────────────────────
@@ -207,7 +207,7 @@ async fn test_default_status_is_pending() {
     let result = make_tool().call(args).await.unwrap();
 
     assert!(result.contains("Default status task"));
-    assert!(result.contains("⬜ pending"));
+    assert!(result.contains("[ ]"));
 }
 
 // ── .todos.json file is written ──────────────────────────────────────────────
@@ -243,20 +243,18 @@ async fn test_todos_json_file_written() {
 // ── Markdown format checks ──────────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_markdown_table_format() {
+async fn test_markdown_checkbox_format() {
     let todos = vec![
         todo_with_id(1, "Task one", TodoStatus::Completed),
         todo_with_id(2, "Task two", TodoStatus::Pending),
     ];
     let md = call_tool(todos).await;
 
-    // Should have a markdown table with header
-    assert!(md.contains("| # | Task | Status |"));
-    assert!(md.contains("|---|------|--------|"));
-
-    // Should have table rows
-    assert!(md.contains("| 1 | Task one | ✅ completed |"));
-    assert!(md.contains("| 2 | Task two | ⬜ pending |"));
+    // Should have checkbox markers without ID numbers
+    assert!(md.contains("- [x] Task one"));
+    assert!(md.contains("- [ ] Task two"));
+    // Should NOT have table header
+    assert!(!md.contains("| # | Task | Status |"));
 }
 
 #[tokio::test]
@@ -264,27 +262,22 @@ async fn test_markdown_header() {
     let todos = vec![todo("Test", TodoStatus::Completed)];
     let md = call_tool(todos).await;
 
-    // Should start with h2 markdown header
-    assert!(md.starts_with("## 📋 Todos"));
+    // Should start with h2 markdown header (no emoji)
+    assert!(md.starts_with("## Todos"));
 }
+
 #[tokio::test]
-async fn test_pipe_escaping_in_task() {
-    // Pipe characters in task descriptions should be escaped to prevent table breakage
+async fn test_pipe_in_task_not_escaped() {
+    // Pipe characters in task descriptions no longer need escaping (no table)
     let todos = vec![
         todo_with_id(1, "Task with | pipe", TodoStatus::Completed),
         todo_with_id(2, "A | B | C", TodoStatus::Pending),
     ];
     let md = call_tool(todos).await;
 
-    // The escaped pipes should appear as \| in the output
-    assert!(md.contains("Task with \\| pipe"));
-    assert!(md.contains("A \\| B \\| C"));
-
-    // The table should still have exactly 3 columns (not broken by unescaped pipes)
-    let table_lines: Vec<&str> = md.lines()
-        .filter(|l| l.starts_with('|') && l.contains("Task with"))
-        .collect();
-    assert_eq!(table_lines.len(), 1, "task with pipe should be on one table row");
+    // Pipes should appear as-is (no escaping needed for checkbox format)
+    assert!(md.contains("- [x] Task with | pipe"));
+    assert!(md.contains("- [ ] A | B | C"));
 }
 
 // ── Error paths ───────────────────────────────────────────────────────────────

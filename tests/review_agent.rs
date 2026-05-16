@@ -1204,3 +1204,368 @@ fn test_is_auto_fix_prompt_edge_cases() {
     assert!(!is_auto_fix_prompt("fix the issues found")); // wrong case
     assert!(!is_auto_fix_prompt("Please fix the issues")); // incomplete match
 }
+
+// =============================================================================
+// Tests for is_declaration_line — declaration detection across languages
+// =============================================================================
+
+/// Test Rust declarations
+#[test]
+fn test_is_declaration_line_rust() {
+    assert!(ReviewAgent::is_declaration_line("fn main() {"));
+    assert!(ReviewAgent::is_declaration_line("pub fn execute() {"));
+    assert!(ReviewAgent::is_declaration_line("pub async fn handle() {"));
+    assert!(ReviewAgent::is_declaration_line("async fn run() {"));
+    assert!(ReviewAgent::is_declaration_line("pub struct Config {"));
+    assert!(ReviewAgent::is_declaration_line("struct Inner {"));
+    assert!(ReviewAgent::is_declaration_line("pub enum Status {"));
+    assert!(ReviewAgent::is_declaration_line("enum Color {"));
+    assert!(ReviewAgent::is_declaration_line("pub trait Display {"));
+    assert!(ReviewAgent::is_declaration_line("trait Clone {"));
+    assert!(ReviewAgent::is_declaration_line("impl Display for Config {"));
+    assert!(ReviewAgent::is_declaration_line("impl Default {"));
+    assert!(ReviewAgent::is_declaration_line("pub type Result<T> = std::result::Result<T, Error>;"));
+    assert!(ReviewAgent::is_declaration_line("type Name = String;"));
+    assert!(ReviewAgent::is_declaration_line("pub const VERSION: &str = \"1.0\";"));
+    assert!(ReviewAgent::is_declaration_line("const MAX_SIZE: usize = 1024;"));
+    assert!(ReviewAgent::is_declaration_line("use std::collections::HashMap;"));
+    assert!(ReviewAgent::is_declaration_line("macro_rules! vec {}"));
+}
+
+/// Test that regular Rust code is NOT detected as a declaration
+#[test]
+fn test_is_declaration_line_non_declaration_rust() {
+    assert!(!ReviewAgent::is_declaration_line("let x = 5;"));
+    assert!(!ReviewAgent::is_declaration_line("x.foo()"));
+    assert!(!ReviewAgent::is_declaration_line("return Ok(());"));
+    assert!(!ReviewAgent::is_declaration_line("if x > 0 {"));
+    assert!(!ReviewAgent::is_declaration_line("for item in list {"));
+    assert!(!ReviewAgent::is_declaration_line("while true {"));
+    assert!(!ReviewAgent::is_declaration_line("match value {"));
+    assert!(!ReviewAgent::is_declaration_line("// comment"));
+    assert!(!ReviewAgent::is_declaration_line("  "));
+    assert!(!ReviewAgent::is_declaration_line(""));
+}
+
+/// Test TypeScript/JavaScript declarations
+#[test]
+fn test_is_declaration_line_typescript() {
+    assert!(ReviewAgent::is_declaration_line("function greet(name: string) {"));
+    assert!(ReviewAgent::is_declaration_line("export function hello() {"));
+    assert!(ReviewAgent::is_declaration_line("export default class Main {}"));
+    assert!(ReviewAgent::is_declaration_line("export class UserService {}"));
+    assert!(ReviewAgent::is_declaration_line("export interface User {"));
+    assert!(ReviewAgent::is_declaration_line("interface Props {"));
+    assert!(ReviewAgent::is_declaration_line("class Calculator {"));
+    assert!(ReviewAgent::is_declaration_line("import { useState } from 'react';"));
+    assert!(ReviewAgent::is_declaration_line("from 'react'"));
+}
+
+/// Test Python declarations
+#[test]
+fn test_is_declaration_line_python() {
+    assert!(ReviewAgent::is_declaration_line("def hello():"));
+    assert!(ReviewAgent::is_declaration_line("async def fetch_data():"));
+    assert!(ReviewAgent::is_declaration_line("class UserModel:"));
+}
+
+// =============================================================================
+// Tests for extract_signatures_from_content
+// =============================================================================
+
+/// Test extracting signatures from a Rust file with mixed content
+#[test]
+fn test_extract_signatures_from_content_rust_file() {
+    let content = r#"use std::collections::HashMap;
+
+pub const VERSION: &str = "1.0";
+
+pub struct Config {
+    name: String,
+}
+
+pub fn run(config: &Config) -> Result<()> {
+    let x = 42;
+    println!("{}", x);
+    Ok(())
+}
+
+struct Helper {}
+
+impl Helper {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+"#;
+    let sigs = ReviewAgent::extract_signatures_from_content(content);
+    assert!(sigs.contains(&"use std::collections::HashMap".to_string()));
+    assert!(sigs.contains(&"pub const VERSION: &str".to_string())); // truncated at =
+    assert!(sigs.contains(&"pub struct Config".to_string()));
+    assert!(sigs.contains(&"pub fn run(config: &Config) -> Result<()>".to_string()));
+    assert!(sigs.contains(&"struct Helper".to_string()));
+    assert!(sigs.contains(&"impl Helper".to_string()));
+    // Non-declarations should NOT be in the list
+    assert!(!sigs.iter().any(|s| s.contains("let x =")), "Should not contain variable assignments");
+    assert!(!sigs.iter().any(|s| s.contains("println!")), "Should not contain macro calls");
+}
+
+/// Test that empty content returns empty signatures
+#[test]
+fn test_extract_signatures_from_content_empty() {
+    let sigs = ReviewAgent::extract_signatures_from_content("");
+    assert!(sigs.is_empty());
+}
+
+/// Test that content with only non-declaration code returns empty signatures
+#[test]
+fn test_extract_signatures_from_content_no_declarations() {
+    let content = "let x = 5;\nprintln!(\"hi\");\nx.foo();\n";
+    let sigs = ReviewAgent::extract_signatures_from_content(content);
+    assert!(sigs.is_empty());
+}
+
+/// Test that signatures are truncated at the first {, ;, or =
+#[test]
+fn test_extract_signatures_content_truncates_at_brace() {
+    let content = r#"fn long_function(a: i32, b: i32) -> i32 {
+    let result = a + b;
+    result
+}
+"#;
+    let sigs = ReviewAgent::extract_signatures_from_content(content);
+    assert_eq!(sigs.len(), 1);
+    // Should NOT include the body after {
+    let sig = &sigs[0];
+    assert!(!sig.contains('{'), "Signature should not include opening brace");
+    assert!(sig.contains("fn long_function"), "Signature should contain the fn line");
+}
+
+// =============================================================================
+// Tests for format_file_context — full-file context extraction
+// =============================================================================
+
+/// Test format_file_context with a Rust file containing declarations
+#[test]
+fn test_format_file_context_with_rust_file() {
+    let content = "use std::fmt;\n\npub struct Point {\n    x: i32,\n    y: i32,\n}\n\npub fn distance(a: &Point, b: &Point) -> f64 {\n    let dx = a.x - b.x;\n    let dy = a.y - b.y;\n    ((dx * dx + dy * dy) as f64).sqrt()\n}";
+
+    // Create a temporary file for this test
+    let temp_dir = std::env::temp_dir().join("codebuff_ffc_test_1");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("geometry.rs");
+    std::fs::write(&file_path, content).unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 10,
+            lines_removed: 0,
+            diff: String::new(),
+        },
+    ];
+
+    let result = ReviewAgent::format_file_context(&changed_files);
+
+    // Should contain the header
+    assert!(result.contains("## File Context"), "Should have file context header");
+    assert!(result.contains("key declarations"), "Should describe what it shows");
+
+    // Should contain the file path
+    assert!(result.contains("geometry.rs"), "Should mention the file");
+
+    // Should contain declarations
+    assert!(result.contains("use std::fmt"), "Should contain imports");
+    assert!(result.contains("pub struct Point"), "Should contain struct def");
+    assert!(result.contains("pub fn distance(a: &Point, b: &Point) -> f64"), "Should contain fn sig");
+
+    // Should NOT contain non-declaration lines
+    assert!(!result.contains("let dx ="), "Should not contain variable assignments");
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Test format_file_context returns empty for empty file
+#[test]
+fn test_format_file_context_empty_file() {
+    let temp_dir = std::env::temp_dir().join("codebuff_ffc_test_2");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("empty.rs");
+    std::fs::write(&file_path, "").unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Added,
+            lines_added: 0,
+            lines_removed: 0,
+            diff: String::new(),
+        },
+    ];
+
+    let result = ReviewAgent::format_file_context(&changed_files);
+    assert!(result.is_empty(), "Empty file should produce empty context");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Test format_file_context returns empty for file with no declarations
+#[test]
+fn test_format_file_context_no_declarations() {
+    let content = "let x = 5;\nx += 1;\nprintln!(\"{} \", x);\n";
+    let temp_dir = std::env::temp_dir().join("codebuff_ffc_test_3");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("code.rs");
+    std::fs::write(&file_path, content).unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 3,
+            lines_removed: 0,
+            diff: String::new(),
+        },
+    ];
+
+    let result = ReviewAgent::format_file_context(&changed_files);
+    assert!(result.is_empty(), "File with no declarations should produce empty context");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Test format_file_context skips deleted files (no longer on disk)
+#[test]
+fn test_format_file_context_skips_deleted_files() {
+    let changed_files = vec![
+        ChangedFile {
+            path: "/tmp/nonexistent_file_xyz.rs".to_string(),
+            change_type: ChangeType::Deleted,
+            lines_added: 0,
+            lines_removed: 10,
+            diff: String::new(),
+        },
+    ];
+
+    let result = ReviewAgent::format_file_context(&changed_files);
+    assert!(result.is_empty(), "Deleted files should be skipped");
+}
+
+/// Test format_file_context skips nonexistent files
+#[test]
+fn test_format_file_context_skips_nonexistent_file() {
+    let changed_files = vec![
+        ChangedFile {
+            path: "/tmp/nonexistent_file_abc.rs".to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 5,
+            lines_removed: 0,
+            diff: String::new(),
+        },
+    ];
+
+    let result = ReviewAgent::format_file_context(&changed_files);
+    assert!(result.is_empty(), "Nonexistent files should be skipped");
+}
+
+/// Test format_file_context with multiple files
+#[test]
+fn test_format_file_context_multiple_files() {
+    let temp_dir = std::env::temp_dir().join("codebuff_ffc_test_4");
+    let _ = std::fs::create_dir_all(&temp_dir);
+
+    // Create two files
+    let file1_path = temp_dir.join("lib.rs");
+    std::fs::write(&file1_path, "pub fn helper() -> i32 { 42 }").unwrap();
+
+    let file2_path = temp_dir.join("main.rs");
+    std::fs::write(&file2_path, "fn main() { println!(\"hi\"); }").unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file1_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 1,
+            lines_removed: 0,
+            diff: String::new(),
+        },
+        ChangedFile {
+            path: file2_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 1,
+            lines_removed: 0,
+            diff: String::new(),
+        },
+    ];
+
+    let result = ReviewAgent::format_file_context(&changed_files);
+
+    assert!(result.contains("pub fn helper() -> i32"), "Should contain file1 declarations");
+    assert!(result.contains("fn main()"), "Should contain file2 declarations");
+    assert!(result.contains("lib.rs"), "Should mention file1 path");
+    assert!(result.contains("main.rs"), "Should mention file2 path");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Test format_file_context with a file having many declarations (to test MAX_SIGNATURES_PER_FILE)
+#[test]
+fn test_format_file_context_with_many_declarations() {
+    let temp_dir = std::env::temp_dir().join("codebuff_ffc_test_5");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("many.rs");
+
+    // Generate 100 fn declarations
+    let mut content = String::new();
+    for i in 0..100 {
+        content.push_str(&format!("fn func_{i}() {{}}\n"));
+    }
+    std::fs::write(&file_path, content).unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Added,
+            lines_added: 100,
+            lines_removed: 0,
+            diff: String::new(),
+        },
+    ];
+
+    let result = ReviewAgent::format_file_context(&changed_files);
+
+    // Should contain first 80 declarations but not all 100
+    assert!(result.contains("fn func_0"), "Should contain first declaration");
+    assert!(result.contains("fn func_79"), "Should contain 80th declaration");
+    assert!(!result.contains("fn func_99"), "Should NOT contain 100th declaration (truncated)");
+    assert!(result.contains("... and 20 more declarations"), "Should show truncation count");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Test that no output is produced when no files have declarations
+#[test]
+fn test_format_file_context_no_output_when_no_declarations() {
+    let content = "// just a comment\n// another comment\n";
+    let temp_dir = std::env::temp_dir().join("codebuff_ffc_test_6");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("comments.rs");
+    std::fs::write(&file_path, content).unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 2,
+            lines_removed: 0,
+            diff: String::new(),
+        },
+    ];
+
+    let result = ReviewAgent::format_file_context(&changed_files);
+    assert!(result.is_empty(), "Should produce no output when file has no declarations");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

@@ -532,6 +532,16 @@ impl ReviewAgent {
             summary.push_str("\n\n");
         }
 
+        // Append file context from disk — only for phases WITHOUT full diff
+        // (Phase 2: signatures, Phase 3: compressed). Phase 1 already has the
+        // complete diff, so file context would be redundant and waste tokens.
+        // This provides function signatures, struct/enum/trait declarations,
+        // and imports that may be outside the diff range, preventing false
+        // positives where the LLM sees a symbol used but can't find its definition.
+        if !include_diff {
+            summary.push_str(&Self::format_file_context(files));
+        }
+
         summary
     }
 
@@ -552,39 +562,137 @@ impl ReviewAgent {
                 continue;
             }
 
-            // Check for common declaration patterns (language-agnostic)
-            let is_signature = content.starts_with("fn ")
-                || content.starts_with("pub fn ")
-                || content.starts_with("pub async fn ")
-                || content.starts_with("async fn ")
-                || content.starts_with("pub struct ")
-                || content.starts_with("struct ")
-                || content.starts_with("pub enum ")
-                || content.starts_with("enum ")
-                || content.starts_with("pub trait ")
-                || content.starts_with("trait ")
-                || content.starts_with("impl ")
-                || content.starts_with("pub type ")
-                || content.starts_with("type ")
-                || content.starts_with("pub const ")
-                || content.starts_with("const ")
-                || content.starts_with("use ")
-                || content.starts_with("macro_rules!")
-                || content.starts_with("def ")
-                || content.starts_with("async def ")
-                || content.starts_with("class ")
-                || content.starts_with("function ")
-                || content.starts_with("export function ")
-                || content.starts_with("export default ")
-                || content.starts_with("export class ")
-                || content.starts_with("export interface ")
-                || content.starts_with("interface ")
-                || content.starts_with("import ")
-                || content.starts_with("from ");
-
-            if is_signature {
+            if Self::is_declaration_line(content) {
                 // Take the full line up to the first { or ; for compactness
                 let sig = content.split(['{', ';', '=']).next().unwrap_or(content).trim();
+                sigs.push(sig.to_string());
+            }
+        }
+
+        sigs
+    }
+
+    /// Check if a line of code is a declaration (fn, struct, enum, trait, etc.)
+    /// across multiple languages.
+    pub fn is_declaration_line(line: &str) -> bool {
+        line.starts_with("fn ")
+            || line.starts_with("pub fn ")
+            || line.starts_with("pub async fn ")
+            || line.starts_with("async fn ")
+            || line.starts_with("pub struct ")
+            || line.starts_with("struct ")
+            || line.starts_with("pub enum ")
+            || line.starts_with("enum ")
+            || line.starts_with("pub trait ")
+            || line.starts_with("trait ")
+            || line.starts_with("impl ")
+            || line.starts_with("pub type ")
+            || line.starts_with("type ")
+            || line.starts_with("pub const ")
+            || line.starts_with("const ")
+            || line.starts_with("use ")
+            || line.starts_with("macro_rules!")
+            || line.starts_with("def ")
+            || line.starts_with("async def ")
+            || line.starts_with("class ")
+            || line.starts_with("function ")
+            || line.starts_with("export function ")
+            || line.starts_with("export default ")
+            || line.starts_with("export class ")
+            || line.starts_with("export interface ")
+            || line.starts_with("interface ")
+            || line.starts_with("import ")
+            || line.starts_with("from ")
+    }
+
+    /// Read changed files from disk and extract key declarations (function signatures,
+    /// struct, enum, trait definitions, imports, etc.) to provide full-file context
+    /// alongside the diff. This prevents false positives where the LLM sees a function
+    /// being used but can't see its definition because it's outside the diff range.
+    ///
+    /// Limits: MAX_SIGNATURES_PER_FILE signatures per file, MAX_TOTAL_CHARS total.
+    pub fn format_file_context(files: &[ChangedFile]) -> String {
+        const MAX_SIGNATURES_PER_FILE: usize = 80;
+        const MAX_TOTAL_CHARS: usize = 4000;
+
+        let mut context = String::new();
+        let mut has_content = false;
+
+        for file in files {
+            // Skip deleted files — they no longer exist on disk
+            if file.change_type == ChangeType::Deleted {
+                continue;
+            }
+
+            let path = std::path::Path::new(&file.path);
+            if !path.exists() {
+                continue;
+            }
+
+            // Read file content
+            let content = match std::fs::read_to_string(path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            // Extract key declarations from the file
+            let sigs = Self::extract_signatures_from_content(&content);
+            if sigs.is_empty() {
+                continue;
+            }
+
+            if !has_content {
+                context.push_str(
+                    "## File Context (key declarations from source files)\n\n"
+                );
+                context.push_str(
+                    "This section shows key declarations from the actual source files "
+                );
+                context.push_str(
+                    "to help you understand the full context beyond just the diff:\n\n"
+                );
+                has_content = true;
+            }
+
+            context.push_str(&format!("### `{}`\n", file.path));
+            context.push_str("```\n");
+            let display_sigs: Vec<&str> = sigs.iter().take(MAX_SIGNATURES_PER_FILE).map(|s| s.as_str()).collect();
+            for sig in &display_sigs {
+                context.push_str(sig);
+                context.push('\n');
+            }
+            if sigs.len() > MAX_SIGNATURES_PER_FILE {
+                context.push_str(&format!(
+                    "... and {} more declarations\n",
+                    sigs.len() - MAX_SIGNATURES_PER_FILE
+                ));
+            }
+            context.push_str("```\n\n");
+
+            // Early exit if we've accumulated enough context
+            if context.len() > MAX_TOTAL_CHARS {
+                break;
+            }
+        }
+
+        context
+    }
+
+    /// Extract function/struct/enum/trait/import signatures from a file's content.
+    /// Similar to `extract_signatures_from_diff` but applies to raw file content
+    /// without the `+` prefix stripping needed for diff lines.
+    pub fn extract_signatures_from_content(content: &str) -> Vec<String> {
+        let mut sigs = Vec::new();
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            if Self::is_declaration_line(trimmed) {
+                // Take the full line up to the first { or ; for compactness
+                let sig = trimmed.split(['{', ';', '=']).next().unwrap_or(trimmed).trim();
                 sigs.push(sig.to_string());
             }
         }
