@@ -40,6 +40,9 @@ pub enum ReviewEvent {
         passed: bool,                 // true if no issues
         details: String,              // brief summary
     },
+    /// Reasoning/thinking content from the LLM during review.
+    /// Displayed on the frontend but NOT added to conversation history.
+    ReasoningDelta(String),
     Completed { report: ReviewReport },
     Error { message: String },
 }
@@ -300,8 +303,8 @@ impl ReviewAgent {
                 message: format!("Phase {}/{}: {} — Reviewing...", phase_index + 1, total_phases, phase.name),
             });
 
-            // Call LLM for this phase
-            let response = self.call_llm(Some(phase.categories), &phase_message).await?;
+            // Call LLM with streaming — reasoning deltas are sent in real-time via event_tx
+            let response = self.call_llm_stream(Some(phase.categories), &phase_message, &event_tx).await?;
 
             // Parse issues for this phase — extract raw issues from JSON
             let phase_issues = self.parse_issues_from_response(&response)?;
@@ -364,19 +367,22 @@ impl ReviewAgent {
             )
         };
 
-        let response = self.call_llm(phase_categories, &user_message).await?;
+        let (response, _reasoning) = self.call_llm(phase_categories, &user_message).await?;
         let issues = self.parse_issues_from_response(&response)?;
 
         Ok((issues, request.changed_files.clone()))
     }
 
-    /// Call LLM for review (non-streaming, returns full response)
+    /// Call LLM for review (non-streaming, returns full response and reasoning content)
+    ///
+    /// Returns `(content, reasoning_content)` where `reasoning_content` may be empty
+    /// for non-reasoning models.
     ///
     /// Note: tool definitions are intentionally NOT passed here.
     /// The review agent should analyze the diffs we provide directly,
     /// not call additional tools. Passing tools causes the LLM to
     /// return tool calls instead of JSON review output.
-    async fn call_llm(&self, phase_categories: Option<&[ReviewCategory]>, user_message: &str) -> Result<String> {
+    async fn call_llm(&self, phase_categories: Option<&[ReviewCategory]>, user_message: &str) -> Result<(String, String)> {
         use crate::core::types::Message;
         let messages = vec![
             Message::system(self.system_prompt(phase_categories)),
@@ -385,13 +391,69 @@ impl ReviewAgent {
 
         let response = self.client.chat(&messages, &[]).await?;
 
+        let message = &response["choices"][0]["message"];
+
         // Extract content from OpenAI-compatible response
-        let content = response["choices"][0]["message"]["content"]
+        let content = message["content"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No content in review response"))?
             .to_string();
 
-        Ok(content)
+        // Extract reasoning_content if present (for reasoning models like DeepSeek Reasoner)
+        let reasoning = message.get("reasoning_content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        Ok((content, reasoning))
+    }
+
+    /// Call LLM with streaming, sending reasoning deltas via event_tx in real-time.
+    ///
+    /// Returns the full accumulated text content for JSON parsing.
+    /// Reasoning content is streamed as `ReviewEvent::ReasoningDelta` deltas to
+    /// the frontend for real-time display, without being added to conversation history.
+    async fn call_llm_stream(
+        &self,
+        phase_categories: Option<&[ReviewCategory]>,
+        user_message: &str,
+        event_tx: &tokio::sync::mpsc::UnboundedSender<ReviewEvent>,
+    ) -> Result<String> {
+        use crate::core::types::Message;
+        let messages = vec![
+            Message::system(self.system_prompt(phase_categories)),
+            Message::user(user_message),
+        ];
+
+        let mut chat_stream = self.client.stream_chat(&messages, &[]).await?;
+        let mut full_content = String::new();
+
+        while let Some(chunk_result) = chat_stream.next().await {
+            let chunk = chunk_result?;
+            for choice in &chunk.choices {
+                let delta = &choice.delta;
+
+                // Stream reasoning deltas in real-time
+                if let Some(ref rt) = delta.reasoning_content {
+                    if !rt.is_empty() {
+                        let _ = event_tx.send(ReviewEvent::ReasoningDelta(rt.clone()));
+                    }
+                } else if let Some(ref rt) = delta.reasoning {
+                    if !rt.is_empty() {
+                        let _ = event_tx.send(ReviewEvent::ReasoningDelta(rt.clone()));
+                    }
+                }
+
+                // Accumulate text content for later JSON parsing
+                if let Some(ref text) = delta.content {
+                    if !text.is_empty() {
+                        full_content.push_str(text);
+                    }
+                }
+            }
+        }
+
+        Ok(full_content)
     }
 
     /// Extract user's original request from conversation history for review context.
@@ -872,7 +934,7 @@ impl ReviewAgent {
             );
 
             async move {
-                let response = self.call_llm(None, &message).await?;
+                let (response, _reasoning) = self.call_llm(None, &message).await?;
                 self.parse_issues_from_response(&response)
             }
         }).collect();

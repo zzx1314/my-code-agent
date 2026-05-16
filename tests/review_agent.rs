@@ -219,7 +219,10 @@ fn test_review_event_creation() {
 // Tests for extract_json_from_response
 // =============================================================================
 
+use my_code_agent::app::App;
+use my_code_agent::core::context::token_usage::TokenUsage;
 use my_code_agent::core::agent::review_agent::{extract_json_from_response, repair_truncated_json, sanitize_json_escapes};
+use my_code_agent::core::agent::stream::{check_review_result, process_review_events};
 
 const VALID_JSON: &str = r#"{"issues":[],"summary":{"overall_score":100,"verdict":"approved"}}"#;
 
@@ -567,6 +570,198 @@ fn test_iteration_reset_after_approved() {
     // After approved, iteration should be 0
     let review_iteration = 0;
     assert_eq!(review_iteration, 0, "Iteration should reset after approved");
+}
+
+// =============================================================================
+// Tests for review_reasoning clearing behavior
+// =============================================================================
+
+use my_code_agent::app::commands::review::ReviewEvent;
+use my_code_agent::core::types::review::ReviewOutcome;
+use tokio::sync::{mpsc, broadcast};
+
+/// Helper: create a minimal App for review event processing tests.
+fn make_review_test_app() -> App {
+    let config = Config::default();
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let agent = Arc::new(Agent::new(
+        client.clone(),
+        "test system prompt".to_string(),
+        ToolRegistry::new(),
+    ));
+    let (interrupt_tx, _) = broadcast::channel(1);
+
+    App::new(
+        Vec::new(),
+        TokenUsage::default(),
+        String::new(),
+        config,
+        agent,
+        interrupt_tx,
+    )
+}
+
+/// Progress event clears accumulated review_reasoning.
+#[test]
+fn test_review_reasoning_cleared_on_progress() {
+    let mut app = make_review_test_app();
+    let (tx, rx) = mpsc::unbounded_channel::<ReviewEvent>();
+    app.review_event_rx = Some(rx);
+
+    // Simulate accumulated reasoning from a phase
+    app.review_reasoning = "Previous phase reasoning content...".to_string();
+    assert!(!app.review_reasoning.is_empty(), "Reasoning should be non-empty before Progress");
+
+    // Send Progress event (indicating new phase starting)
+    tx.send(ReviewEvent::Progress {
+        message: "Starting phase 2".to_string(),
+    })
+    .expect("Failed to send Progress event");
+
+    process_review_events(&mut app);
+
+    assert!(app.review_reasoning.is_empty(),
+        "review_reasoning should be cleared after Progress event (new phase started), got: {:?}",
+        app.review_reasoning);
+}
+
+/// ReasoningDelta accumulates correctly without clearing.
+#[test]
+fn test_review_reasoning_accumulates_delta() {
+    let mut app = make_review_test_app();
+    let (tx, rx) = mpsc::unbounded_channel::<ReviewEvent>();
+    app.review_event_rx = Some(rx);
+
+    app.review_reasoning = String::new();
+
+    tx.send(ReviewEvent::ReasoningDelta("First chunk ".to_string()))
+        .expect("Failed to send delta");
+    tx.send(ReviewEvent::ReasoningDelta("second chunk ".to_string()))
+        .expect("Failed to send delta");
+    tx.send(ReviewEvent::ReasoningDelta("third chunk".to_string()))
+        .expect("Failed to send delta");
+
+    process_review_events(&mut app);
+
+    assert_eq!(app.review_reasoning, "First chunk second chunk third chunk",
+        "ReasoningDelta events should accumulate");
+}
+
+/// Progress event clears reasoning between phases, then new phase's reasoning accumulates.
+#[test]
+fn test_review_reasoning_cleared_between_phases() {
+    let mut app = make_review_test_app();
+    let (tx, rx) = mpsc::unbounded_channel::<ReviewEvent>();
+    app.review_event_rx = Some(rx);
+
+    // Phase 1: accumulate reasoning
+    tx.send(ReviewEvent::ReasoningDelta("Phase 1 reasoning... ".to_string()))
+        .expect("Failed to send delta");
+    process_review_events(&mut app);
+    assert_eq!(app.review_reasoning, "Phase 1 reasoning... ", "Phase 1 reasoning should accumulate");
+
+    // Phase 1 → Phase 2 transition: Progress clears reasoning
+    tx.send(ReviewEvent::Progress {
+        message: "Starting phase 2".to_string(),
+    })
+    .expect("Failed to send Progress");
+    process_review_events(&mut app);
+    assert!(app.review_reasoning.is_empty(), "Reasoning should be cleared between phases");
+
+    // Phase 2: new reasoning starts fresh
+    tx.send(ReviewEvent::ReasoningDelta("Phase 2 reasoning...".to_string()))
+        .expect("Failed to send delta");
+    process_review_events(&mut app);
+    assert_eq!(app.review_reasoning, "Phase 2 reasoning...",
+        "Phase 2 reasoning should start fresh after Progress");
+}
+
+/// check_review_result clears review_reasoning when a completed outcome arrives.
+#[test]
+fn test_check_review_result_clears_reasoning_on_completed() {
+    let mut app = make_review_test_app();
+    let (tx, rx) = mpsc::channel::<ReviewOutcome>(1);
+    app.review_result_rx = Some(rx);
+
+    app.review_reasoning = "Final phase reasoning...".to_string();
+    assert!(!app.review_reasoning.is_empty());
+
+    // Simulate a completed outcome
+    let outcome = ReviewOutcome {
+        display_text: "✅ Review complete".to_string(),
+        verdict: ReviewVerdict::Approved,
+        report_summary: "Score: 95/100".to_string(),
+        report: None,
+        auto_trigger: true,
+    };
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        tx.send(outcome).await.expect("Failed to send outcome");
+    });
+
+    check_review_result(&mut app);
+
+    assert!(app.review_reasoning.is_empty(),
+        "review_reasoning should be cleared when review completes, got: {:?}",
+        app.review_reasoning);
+    assert!(!app.is_reviewing, "is_reviewing should be false after completed");
+}
+
+/// check_review_result clears review_reasoning when the channel disconnects.
+#[test]
+fn test_check_review_result_clears_reasoning_on_disconnect() {
+    let mut app = make_review_test_app();
+    let (_tx, rx) = mpsc::channel::<ReviewOutcome>(1);
+    app.review_result_rx = Some(rx);
+    app.is_reviewing = true;
+
+    app.review_reasoning = "Some reasoning...".to_string();
+    assert!(!app.review_reasoning.is_empty());
+
+    // Drop _tx to disconnect; call check_review_result
+    drop(_tx);
+    check_review_result(&mut app);
+
+    assert!(app.review_reasoning.is_empty(),
+        "review_reasoning should be cleared on disconnect, got: {:?}",
+        app.review_reasoning);
+    assert!(!app.is_reviewing, "is_reviewing should be false after disconnect");
+}
+
+/// check_review_result clears review_reasoning on max iterations reached.
+#[test]
+fn test_check_review_result_clears_reasoning_on_max_iterations() {
+    let mut app = make_review_test_app();
+    let (tx, rx) = mpsc::channel::<ReviewOutcome>(1);
+    app.review_result_rx = Some(rx);
+    app.is_reviewing = true;
+    app.review_iteration = app.config.review.max_review_iterations; // already at max
+
+    app.review_reasoning = "Last attempt reasoning...".to_string();
+    assert!(!app.review_reasoning.is_empty());
+
+    // Send outcome with NeedsRevision (which would normally trigger fix loop,
+    // but since iteration >= max_iterations, it won't)
+    let outcome = ReviewOutcome {
+        display_text: "🔄 Needs revision".to_string(),
+        verdict: ReviewVerdict::NeedsRevision,
+        report_summary: "Score: 60/100".to_string(),
+        report: None,
+        auto_trigger: true,
+    };
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        tx.send(outcome).await.expect("Failed to send outcome");
+    });
+
+    check_review_result(&mut app);
+
+    assert!(app.review_reasoning.is_empty(),
+        "review_reasoning should be cleared when max iterations reached, got: {:?}",
+        app.review_reasoning);
+    assert!(!app.is_reviewing, "is_reviewing should be false after max iterations");
 }
 
 /// Test build_fix_prompt format (verify it contains expected sections)

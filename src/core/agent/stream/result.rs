@@ -41,13 +41,19 @@ pub fn process_review_events(app: &mut App) {
                     // Just leave it as visible status.
                 }
                 Ok(ReviewEvent::Progress { .. }) => {
-                    // Skip intermediate progress updates to keep chat_history concise.
-                    // PhaseCompleted events are sufficient for tracking review progress.
+                    // Clear accumulated reasoning from the previous phase when a new phase starts.
+                    // This prevents multi-phase reasoning from cluttering the display.
+                    app.review_reasoning.clear();
                 }
                 Ok(ReviewEvent::FileAnalyzed { file, issues_found }) => {
                     let msg = format!("📄 Analyzed `{}` — {} issue(s) found", file, issues_found);
                     app.chat_history.push(ChatEntry::assistant(msg));
                     app.auto_scroll = true;
+                }
+                Ok(ReviewEvent::ReasoningDelta(delta)) => {
+                    // Accumulate reasoning deltas from streaming for frontend display.
+                    // NOT added to chat history — only shown transiently in the UI.
+                    app.review_reasoning.push_str(&delta);
                 }
                 Ok(ReviewEvent::Completed { .. }) => {
                     // Handled by check_review_result — it sends the final display_text
@@ -87,6 +93,9 @@ pub fn check_review_result(app: &mut App) {
                 let should_fix = outcome.auto_trigger
                     && outcome.verdict != ReviewVerdict::Approved
                     && app.review_iteration < app.config.review.max_review_iterations;
+
+                // Clear review reasoning display
+                app.review_reasoning.clear();
 
                 if should_fix {
                     let iteration = app.review_iteration;
@@ -155,6 +164,7 @@ pub fn check_review_result(app: &mut App) {
                     app.is_reviewing = false;
                     app.review_result_rx = None;
                     app.review_iteration = 0; // Reset for next cycle
+                    app.review_reasoning.clear();
                 }
             }
             Err(mpsc::error::TryRecvError::Empty) => {}
@@ -162,6 +172,7 @@ pub fn check_review_result(app: &mut App) {
                 app.review_result_rx = None;
                 app.is_reviewing = false;
                 app.review_iteration = 0;
+                app.review_reasoning.clear();
                 app.review_complete_message = Some("⚠️ Review Disconnected".to_string());
                 app.review_complete_timer = 30;
                 app.review_complete_verdict = None;

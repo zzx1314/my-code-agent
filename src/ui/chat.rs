@@ -74,6 +74,8 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         let mut lines: Vec<ratatui::text::Line> = Vec::new();
         render_chat_messages(&mut lines, app, width);
+        // Render review reasoning (transient — not added to chat history)
+        render_review_reasoning(&mut lines, app, width);
         render_streaming_content(&mut lines, app, width);
         render_status_messages(&mut lines, app, area);
         render_paragraph_with_scroll(f, app, lines, area);
@@ -399,6 +401,50 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
 
 /// Render reasoning block with blockquote style, always exactly max_height lines tall.
 /// Fixed height prevents the content below from jumping as reasoning streams in.
+/// Render review reasoning block — transient thinking content shown during code review.
+/// Uses the same blockquote style as the main reasoning block but with a shorter fixed height
+/// since review phases complete quickly and reasoning is shown within the scrollable chat area.
+fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App, _max_width: Option<usize>) {
+    if !app.is_reviewing || app.review_reasoning.is_empty() {
+        return;
+    }
+
+    lines.push(Line::from(Span::styled(
+        "💭 Review Analysis:",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )));
+
+    let reasoning_lines: Vec<&str> = app.review_reasoning.lines().collect();
+    // Show at most 10 lines of review reasoning to keep the display compact
+    let max_display = 10;
+    let total = reasoning_lines.len();
+
+    if total > max_display {
+        let skipped = total - max_display;
+        lines.push(Line::from(Span::styled(
+            format!("│ … {} lines hidden …", skipped),
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        )));
+        for line in &reasoning_lines[total - max_display..] {
+            lines.push(Line::from(vec![
+                Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
+                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+    } else {
+        for line in &reasoning_lines {
+            lines.push(Line::from(vec![
+                Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
+                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+    }
+
+    lines.push(Line::default());
+}
+
 fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str, max_height: u16) {
     // Reserve lines for: header ("💭 Thinking:") and trailing empty line
     let header_reserve: u16 = 2; // header + trailing empty

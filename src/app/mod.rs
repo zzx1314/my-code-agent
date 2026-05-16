@@ -224,6 +224,9 @@ pub struct App {
     pub review_complete_verdict: Option<crate::core::types::review::ReviewVerdict>,
     /// Frames remaining to show review_complete_message (~10 frames/second)
     pub review_complete_timer: u64,
+    /// Reasoning content from the review agent's LLM calls.
+    /// Displayed on the frontend but NOT added to conversation history.
+    pub review_reasoning: String,
 }
 
 impl App {
@@ -335,6 +338,7 @@ impl App {
             review_complete_message: None,
             review_complete_verdict: None,
             review_complete_timer: 0,
+            review_reasoning: String::new(),
         }
     }
 }
