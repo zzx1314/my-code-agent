@@ -444,10 +444,13 @@ impl ReviewAgent {
             }
         }
 
-        // 4. Cap at 2000 characters
+        // 4. Cap at 2000 characters (safely at UTF-8 char boundaries)
         if result.len() > 2000 {
-            result.truncate(2000);
-            if let Some(last_newline) = result[..1997].rfind('\n') {
+            let boundary = char_boundary_at_or_before(&result, 2000);
+            result.truncate(boundary);
+            // Try to break at a newline for cleaner appearance
+            let search_end = char_boundary_at_or_before(&result, 1997.min(result.len()));
+            if let Some(last_newline) = result[..search_end].rfind('\n') {
                 result.truncate(last_newline + 1);
             }
         }
@@ -888,12 +891,23 @@ fn clean_review_content(content: &str) -> String {
         .to_string()
 }
 
-fn truncate_content(content: &str, max_chars: usize) -> String {
-    if content.len() > max_chars {
-        let mut s = content[..max_chars].to_string();
-        s.push_str("...");
-        s
-    } else {
-        content.to_string()
+/// Find the largest byte index ≤ `max` that is a valid UTF-8 char boundary.
+fn char_boundary_at_or_before(s: &str, max: usize) -> usize {
+    s.char_indices()
+        .take_while(|(i, _)| *i < max)
+        .last()
+        .map(|(i, _)| i)
+        .unwrap_or(0)
+}
+
+/// Safely truncate a string to at most `max_bytes` bytes, appending "..." if truncated.
+/// Never panics on multi-byte UTF-8 characters.
+fn truncate_content(content: &str, max_bytes: usize) -> String {
+    if content.len() <= max_bytes {
+        return content.to_string();
     }
+    let boundary = char_boundary_at_or_before(content, max_bytes);
+    let mut s = content[..boundary].to_string();
+    s.push_str("...");
+    s
 }

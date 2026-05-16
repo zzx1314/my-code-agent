@@ -64,17 +64,25 @@ For single-step trivial tasks (one lookup, one file read, one search), you may s
 
 ### How to use `write_todos`
 1. After gathering context, call `write_todos` with ALL planned steps, ordered by execution sequence
-2. After completing each step, call `write_todos` again to update the list — mark the completed step as `completed: true`
+2. After completing each step, call `write_todos` again to update the list — update the `status` field accordingly
 3. Rewrite ALL todos each call with current status
+
+Available status values:
+- `"pending"` — not yet started (default)
+- `"in_progress"` — currently being worked on
+- `"completed"` — done successfully
+- `"failed"` — encountered an error
 
 Example:
 ```json
 {"todos": [
-  {"task": "Read file structure with file_outline", "completed": true},
-  {"task": "Implement new function in src/foo.rs", "completed": false},
-  {"task": "Run cargo check to verify", "completed": false}
+  {"id": 1, "task": "Read file structure with file_outline", "status": "completed"},
+  {"id": 2, "task": "Implement new function in src/foo.rs", "status": "in_progress"},
+  {"id": 3, "task": "Run cargo check to verify", "status": "pending"}
 ]}
 ```
+
+Each todo should be assigned a stable, incrementing `id` (1, 2, 3, ...) that persists across rewrite calls for tracking purposes.
 
 ### Completion
 After all todos are completed and verification passes, provide a brief summary:

@@ -3,6 +3,26 @@ use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+/// The status of a todo item.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    /// Task is not yet started.
+    Pending,
+    /// Task is currently being worked on.
+    InProgress,
+    /// Task is completed successfully.
+    Completed,
+    /// Task has failed or encountered an error.
+    Failed,
+}
+
+impl Default for TodoStatus {
+    fn default() -> Self {
+        TodoStatus::Pending
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct WriteTodosArgs {
     pub todos: Vec<TodoItem>,
@@ -10,11 +30,16 @@ pub struct WriteTodosArgs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoItem {
+    /// Unique, stable identifier for tracking and logging purposes.
+    /// Assigned by the agent (e.g. 1, 2, 3...) and stable across rewrite calls.
+    pub id: Option<u32>,
     pub task: String,
-    pub completed: bool,
+    /// Current status of the task. Defaults to "pending" if not provided.
+    #[serde(default)]
+    pub status: TodoStatus,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct WriteTodosOutput {
     pub message: String,
     pub todos: Vec<TodoItem>,
@@ -45,16 +70,21 @@ impl Tool for WriteTodos {
                         "items": {
                             "type": "object",
                             "properties": {
+                                "id": {
+                                    "type": "integer",
+                                    "description": "Stable unique identifier for tracking (1, 2, 3...)"
+                                },
                                 "task": {
                                     "type": "string",
                                     "description": "Description of the task"
                                 },
-                                "completed": {
-                                    "type": "boolean",
-                                    "description": "Whether the task is completed"
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["pending", "in_progress", "completed", "failed"],
+                                    "description": "Current status of the task. One of: pending, in_progress, completed, failed. Default: pending"
                                 }
                             },
-                            "required": ["task", "completed"]
+                            "required": ["task"]
                         },
                         "description": "List of todos with completion status. Rewrite ALL todos each call."
                     }
@@ -67,7 +97,7 @@ impl Tool for WriteTodos {
     async fn call(&self, args: serde_json::Value) -> Result<String, String> {
         let args: WriteTodosArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        let completed_count = args.todos.iter().filter(|t| t.completed).count();
+        let completed_count = args.todos.iter().filter(|t| matches!(t.status, TodoStatus::Completed)).count();
         let total_count = args.todos.len();
 
         let content = serde_json::to_string_pretty(&args.todos)
@@ -77,8 +107,12 @@ impl Tool for WriteTodos {
 
         let output = WriteTodosOutput {
             message: format!(
-                "Todos updated: {}/{} completed",
-                completed_count, total_count
+                "🔄 Todos: {}/{} completed · {} pending · {} in progress · {} failed",
+                completed_count,
+                total_count,
+                args.todos.iter().filter(|t| matches!(t.status, TodoStatus::Pending)).count(),
+                args.todos.iter().filter(|t| matches!(t.status, TodoStatus::InProgress)).count(),
+                args.todos.iter().filter(|t| matches!(t.status, TodoStatus::Failed)).count(),
             ),
             todos: args.todos,
         };

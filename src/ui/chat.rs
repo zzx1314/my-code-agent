@@ -885,27 +885,41 @@ fn try_render_todos(
         Span::styled(message, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
     ]));
 
-    let total = todos.len();
-    let completed = todos.iter().filter(|t| t.get("completed").and_then(|v| v.as_bool()) == Some(true)).count();
+    let completed = todos.iter().filter(|t| {
+        t.get("status").and_then(|v| v.as_str()) == Some("completed")
+    }).count();
+    let in_progress = todos.iter().filter(|t| {
+        t.get("status").and_then(|v| v.as_str()) == Some("in_progress")
+    }).count();
+    let failed = todos.iter().filter(|t| {
+        t.get("status").and_then(|v| v.as_str()) == Some("failed")
+    }).count();
+    let pending = todos.len() - completed - in_progress - failed;
+
+    let mut summary = Vec::new();
+    if completed > 0 { summary.push(format!("✅ {} completed", completed)); }
+    if pending > 0 { summary.push(format!("⬜ {} pending", pending)); }
+    if in_progress > 0 { summary.push(format!("🔄 {} in progress", in_progress)); }
+    if failed > 0 { summary.push(format!("❌ {} failed", failed)); }
 
     lines.push(Line::from(Span::styled(
-        format!("{}/{} completed", completed, total),
+        summary.join(" · "),
         Style::default().fg(Color::DarkGray),
     )));
 
     let mut todo_content = Vec::new();
     for (i, todo) in todos.iter().enumerate() {
         let task = todo.get("task").and_then(|v| v.as_str()).unwrap_or("?");
-        let done = todo.get("completed").and_then(|v| v.as_bool()) == Some(true);
+        let status = todo.get("status").and_then(|v| v.as_str()).unwrap_or("pending");
 
-        let checkbox = if done { "✅" } else { "⬜" };
-        let style = if done {
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM)
-        } else {
-            Style::default()
+        let (icon, style) = match status {
+            "completed" => ("✅", Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM)),
+            "in_progress" => ("🔄", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            "failed" => ("❌", Style::default().fg(Color::Red)),
+            _ => ("⬜", Style::default()),
         };
 
-        let prefix = format!("{}. {} ", i + 1, checkbox);
+        let prefix = format!("{}. {} ", i + 1, icon);
         let prefix_len = prefix.chars().count() as u16;
         let max_task = area_width.saturating_sub(prefix_len).max(1) as usize;
 
