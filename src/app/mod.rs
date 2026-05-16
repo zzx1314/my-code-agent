@@ -344,14 +344,9 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
     match provider {
         "deepseek" => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
         "openrouter" => vec![
-            // ── Free models ──────────────────────────────────────────────
-            "tencent/hy3-preview".to_string(),
-            "baidu/cobuddy:free".to_string(),
-            "nvidia/nemotron-3-super-120b-a12b:free".to_string(),
-            "inclusionai/ring-2.6-1t:free".to_string(),
-            "poolside/laguna-m.1:free".to_string(),
-            "poolside/laguna-xs.2:free".to_string(),
-            "openrouter/owl-alpha".to_string(),
+            // ── DeepSeek V4 ──────────────────────────────────────────────
+            "deepseek/deepseek-v4-flash".to_string(),
+            "deepseek/deepseek-v4-pro".to_string(),
         ],
         "custom" => vec!["custom-model".to_string()],
         _ => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
