@@ -337,31 +337,6 @@ cargo test --test file_read
 cargo test -- --nocapture
 ```
 
-## Dependencies
-
-| Crate | Purpose |
-|-------|---------|
-| [rig-core](https://crates.io/crates/rig-core) | AI agent framework with tool support |
-| [tokio](https://crates.io/crates/tokio) | Async runtime, process spawning, signal handling |
-| [reqwest](https://crates.io/crates/reqwest) | HTTP client for API requests |
-| [serde](https://crates.io/crates/serde) | Serialization for tool arguments/outputs |
-| [serde_json](https://crates.io/crates/serde_json) | JSON serialization |
-| [anyhow](https://crates.io/crates/anyhow) | Error handling |
-| [thiserror](https://crates.io/crates/thiserror) | Derived error types |
-| [dotenv](https://crates.io/crates/dotenv) | .env file loading |
-| [futures](https://crates.io/crates/futures) | Stream utilities |
-| [glob](https://crates.io/crates/glob) | File pattern matching for the glob tool |
-| [toml](https://crates.io/crates/toml) | TOML configuration parsing |
-| [crossterm](https://crates.io/crates/crossterm) | Cross-platform terminal features |
-| [ratatui](https://crates.io/crates/ratatui) | Terminal UI rendering |
-| [tui-textarea](https://crates.io/crates/tui-textarea) | Text input area widget |
-| Custom markdown renderer (`src/ui/markdown.rs`) | Custom markdown rendering for terminal (headings, code blocks, bold, lists, etc.) |
-| [async-process](https://crates.io/crates/async-process) | Process spawning for MCP servers |
-| [async-trait](https://crates.io/crates/async-trait) | Async trait support |
-| [tracing](https://crates.io/crates/tracing) | Application-level tracing |
-| [tracing-subscriber](https://crates.io/crates/tracing-subscriber) | Tracing subscriber for logging |
-| [unicode-width](https://crates.io/crates/unicode-width) | Unicode character width calculation |
-
 ## License
 
 MIT
