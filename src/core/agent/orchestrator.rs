@@ -59,14 +59,23 @@ impl AgentOrchestrator {
 
         for msg in history {
             if msg.role == "tool" {
-                // First try to parse as JSON (file_write / file_update output)
+                // Parse tool output JSON for write operations (file_write / file_update / file_delete / apply_patch)
                 if let Some(changed_file) = Self::parse_tool_output(&msg.content) {
-                    if !files.iter().any(|f: &ChangedFile| f.path == changed_file.path) {
+                    // Prefer entries with real diffs over earlier empty ones.
+                    // This handles the case where file_read/file_outline ran before file_update
+                    // for the same file — the read-only tools are now filtered out by
+                    // parse_tool_output, but apply_patch/file_undo may write without git_diff.
+                    if let Some(existing) = files.iter_mut().find(|f: &&mut ChangedFile| f.path == changed_file.path) {
+                        if !changed_file.diff.is_empty() && existing.diff.is_empty() {
+                            tracing::info!(path = %changed_file.path, "detect_changed_files: replaced empty diff with real diff");
+                            *existing = changed_file;
+                        }
+                    } else {
                         tracing::info!(path = %changed_file.path, diff_lines = changed_file.diff.lines().count(), "detect_changed_files: parsed tool output");
                         files.push(changed_file);
                     }
                 } else if let Some(path) = Self::extract_file_path(&msg.content) {
-                    // Fallback: extract path from text
+                    // Fallback: extract path from non-JSON text output
                     if !files.iter().any(|f: &ChangedFile| f.path == path) {
                         tracing::warn!(path = %path, "detect_changed_files: fallback text extraction (no git_diff)");
                         files.push(ChangedFile {
@@ -92,11 +101,21 @@ impl AgentOrchestrator {
     }
 
     /// Parse a tool message's JSON content to extract file change info.
-    /// Handles both FileWriteOutput and FileUpdateOutput formats.
+    /// Handles FileWriteOutput, FileUpdateOutput, FileDeleteOutput, and ApplyPatchOutput.
+    /// Returns `None` for read-only tool outputs (file_read, file_outline, code_review, etc.).
     pub fn parse_tool_output(content: &str) -> Option<ChangedFile> {
         let sanitized = sanitize_json_escapes(content);
         let val: serde_json::Value = serde_json::from_str(&sanitized).ok()?;
         let path = val.get("path")?.as_str()?.to_string();
+
+        // Skip read-only tools (file_read/file_outline/code_review) that have
+        // a `path` field but didn't modify any files.
+        let is_read_only = val.get("lines").is_some()
+            || val.get("total_lines").is_some()
+            || val.get("files").is_some();
+        if is_read_only {
+            return None;
+        }
 
         // Extract git_diff if available
         let diff = val
@@ -455,16 +474,18 @@ impl AgentOrchestrator {
             return false;
         }
 
-        // Check for write operations (file_write / file_update)
+        // Check for write operations (file_write / file_update / file_delete)
         history.iter().any(|msg| {
             msg.role == "assistant"
                 && msg
                     .tool_calls
                     .as_ref()
                     .map(|calls| {
-                        calls
-                            .iter()
-                            .any(|tc| tc.function.name == "file_write" || tc.function.name == "file_update")
+                        calls.iter().any(|tc| {
+                            tc.function.name == "file_write"
+                                || tc.function.name == "file_update"
+                                || tc.function.name == "file_delete"
+                        })
                     })
                     .unwrap_or(false)
         })
