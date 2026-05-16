@@ -12,5 +12,6 @@ pub use result::check_review_result;
 pub use result::check_stream_result;
 pub use result::is_auto_fix_prompt;
 pub use result::process_review_events;
+pub use result::trigger_auto_review;
 pub use spawn::{rebuild_agent, send_message_to_llm, spawn_llm_stream};
 pub use state::reset_streaming_state;

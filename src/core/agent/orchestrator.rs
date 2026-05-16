@@ -465,32 +465,33 @@ impl AgentOrchestrator {
 
     /// Determine whether auto-review should be triggered
     ///
-    /// Only checks the **most recent assistant turn** for write operations,
-    /// preventing auto-review from re-triggering on subsequent interactions
-    /// that don't involve new file changes.
+    /// Checks the **current turn** (messages after the last user message) for
+    /// write operations, preventing auto-review from re-triggering on subsequent
+    /// interactions that don't involve new file changes.
+    ///
+    /// This is important because the LLM often follows up a file_write/file_update
+    /// tool call with a text-only response (e.g. "Done!"): if we only checked the
+    /// **last** assistant message, we would miss the write operation.
     pub fn should_auto_review(&self, history: &[Message]) -> bool {
         if !self.auto_review_enabled || !self.config.enabled {
             return false;
         }
 
-        // Only check the most recent assistant turn for write operations.
-        // This prevents auto-review from triggering on subsequent interactions
-        // that don't involve new file changes, which was the previous behavior
-        // when scanning the entire history.
+        // Check all assistant messages within the current turn (after the last
+        // user message). The LLM often follows up a tool call with a text-only
+        // response, so we can't just look at the LAST assistant message.
         let has_recent_write = history
             .iter()
             .rev()
-            .find(|msg| msg.role == "assistant")
-            .and_then(|msg| msg.tool_calls.as_ref())
-            .map(|calls| {
-                calls.iter().any(|tc| {
-                    tc.function.name == "file_write"
-                        || tc.function.name == "file_update"
-                        || tc.function.name == "file_delete"
-                        || tc.function.name == "apply_patch"
-                })
-            })
-            .unwrap_or(false);
+            .take_while(|msg| msg.role != "user")
+            .filter(|msg| msg.role == "assistant" && msg.tool_calls.is_some())
+            .flat_map(|msg| msg.tool_calls.as_ref().unwrap())
+            .any(|tc| {
+                tc.function.name == "file_write"
+                    || tc.function.name == "file_update"
+                    || tc.function.name == "file_delete"
+                    || tc.function.name == "apply_patch"
+            });
 
         if !has_recent_write {
             return false;

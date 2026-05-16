@@ -202,86 +202,12 @@ pub fn check_stream_result(app: &mut App) {
     }
 }
 
-/// Process the final result of a streaming response
-fn process_stream_result(app: &mut App, result: crate::core::agent::stream_response::StreamResult) {
-    app.is_streaming = false;
-    app.streaming_text.clear();
-    app.streaming_status.clear();
-
-    // Use the authoritative reasoning from the backend ReasoningTracker.
-    if !result.last_reasoning.is_empty() {
-        app.last_reasoning = result.last_reasoning;
-        app.streaming_reasoning.clear();
-    } else if app.last_reasoning.is_empty() && !app.streaming_reasoning.is_empty() {
-        app.last_reasoning = std::mem::take(&mut app.streaming_reasoning);
-    } else {
-        app.streaming_reasoning.clear();
-    }
-    app.current_tool_call = None;
-    app.streaming_events_rx = None;
-
-    // Sync the full backend history first.
-    if !result.updated_history.is_empty() {
-        let pruned: Vec<crate::app::ChatEntry> = result
-            .updated_history
-            .into_iter()
-            .filter(|m| {
-                m.role != "system"
-                    && (!m.content.is_empty() || m.reasoning_content.is_some() || m.tool_calls.is_some() || m.tool_call_id.is_some())
-            })
-            .map(crate::app::ChatEntry::from_message)
-            .collect();
-        if !pruned.is_empty() {
-            app.chat_history = pruned;
-        }
-    }
-
-    // Hide auto-fix prompts from chat display — they contain the full review report
-    // which is too verbose for the user. Replace with a concise status message.
-    if app.review_iteration > 0 {
-        if let Some(idx) = app.chat_history.iter().rposition(|e| e.role == "user" && is_auto_fix_prompt(&e.content)) {
-            let max_iterations = app.config.review.max_review_iterations;
-            let iteration = app.review_iteration.min(max_iterations);
-            app.chat_history[idx].content = format!(
-                "🔄 Fixing issues (auto-review iteration {}/{})...",
-                iteration,
-                max_iterations,
-            );
-        }
-    }
-
-    // Deduplicate reasoning prefix from the response.
-    let has_assistant = app.chat_history.last().map(|e| e.role.as_str()) == Some("assistant");
-    if has_assistant {
-        let last = app.chat_history.last_mut().unwrap();
-        let deduped = build_response_display(&last.content, &app.last_reasoning);
-        last.content = deduped;
-    } else {
-        let display_text = build_response_display(&result.full_response, &app.last_reasoning);
-        if !display_text.is_empty() {
-            app.chat_history.push(crate::app::ChatEntry::assistant(display_text));
-        } else if !app.last_reasoning.is_empty() {
-            app.chat_history.push(crate::app::ChatEntry::assistant_with_reasoning(
-                "",
-                &app.last_reasoning,
-            ));
-        } else {
-            app.chat_history.push(crate::app::ChatEntry::assistant(
-                "_(no response)_",
-            ));
-        }
-    }
-    app.show_inline_reasoning = !app.last_reasoning.is_empty();
-
-    app.token_usage = result.session_usage;
-    app.status_messages = result.status_messages;
-    app.turn_usage_line = result.turn_usage_line;
-    app.auto_scroll = true;
-
-    if result.should_exit {
-        app.should_exit = true;
-    }
-
+/// Trigger auto-review after file changes have been made via the main agent.
+///
+/// Extracted into a standalone function so it can also be called from
+/// non-streaming code paths (e.g. direct tool calls in session context)
+/// where `process_stream_result` is not invoked.
+pub fn trigger_auto_review(app: &mut App) {
     // ── Auto-review: trigger after main agent completes file changes ──────────
     if let Some(ref orchestrator) = app.orchestrator {
         let should_review = {
@@ -301,7 +227,7 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
 
         if should_review {
             app.is_reviewing = true;
-            tracing::info!("Auto-review triggered after main agent response");
+            tracing::info!("Auto-review triggered");
 
             // Add a visible message to chat history
             app.chat_history.push(crate::app::ChatEntry::assistant(
@@ -402,6 +328,91 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         }
     }
 }
+
+/// Process the final result of a streaming response
+fn process_stream_result(app: &mut App, result: crate::core::agent::stream_response::StreamResult) {
+    app.is_streaming = false;
+    app.streaming_text.clear();
+    app.streaming_status.clear();
+
+    // Use the authoritative reasoning from the backend ReasoningTracker.
+    if !result.last_reasoning.is_empty() {
+        app.last_reasoning = result.last_reasoning;
+        app.streaming_reasoning.clear();
+    } else if app.last_reasoning.is_empty() && !app.streaming_reasoning.is_empty() {
+        app.last_reasoning = std::mem::take(&mut app.streaming_reasoning);
+    } else {
+        app.streaming_reasoning.clear();
+    }
+    app.current_tool_call = None;
+    app.streaming_events_rx = None;
+
+    // Sync the full backend history first.
+    if !result.updated_history.is_empty() {
+        let pruned: Vec<crate::app::ChatEntry> = result
+            .updated_history
+            .into_iter()
+            .filter(|m| {
+                m.role != "system"
+                    && (!m.content.is_empty() || m.reasoning_content.is_some() || m.tool_calls.is_some() || m.tool_call_id.is_some())
+            })
+            .map(crate::app::ChatEntry::from_message)
+            .collect();
+        if !pruned.is_empty() {
+            app.chat_history = pruned;
+        }
+    }
+
+    // Hide auto-fix prompts from chat display — they contain the full review report
+    // which is too verbose for the user. Replace with a concise status message.
+    if app.review_iteration > 0 {
+        if let Some(idx) = app.chat_history.iter().rposition(|e| e.role == "user" && is_auto_fix_prompt(&e.content)) {
+            let max_iterations = app.config.review.max_review_iterations;
+            let iteration = app.review_iteration.min(max_iterations);
+            app.chat_history[idx].content = format!(
+                "🔄 Fixing issues (auto-review iteration {}/{})...",
+                iteration,
+                max_iterations,
+            );
+        }
+    }
+
+    // Deduplicate reasoning prefix from the response.
+    let has_assistant = app.chat_history.last().map(|e| e.role.as_str()) == Some("assistant");
+    if has_assistant {
+        let last = app.chat_history.last_mut().unwrap();
+        let deduped = build_response_display(&last.content, &app.last_reasoning);
+        last.content = deduped;
+    } else {
+        let display_text = build_response_display(&result.full_response, &app.last_reasoning);
+        if !display_text.is_empty() {
+            app.chat_history.push(crate::app::ChatEntry::assistant(display_text));
+        } else if !app.last_reasoning.is_empty() {
+            app.chat_history.push(crate::app::ChatEntry::assistant_with_reasoning(
+                "",
+                &app.last_reasoning,
+            ));
+        } else {
+            app.chat_history.push(crate::app::ChatEntry::assistant(
+                "_(no response)_",
+            ));
+        }
+    }
+    app.show_inline_reasoning = !app.last_reasoning.is_empty();
+
+    app.token_usage = result.session_usage;
+    app.status_messages = result.status_messages;
+    app.turn_usage_line = result.turn_usage_line;
+    app.auto_scroll = true;
+
+    if result.should_exit {
+        app.should_exit = true;
+    }
+
+    // ── Auto-review: trigger after main agent completes file changes ──────────
+    trigger_auto_review(app);
+}
+
 
 /// Strip reasoning_content prefix from the response text if it was duplicated.
 fn build_response_display(full_response: &str, last_reasoning: &str) -> String {

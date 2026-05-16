@@ -1878,16 +1878,19 @@ fn test_should_auto_review_read_only_returns_false() {
     assert!(!orch.should_auto_review(&history));
 }
 
-/// Test 4: Old history has file_write, but latest turn has no write ops → should return false
+/// Test 4: Old turn has file_write, but current turn (after last user msg) has no write ops → should return false
 #[test]
 fn test_should_auto_review_old_write_no_recent_write_returns_false() {
     let orch = make_orchestrator(true);
     let history = vec![
-        // Old assistant message with file_write
-        Message::assistant_with_tool_calls("Old write...", vec![write_tc("call_1")]),
+        // Turn 1: old write (already reviewed in previous turn)
+        Message::user("Create a function"),
+        Message::assistant_with_tool_calls("Writing...", vec![write_tc("call_1")]),
         tool_result("call_1", "src/main.rs"),
-        // Latest assistant message without any tool calls (just text)
-        Message::assistant("Here's my analysis."),
+        Message::assistant("Done!"),
+        // Turn 2: just text, no writes (should NOT trigger auto-review)
+        Message::user("Explain the code"),
+        Message::assistant("It does X."),
     ];
     assert!(!orch.should_auto_review(&history));
 }
