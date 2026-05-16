@@ -584,6 +584,8 @@ pub async fn stream_response(
                 };
                 messages.push(assistant_msg);
 
+                let mut end_turn_requested = false;
+
                 for tc in &tool_calls {
                     send_event(StreamEvent::ToolCall {
                         name: tc.function.name.clone(),
@@ -630,6 +632,16 @@ pub async fn stream_response(
                         Ok(output) => output,
                         Err(e) => format!("Error: {}", e),
                     };
+
+                    // Check if end_turn was requested
+                    if serde_json::from_str::<serde_json::Value>(&content)
+                        .ok()
+                        .and_then(|v| v.get("__end_turn__").and_then(|v| v.as_bool()))
+                        .unwrap_or(false)
+                    {
+                        end_turn_requested = true;
+                    }
+
                     // Emit tool result event for real-time display during streaming
                     send_event(StreamEvent::ToolResult {
                         name: tc.function.name.clone(),
@@ -637,6 +649,22 @@ pub async fn stream_response(
                     });
                     let tr = Message::tool(&tc.id, content);
                     messages.push(tr);
+                }
+
+                // If end_turn was called, return control to the user immediately
+                if end_turn_requested {
+                    status_messages.push("✓ Turn ended by assistant".to_string());
+                    *chat_history = messages;
+                    return StreamResult {
+                        full_response: response_text,
+                        interrupted: false,
+                        should_exit: false,
+                        last_reasoning: reasoning_text.clone(),
+                        status_messages,
+                        turn_usage_line,
+                        session_usage: session_usage.clone(),
+                        updated_history: chat_history.clone(),
+                    };
                 }
 
                 // After all tools have executed and their results sent, signal

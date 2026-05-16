@@ -113,6 +113,7 @@ pub fn rebuild_agent(
     let client = build_client(config);
     let system_prompt = build_preamble();
     let mut tools = crate::tools::ToolRegistry::from_config(config);
+    tools.register(crate::tools::SpawnAgents::new(client.clone()));
     let mcp_tools = futures::executor::block_on(create_mcp_tools(config));
     for tool in mcp_tools {
         tools.register_boxed(tool);

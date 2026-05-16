@@ -370,6 +370,12 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
                     return;
                 }
 
+                // Check if it's a write_todos result
+                if try_render_todos(lines, &entry.content, entry_idx, app, area_width).is_some() {
+                    lines.push(Line::default());
+                    return;
+                }
+
                 // Fallback: show raw content for non-shell tool results
                 if !entry.content.is_empty() {
                     lines.push(Line::from(vec![
@@ -855,6 +861,68 @@ fn try_render_file_outline(
     // Render collapsible outline content
     let section_id = format!("ol_{}", entry_idx);
     render_collapsible_block(lines, app, &section_id, outline_content, area_width);
+
+    Some(())
+}
+
+fn try_render_todos(
+    lines: &mut Vec<ratatui::text::Line>,
+    content: &str,
+    entry_idx: usize,
+    app: &mut App,
+    area_width: u16,
+) -> Option<()> {
+    let parsed: serde_json::Value = serde_json::from_str(content).ok()?;
+    let todos = parsed.get("todos").and_then(|v| v.as_array())?;
+    if todos.is_empty() {
+        return None;
+    }
+
+    let message = parsed.get("message").and_then(|v| v.as_str()).unwrap_or("Todos").to_string();
+
+    lines.push(Line::from(vec![
+        Span::styled("📋 ", Style::default().fg(Color::Cyan)),
+        Span::styled(message, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+    ]));
+
+    let total = todos.len();
+    let completed = todos.iter().filter(|t| t.get("completed").and_then(|v| v.as_bool()) == Some(true)).count();
+
+    lines.push(Line::from(Span::styled(
+        format!("{}/{} completed", completed, total),
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let mut todo_content = Vec::new();
+    for (i, todo) in todos.iter().enumerate() {
+        let task = todo.get("task").and_then(|v| v.as_str()).unwrap_or("?");
+        let done = todo.get("completed").and_then(|v| v.as_bool()) == Some(true);
+
+        let checkbox = if done { "✅" } else { "⬜" };
+        let style = if done {
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM)
+        } else {
+            Style::default()
+        };
+
+        let prefix = format!("{}. {} ", i + 1, checkbox);
+        let prefix_len = prefix.chars().count() as u16;
+        let max_task = area_width.saturating_sub(prefix_len).max(1) as usize;
+
+        let display = if task.len() > max_task {
+            format!("{}...", &task[..max_task.saturating_sub(3)])
+        } else {
+            task.to_string()
+        };
+
+        let mut spans = Vec::new();
+        spans.push(Span::styled(prefix, style));
+        spans.push(Span::styled(display, style));
+        todo_content.push(Line::from(spans));
+    }
+
+    let section_id = format!("todo_{}", entry_idx);
+    render_collapsible_block(lines, app, &section_id, todo_content, area_width);
 
     Some(())
 }

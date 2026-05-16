@@ -1,4 +1,6 @@
+pub mod apply_patch;
 pub mod file_delete;
+pub mod propose_str_replace;
 pub mod file_outline;
 pub mod file_read;
 pub mod file_undo;
@@ -7,6 +9,7 @@ pub mod file_write;
 pub mod glob;
 pub mod list_dir;
 
+pub use apply_patch::ApplyPatch;
 pub use file_delete::FileDelete;
 pub use file_outline::FileOutline;
 pub use file_read::FileRead;
@@ -17,6 +20,7 @@ pub use file_update::build_line_diff;
 pub use file_write::FileWrite;
 pub use glob::GlobSearch;
 pub use list_dir::ListDir;
+pub use propose_str_replace::ProposeStrReplace;
 
 use crate::core::context::tool_dedup::get_global_tool_dedup;
 use crate::tools::infra::undo_history;
