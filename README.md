@@ -16,6 +16,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 - **🌐 Web Search** — Search the web and fetch URL content via Parallel Search MCP
 - **🖱️ Mouse & Paste Support** — Mouse click handling and terminal paste events
 - **📚 Knowledge Bootstrapping** — Automatic project knowledge injection from `knowledge.md`
+- **👥 Multi-Agent Collaboration** — Spawn multiple specialized sub-agents (reviewer, coder, researcher, security, summarizer) to run tasks in parallel instantly
 - **↩️ Undo Support** — Undo the last file write/update/delete operation
 
 ## Tools
@@ -30,6 +31,7 @@ An interactive AI coding assistant powered by [DeepSeek](https://deepseek.com) w
 | `file_undo` | Undo the last file write/update/delete operation |
 | `shell_exec` | Execute shell commands with timeout and working directory, confirmation, and safety checks |
 | `code_search` | Search for text patterns in source code using ripgrep (respects .gitignore) |
+| `spawn_agents` | Spawn multiple specialized sub-agents (reviewer, researcher, coder, summarizer, security) to run tasks in parallel and combine results |
 | `code_review` | Review code and provide improvement suggestions |
 | `list_dir` | List files and directories with configurable recursion depth |
 | `glob` | Find files matching a glob pattern (`**/*.rs`, `src/**/*.ts`, etc.) |
@@ -75,6 +77,43 @@ PARALLEL_API_KEY=your_key_here
 
 The tool returns search results with titles, URLs, and snippets from the web.
 
+### Multi-Agent Collaboration
+
+The `spawn_agents` tool enables parallel execution of multiple specialized sub-agents, each with its own role and prompt. All agents run concurrently and their results are combined in a single response.
+
+**Built-in agent types:**
+
+| Agent Type | Role |
+|------------|------|
+| `reviewer` | Code review specialist — analyzes code for bugs, security issues, performance problems, and suggests improvements |
+| `researcher` | Technical research specialist — provides comprehensive, well-structured answers with best practices and examples |
+| `coder` | Senior software engineer — writes clean, well-structured code with error handling, comments, and tests |
+| `summarizer` | Technical summarization specialist — condenses complex information into clear, concise summaries |
+| `security` | Security specialist — analyzes code for SQL injection, XSS, CSRF, auth flaws, and insecure dependencies |
+| *(custom)* | Any custom type uses a generic assistant prompt for flexible use cases |
+
+**Usage:**
+
+```
+❯ spawn multiple agents to review this PR from different perspectives
+❯ Run a code review and security audit in parallel on @src/main.rs
+❯ Have a coder write the implementation, a reviewer check it, and a summarizer combine feedback
+```
+
+**Example — parallel code review and security audit:**
+
+The agent can orchestrate multiple sub-agents in a single turn. For instance, when asked to review a pull request, it might spawn:
+
+1. **reviewer** — Analyze code quality, style, and logic
+2. **security** — Scan for vulnerabilities
+3. **summarizer** — Combine both reports into a structured response
+
+All three run concurrently, dramatically reducing turnaround time for complex multi-perspective analyses.
+
+**Configuration:**
+
+No special configuration needed — `spawn_agents` is available by default. It uses the same LLM provider configured in `config.toml` to power all sub-agents.
+
 ## Getting Started
 
 ### Prerequisites
@@ -112,7 +151,7 @@ The binary will be at `target/release/my-code-agent`.
 sudo mv my-code-agent-linux /usr/local/bin/
 ```
 
-#### Configuration
+#### API Key Setup
 
 Create a `.env` file in the directory where you will run the agent:
 
@@ -121,6 +160,8 @@ DEEPSEEK_API_KEY=your_api_key_here
 ```
 
 > ⚠️ The `.env` file is gitignored — never commit your API key.
+
+See the [Configuration Reference](#configuration-reference) section below for the full `config.toml` reference.
 
 ### Running
 
@@ -287,10 +328,80 @@ The session file is gitignored by default.
 - Press **Esc** twice quickly, or **Ctrl+C** twice quickly, to quit the agent
 - Press **Ctrl+D** to quit via EOF
 
+## Troubleshooting
 
-## Configuration
+### Connection Issues
 
-`config.toml` (optional, placed in the working directory):
+**Symptom:** Agent fails to connect or responds with errors.
+
+**Solutions:**
+- Verify your API key is set correctly in `.env`
+- Check network connectivity to the API endpoint
+- If using a custom `base_url`, ensure the endpoint is accessible
+- Use `/connect` to switch providers or reconfigure
+
+### Token Limit Warnings
+
+**Symptom:** "Context limit approaching" or performance degradation in long sessions.
+
+**Solutions:**
+- Use `/clear` to reset conversation history (also clears saved session)
+- Use `/new` to start a completely fresh session
+- Adjust `[context]` settings in `config.toml`:
+  ```toml
+  [context]
+  window_size = 2097152  # Increase to 2M tokens
+  ```
+
+### Auto-Review Fails
+
+**Symptom:** Auto-review reports a JSON parsing error.
+
+**Solutions:**
+- Ensure the LLM returns valid JSON — most issues are transient and fixed on retry
+- Check that `[review]` settings in `config.toml` are reasonable:
+  ```toml
+  [review]
+  max_review_iterations = 3
+  ```
+- Toggle auto-review off with `/review --auto` if it becomes too aggressive
+
+### UI Rendering Issues
+
+**Symptom:** Garbled output, misaligned text, or unreadable characters.
+
+**Solutions:**
+- Ensure your terminal supports Unicode (UTF-8)
+- Use a modern terminal emulator (Kitty, Alacritty, iTerm2, Windows Terminal)
+- Reduce terminal font size if long lines wrap unexpectedly
+- Try `thinking_display = "collapsed"` in `config.toml` to minimize output
+
+### Session Persistence Not Working
+
+**Symptom:** Session does not restore on restart or `/save` produces no file.
+
+**Solutions:**
+- Verify `[session]` is enabled in `config.toml`:
+  ```toml
+  [session]
+  enabled = true
+  ```
+- Check that the working directory is writable
+- The session file `.session.json` is gitignored — not visible in git status
+
+### Slow Responses
+
+**Symptom:** Agent takes a long time to respond.
+
+**Solutions:**
+- Check your network latency to the API endpoint
+- Reduce `[context].window_size` if the conversation is very long
+- Use a faster model via `/model` command
+- Check token usage with `/tokens` to see if context is bloated
+
+## Configuration Reference
+
+Below is the full `config.toml` (optional, placed in the working directory):
 
 ```toml
 [llm]

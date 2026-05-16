@@ -777,6 +777,15 @@ impl ReviewAgent {
     /// Returns the raw list of ReviewIssue structs.
     fn parse_issues_from_response(&self, response: &str) -> Result<Vec<ReviewIssue>> {
         let json_str = self.extract_json(response)?;
+
+        // Guard: empty or whitespace-only JSON means no issues to report.
+        // This handles cases where the LLM output an empty code block
+        // (e.g. ```json followed immediately by ```) or other edge cases
+        // that result in an empty extracted string.
+        if json_str.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
         let sanitized = sanitize_json_escapes(&json_str);
         let parsed: serde_json::Value = match serde_json::from_str(&sanitized) {
             Ok(v) => v,
@@ -1004,14 +1013,19 @@ pub fn extract_json_from_response(response: &str) -> Result<String> {
 
     // Strategy 3: Find outermost { ... } pair using string-aware brace counting
     // This handles nested braces properly and skips braces inside string literals.
+    //
+    // NOTE: `find('{')` returns a byte index, so we use `char_indices()` which
+    // also returns byte indices (not `.chars().enumerate()` which returns char
+    // indices). This is critical for correctness when multi-byte Unicode
+    // characters (emoji, CJK, etc.) appear before the first `{`.
     if let Some(start) = response.find('{') {
         let mut depth = 0_i64;
         let mut json_start = None;
         let mut json_end = None;
         let mut in_string = false;
         let mut prev_was_escape = false;
-        for (i, ch) in response.chars().enumerate() {
-            if i < start { continue; }
+        for (byte_i, ch) in response[start..].char_indices() {
+            let i = start + byte_i;
             // Track string boundaries to skip braces inside strings
             if ch == '"' && !prev_was_escape {
                 in_string = !in_string;

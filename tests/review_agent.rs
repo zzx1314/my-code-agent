@@ -310,6 +310,123 @@ fn test_extract_json_single_object_with_nested_text() {
 }
 
 // =============================================================================
+// Tests for multi-byte character handling (UTF-8 byte index fix)
+// The previous bug: `chars().enumerate()` returned char indices but
+// `response.find('{')` returned byte indices. Multi-byte chars before the
+// first `{` would cause index mismatch and JSON extraction to fail.
+// The fix uses `char_indices()` which returns byte offsets, consistent
+// with `find()`.
+// =============================================================================
+
+/// Chinese characters before { in bare JSON — was broken before the fix.
+#[test]
+fn test_extract_json_chinese_before_brace() {
+    let response = "审查结果如下：{\"issues\":[],\"summary\":{\"overall_score\":100,\"verdict\":\"approved\"}}";
+    let result = extract_json_from_response(&response).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(parsed["summary"]["verdict"], "approved");
+}
+
+/// Emoji before { in bare JSON — multi-byte chars (4-byte UTF-8).
+#[test]
+fn test_extract_json_emoji_before_brace() {
+    let response = "✅✅✅{\"issues\":[],\"summary\":{\"overall_score\":100,\"verdict\":\"approved\"}}";
+    let result = extract_json_from_response(&response).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(parsed["summary"]["verdict"], "approved");
+}
+
+/// Mixed CJK, emoji, and Latin characters before { in bare JSON.
+#[test]
+fn test_extract_json_mixed_multibyte_before_brace() {
+    let response = "代码审查🎯完成! Result:{\"issues\":[],\"summary\":{\"overall_score\":100,\"verdict\":\"approved\"}}";
+    let result = extract_json_from_response(&response).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(parsed["summary"]["verdict"], "approved");
+}
+
+/// CJK text inside a ```json code block (most common LLM output with Chinese).
+#[test]
+fn test_extract_json_chinese_in_code_block() {
+    let response = "审查结果：\n\n```json\n{\"issues\":[{\"file\":\"src/main.rs\",\"line\":42,\"severity\":\"high\",\"title\":\"安全问题\",\"description\":\"发现SQL注入风险\"}],\"summary\":{\"overall_score\":70,\"verdict\":\"needs_revision\"}}\n```";
+    let result = extract_json_from_response(&response).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(parsed["issues"][0]["title"], "安全问题");
+    assert_eq!(parsed["summary"]["verdict"], "needs_revision");
+}
+
+/// CJK text inside a plain ``` code block (without json specifier).
+#[test]
+fn test_extract_json_chinese_in_plain_code_block() {
+    let response = "分析完毕:\n\n```\n{\"issues\":[{\"title\":\"需要改进\"}],\"summary\":{\"overall_score\":80,\"verdict\":\"approved\"}}\n```";
+    let result = extract_json_from_response(&response).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(parsed["issues"][0]["title"], "需要改进");
+}
+
+/// Empty ```json code block — should return empty issues via parse_issues_from_response.
+#[test]
+fn test_extract_json_empty_json_code_block() {
+    let response = "```json\n\n```";
+    let result = extract_json_from_response(&response).unwrap();
+    assert!(result.trim().is_empty(), "Empty code block should produce empty string");
+}
+
+/// Only whitespace in code block.
+#[test]
+fn test_extract_json_whitespace_only_code_block() {
+    let response = "```json\n   \n```";
+    let result = extract_json_from_response(&response).unwrap();
+    assert!(result.trim().is_empty(), "Whitespace-only code block should produce empty string");
+}
+
+/// Tab characters (not just spaces) in code block.
+#[test]
+fn test_extract_json_tab_only_code_block() {
+    let response = "```json\n\t\n```";
+    let result = extract_json_from_response(&response).unwrap();
+    assert!(result.trim().is_empty(), "Tab-only code block should produce empty string");
+}
+
+/// Response with only Chinese text and no JSON at all.
+#[test]
+fn test_extract_json_chinese_only_no_json() {
+    let response = "代码审查完成，没有发现问题。";
+    let result = extract_json_from_response(response);
+    assert!(result.is_err(), "Response with no JSON should error");
+}
+
+/// JSON with Chinese content inside string values.
+#[test]
+fn test_extract_json_chinese_in_json_values() {
+    let json = r#"{"issues":[{"title":"功能不完整","description":"缺少排序功能"}],"summary":{"score":60}}"#;
+    let result = extract_json_from_response(json).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(parsed["issues"][0]["title"], "功能不完整");
+}
+
+/// Realistic auto-review response with mixed Chinese + emoji before JSON.
+/// This simulates what actually caused the "expected value at line 1 column 1" error.
+#[test]
+fn test_extract_json_auto_review_chinese_response() {
+    let response = "✅ 代码审查完成\n\n分析结果：审查了所有变更文件，以下是审查报告：\n\n{\"issues\":[{\"file\":\"README.md\",\"line\":1,\"severity\":\"low\",\"category\":\"style\",\"title\":\"格式建议\",\"description\":\"可以考虑改进文档结构\"}],\"summary\":{\"overall_score\":85,\"verdict\":\"approved\"}}";
+    let result = extract_json_from_response(&response).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(parsed["summary"]["verdict"], "approved");
+    assert_eq!(parsed["issues"][0]["title"], "格式建议");
+}
+
+/// JSON with nested braces AND Chinese content before it.
+#[test]
+fn test_extract_json_nested_braces_with_chinese_prefix() {
+    let json = r#"{"issues":[{"file":"test.rs","line":5,"description":"包含中文 { 和 } 括号"}],"summary":{"score":85}}"#;
+    let response = format!("审查结果：{} 完毕", json);
+    let result = extract_json_from_response(&response).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(parsed["issues"][0]["description"], "包含中文 { 和 } 括号");
+}
+
+// =============================================================================
 // Tests for repair_truncated_json
 // =============================================================================
 

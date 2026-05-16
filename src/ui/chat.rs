@@ -22,9 +22,15 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
     let width = Some(area.width as usize);
 
+    // ── Review reasoning is rendered in ALL branches ────────────────────
+    // Review reasoning (`app.review_reasoning`) is transient thinking content
+    // from the review agent's LLM calls. It must be visible regardless of the
+    // main agent's reasoning state, so we always call `render_review_reasoning`.
+
     if !app.is_streaming && has_reasoning && app.show_inline_reasoning {
         let mut lines: Vec<ratatui::text::Line> = Vec::new();
         render_chat_with_reasoning(&mut lines, app, width);
+        render_review_reasoning(&mut lines, app, width);
         render_status_messages(&mut lines, app, area);
         render_paragraph_with_scroll(f, app, lines, area);
     } else if has_reasoning {
@@ -52,9 +58,10 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             (areas[0], areas[1])
         };
 
-        // Top: history + streaming content
+        // Top: history + streaming content + review reasoning
         let mut content_lines: Vec<ratatui::text::Line> = Vec::new();
         render_chat_messages(&mut content_lines, app, width);
+        render_review_reasoning(&mut content_lines, app, width);
         render_streaming_content(&mut content_lines, app, width);
         render_status_messages(&mut content_lines, app, area);
         render_paragraph_with_scroll(f, app, content_lines, content_area);
