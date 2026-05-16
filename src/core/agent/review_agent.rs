@@ -607,7 +607,8 @@ impl ReviewAgent {
     /// Returns the raw list of ReviewIssue structs.
     fn parse_issues_from_response(&self, response: &str) -> Result<Vec<ReviewIssue>> {
         let json_str = self.extract_json(response)?;
-        let parsed: serde_json::Value = serde_json::from_str(&json_str)?;
+        let sanitized = sanitize_json_escapes(&json_str);
+        let parsed: serde_json::Value = serde_json::from_str(&sanitized)?;
 
         let mut issues = Vec::new();
 
@@ -875,6 +876,90 @@ pub fn extract_json_from_response(response: &str) -> Result<String> {
         "Unable to extract JSON from response. Response was:\n{}",
         response.chars().take(500).collect::<String>()
     )
+}
+
+/// Sanitize a JSON string by fixing invalid escape sequences.
+///
+/// LLMs frequently produce JSON with invalid escapes like `\x`, `\uGGGG`,
+/// or unescaped backslashes in Windows paths (`C:\Users\test`).
+/// This function converts invalid `\X` → `\\X` so that `serde_json::from_str`
+/// can parse the result without error.
+///
+/// Valid JSON escapes (`\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`)
+/// are left untouched.
+pub fn sanitize_json_escapes(json: &str) -> String {
+    let mut result = String::with_capacity(json.len() + json.len() / 20);
+    let mut chars = json.chars().peekable();
+    let mut in_string = false;
+
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            in_string = !in_string;
+            result.push(ch);
+            continue;
+        }
+        if !in_string || ch != '\\' {
+            result.push(ch);
+            continue;
+        }
+
+        // We're inside a string and just saw a backslash — check what follows
+        let Some(next) = chars.peek() else {
+            // Trailing backslash at end of string — escape it
+            result.push_str("\\\\");
+            break;
+        };
+
+        match next {
+            // Valid JSON escape sequences — keep as-is
+            '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' => {
+                result.push(ch);
+                result.push(chars.next().unwrap());
+            }
+            // Unicode escape: must be \u followed by exactly 4 hex digits
+            'u' => {
+                // Peek ahead to check 4 hex digits
+                let mut hex_valid = true;
+                let mut hex_chars = Vec::new();
+                for _ in 0..4 {
+                    chars.next(); // consume 'u' on first iteration
+                    if let Some(h) = chars.peek() {
+                        if h.is_ascii_hexdigit() {
+                            hex_chars.push(*h);
+                        } else {
+                            hex_valid = false;
+                            break;
+                        }
+                    } else {
+                        hex_valid = false;
+                        break;
+                    }
+                }
+                if hex_valid {
+                    // Valid \uXXXX — keep entire sequence
+                    result.push('\\');
+                    result.push('u');
+                    for h in &hex_chars {
+                        result.push(*h);
+                    }
+                } else {
+                    // Invalid unicode escape — treat backslash as literal
+                    result.push_str("\\\\");
+                    result.push('u');
+                    for h in &hex_chars {
+                        result.push(*h);
+                    }
+                }
+            }
+            // Invalid escape — double the backslash to make it literal
+            _ => {
+                result.push_str("\\\\");
+                result.push(chars.next().unwrap());
+            }
+        }
+    }
+
+    result
 }
 
 fn clean_review_content(content: &str) -> String {

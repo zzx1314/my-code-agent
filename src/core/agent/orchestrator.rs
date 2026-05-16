@@ -10,7 +10,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use super::preamble::Agent;
-use super::review_agent::{ReviewAgent, ReviewRequest, ReviewEvent};
+use super::review_agent::{ReviewAgent, ReviewRequest, ReviewEvent, sanitize_json_escapes};
 use crate::core::config::Config;
 use crate::core::types::review::*;
 use crate::core::types::Message;
@@ -62,11 +62,13 @@ impl AgentOrchestrator {
                 // First try to parse as JSON (file_write / file_update output)
                 if let Some(changed_file) = Self::parse_tool_output(&msg.content) {
                     if !files.iter().any(|f: &ChangedFile| f.path == changed_file.path) {
+                        tracing::info!(path = %changed_file.path, diff_lines = changed_file.diff.lines().count(), "detect_changed_files: parsed tool output");
                         files.push(changed_file);
                     }
                 } else if let Some(path) = Self::extract_file_path(&msg.content) {
                     // Fallback: extract path from text
                     if !files.iter().any(|f: &ChangedFile| f.path == path) {
+                        tracing::warn!(path = %path, "detect_changed_files: fallback text extraction (no git_diff)");
                         files.push(ChangedFile {
                             path,
                             change_type: ChangeType::Modified,
@@ -79,13 +81,21 @@ impl AgentOrchestrator {
             }
         }
 
+        if files.is_empty() {
+            let tool_count = history.iter().filter(|m| m.role == "tool").count();
+            tracing::warn!(tool_messages = tool_count, history_len = history.len(), "detect_changed_files: no changes found");
+        } else {
+            tracing::info!(count = files.len(), "detect_changed_files: found changes");
+        }
+
         files
     }
 
     /// Parse a tool message's JSON content to extract file change info.
     /// Handles both FileWriteOutput and FileUpdateOutput formats.
     pub fn parse_tool_output(content: &str) -> Option<ChangedFile> {
-        let val: serde_json::Value = serde_json::from_str(content).ok()?;
+        let sanitized = sanitize_json_escapes(content);
+        let val: serde_json::Value = serde_json::from_str(&sanitized).ok()?;
         let path = val.get("path")?.as_str()?.to_string();
 
         // Extract git_diff if available
@@ -120,7 +130,8 @@ impl AgentOrchestrator {
     /// Extract file path from tool execution result
     fn extract_file_path(content: &str) -> Option<String> {
         // Try to extract path field from JSON
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
+        let sanitized = sanitize_json_escapes(content);
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&sanitized) {
             if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
                 return Some(path.to_string());
             }
