@@ -464,31 +464,40 @@ impl AgentOrchestrator {
     }
 
     /// Determine whether auto-review should be triggered
+    ///
+    /// Only checks the **most recent assistant turn** for write operations,
+    /// preventing auto-review from re-triggering on subsequent interactions
+    /// that don't involve new file changes.
     pub fn should_auto_review(&self, history: &[Message]) -> bool {
         if !self.auto_review_enabled || !self.config.enabled {
             return false;
         }
 
-        let changed_files = self.detect_changed_files(history);
-        if changed_files.is_empty() {
+        // Only check the most recent assistant turn for write operations.
+        // This prevents auto-review from triggering on subsequent interactions
+        // that don't involve new file changes, which was the previous behavior
+        // when scanning the entire history.
+        let has_recent_write = history
+            .iter()
+            .rev()
+            .find(|msg| msg.role == "assistant")
+            .and_then(|msg| msg.tool_calls.as_ref())
+            .map(|calls| {
+                calls.iter().any(|tc| {
+                    tc.function.name == "file_write"
+                        || tc.function.name == "file_update"
+                        || tc.function.name == "file_delete"
+                        || tc.function.name == "apply_patch"
+                })
+            })
+            .unwrap_or(false);
+
+        if !has_recent_write {
             return false;
         }
 
-        // Check for write operations (file_write / file_update / file_delete)
-        history.iter().any(|msg| {
-            msg.role == "assistant"
-                && msg
-                    .tool_calls
-                    .as_ref()
-                    .map(|calls| {
-                        calls.iter().any(|tc| {
-                            tc.function.name == "file_write"
-                                || tc.function.name == "file_update"
-                                || tc.function.name == "file_delete"
-                        })
-                    })
-                    .unwrap_or(false)
-        })
+        let changed_files = self.detect_changed_files(history);
+        !changed_files.is_empty()
     }
 }
 

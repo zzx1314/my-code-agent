@@ -1569,3 +1569,193 @@ fn test_format_file_context_no_output_when_no_declarations() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+// =============================================================================
+// Tests for should_auto_review
+// =============================================================================
+
+use std::sync::Arc;
+use my_code_agent::core::agent::client::LlmClient;
+use my_code_agent::core::agent::preamble::Agent;
+use my_code_agent::core::config::Config;
+use my_code_agent::core::types::{ToolCall, ToolCallFunction};
+use my_code_agent::tools::ToolRegistry;
+
+/// Helper: create a minimal AgentOrchestrator with auto-review set to the given value
+fn make_orchestrator(auto_review_enabled: bool) -> AgentOrchestrator {
+    let config = Config::default();
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let agent = Arc::new(Agent::new(
+        client.clone(),
+        "test system prompt".to_string(),
+        ToolRegistry::new(),
+    ));
+    let rcfg = my_code_agent::core::types::review::ReviewConfig::from_app_config(&config.review);
+    let review_agent = Arc::new(ReviewAgent::new(client, rcfg.clone()));
+
+    AgentOrchestrator {
+        main_agent: agent,
+        review_agent,
+        config: rcfg,
+        auto_review_enabled,
+    }
+}
+
+/// Helper: create a file_write tool call
+fn write_tc(id: &str) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        type_: "function".to_string(),
+        function: ToolCallFunction { name: "file_write".into(), arguments: "{}".into() },
+    }
+}
+
+/// Helper: create a file_update tool call
+fn update_tc(id: &str) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        type_: "function".to_string(),
+        function: ToolCallFunction { name: "file_update".into(), arguments: "{}".into() },
+    }
+}
+
+/// Helper: create a file_delete tool call
+fn delete_tc(id: &str) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        type_: "function".to_string(),
+        function: ToolCallFunction { name: "file_delete".into(), arguments: "{}".into() },
+    }
+}
+
+/// Helper: create an apply_patch tool call
+fn patch_tc(id: &str) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        type_: "function".to_string(),
+        function: ToolCallFunction { name: "apply_patch".into(), arguments: "{}".into() },
+    }
+}
+
+/// Helper: create a file_read tool call (NOT a write operation)
+fn read_tc(id: &str) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        type_: "function".to_string(),
+        function: ToolCallFunction { name: "file_read".into(), arguments: "{}".into() },
+    }
+}
+
+/// Helper: create a tool result message for a file write operation
+fn tool_result(id: &str, path: &str) -> Message {
+    Message::tool(id, serde_json::json!({"path": path, "bytes_written": 100}).to_string())
+}
+
+/// Test 1: Latest assistant turn has a file_write tool call → should return true
+#[test]
+fn test_should_auto_review_recent_write_returns_true() {
+    let orch = make_orchestrator(true);
+    let history = vec![
+        Message::assistant_with_tool_calls("Writing...", vec![write_tc("call_1")]),
+        tool_result("call_1", "src/main.rs"),
+    ];
+    assert!(orch.should_auto_review(&history));
+}
+
+/// Test 2: Latest assistant turn has no tool calls (just text) → should return false
+#[test]
+fn test_should_auto_review_no_tool_calls_returns_false() {
+    let orch = make_orchestrator(true);
+    let history = vec![
+        Message::assistant("Here's my analysis."),
+    ];
+    assert!(!orch.should_auto_review(&history));
+}
+
+/// Test 3: Latest assistant has file_read (non-write) → should return false
+#[test]
+fn test_should_auto_review_read_only_returns_false() {
+    let orch = make_orchestrator(true);
+    let history = vec![
+        Message::assistant_with_tool_calls("Reading...", vec![read_tc("call_1")]),
+        Message::tool("call_1", serde_json::json!({"path": "src/main.rs", "lines": 10, "total_lines": 100}).to_string()),
+    ];
+    assert!(!orch.should_auto_review(&history));
+}
+
+/// Test 4: Old history has file_write, but latest turn has no write ops → should return false
+#[test]
+fn test_should_auto_review_old_write_no_recent_write_returns_false() {
+    let orch = make_orchestrator(true);
+    let history = vec![
+        // Old assistant message with file_write
+        Message::assistant_with_tool_calls("Old write...", vec![write_tc("call_1")]),
+        tool_result("call_1", "src/main.rs"),
+        // Latest assistant message without any tool calls (just text)
+        Message::assistant("Here's my analysis."),
+    ];
+    assert!(!orch.should_auto_review(&history));
+}
+
+/// Test 5: file_update is recognized as a write operation
+#[test]
+fn test_should_auto_review_file_update_returns_true() {
+    let orch = make_orchestrator(true);
+    let history = vec![
+        Message::assistant_with_tool_calls("Updating...", vec![update_tc("call_1")]),
+        tool_result("call_1", "src/lib.rs"),
+    ];
+    assert!(orch.should_auto_review(&history));
+}
+
+/// Test 6: file_delete is recognized as a write operation
+#[test]
+fn test_should_auto_review_file_delete_returns_true() {
+    let orch = make_orchestrator(true);
+    let history = vec![
+        Message::assistant_with_tool_calls("Deleting...", vec![delete_tc("call_1")]),
+        tool_result("call_1", "src/old.rs"),
+    ];
+    assert!(orch.should_auto_review(&history));
+}
+
+/// Test 7: apply_patch is now recognized as a write operation
+#[test]
+fn test_should_auto_review_apply_patch_returns_true() {
+    let orch = make_orchestrator(true);
+    let history = vec![
+        Message::assistant_with_tool_calls("Patching...", vec![patch_tc("call_1")]),
+        tool_result("call_1", "src/main.rs"),
+    ];
+    assert!(orch.should_auto_review(&history));
+}
+
+/// Test 8: auto_review_enabled = false → returns false even with write ops
+#[test]
+fn test_should_auto_review_disabled_returns_false() {
+    let orch = make_orchestrator(false);
+    let history = vec![
+        Message::assistant_with_tool_calls("Writing...", vec![write_tc("call_1")]),
+        tool_result("call_1", "src/main.rs"),
+    ];
+    assert!(!orch.should_auto_review(&history));
+}
+
+/// Test 9: Empty history → returns false
+#[test]
+fn test_should_auto_review_empty_history_returns_false() {
+    let orch = make_orchestrator(true);
+    assert!(!orch.should_auto_review(&[]));
+}
+
+/// Test 10: Tool result has no valid path → detect_changed_files returns empty
+#[test]
+fn test_should_auto_review_missing_file_path_returns_false() {
+    let orch = make_orchestrator(true);
+    let history = vec![
+        Message::assistant_with_tool_calls("Writing...", vec![write_tc("call_1")]),
+        // Tool result without a "path" field
+        Message::tool("call_1", r#"{"message": "ok"}"#),
+    ];
+    assert!(!orch.should_auto_review(&history));
+}
