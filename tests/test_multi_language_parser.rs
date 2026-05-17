@@ -14,7 +14,7 @@ fn test_language_from_extension() {
     assert_eq!(Language::from_extension("html"), Some(Language::Html));
     assert_eq!(Language::from_extension("htm"), Some(Language::Html));
     assert_eq!(Language::from_extension("vue"), Some(Language::Vue));
-    assert_eq!(Language::from_extension("py"), None);
+    assert_eq!(Language::from_extension("py"), Some(Language::Python));
     assert_eq!(Language::from_extension("ts"), Some(Language::TypeScript));
 }
 
@@ -151,10 +151,25 @@ class Foo {
 }
 
 #[test]
-fn test_js_parse_none_jsx_file() {
-    // Ensure .py returns None
-    let parsed = ParsedFile::parse_with_path("x = 1".to_string(), "test.py");
-    assert!(parsed.is_none());
+fn test_python_parse_function() {
+    // Ensure Python files parse correctly
+    let source = r#"def hello():
+    print("Hello, World!")
+
+class Greeter:
+    def greet(self):
+        print("Hi!")
+"#;
+    let parsed = ParsedFile::parse_with_path(source.to_string(), "test.py").unwrap();
+    let structures = parsed.get_all_structures();
+
+    assert_eq!(structures.len(), 3, "Should find hello(), Greeter class, and greet() method");
+    assert_eq!(structures[0].kind, "function");
+    assert_eq!(structures[0].name, Some("hello".to_string()));
+    assert_eq!(structures[1].kind, "class");
+    assert_eq!(structures[1].name, Some("Greeter".to_string()));
+    assert_eq!(structures[2].kind, "function");
+    assert_eq!(structures[2].name, Some("greet".to_string()));
 }
 
 // =============================================================================
@@ -450,4 +465,100 @@ export default {
     println!("=============================\n");
 
     assert!(structures.len() >= 3, "Should detect Vue SFC blocks");
+}
+
+
+// =============================================================================
+// Python parsing
+// =============================================================================
+
+#[test]
+fn test_python_parse_decorated_function() {
+    let source = r#"@staticmethod
+def helper():
+    pass
+
+@dataclass
+class Config:
+    name: str
+    value: int
+"#;
+    let parsed = ParsedFile::parse_with_path(source.to_string(), "test.py").unwrap();
+    let structures = parsed.get_all_structures();
+
+    assert_eq!(structures[0].kind, "function");
+    assert_eq!(structures[0].name, Some("helper".to_string()));
+    assert_eq!(structures[1].kind, "class");
+    assert_eq!(structures[1].name, Some("Config".to_string()));
+}
+
+#[test]
+fn test_python_find_enclosing_structure() {
+    let source = r#"def outer():
+    def inner():
+        pass
+    inner()
+
+class MyClass:
+    def method(self):
+        pass
+"#;
+    let parsed = ParsedFile::parse_with_path(source.to_string(), "test.py").unwrap();
+
+    // Line 1 (inner) -> should find inner function
+    let inner = parsed.find_enclosing_structure(1).unwrap();
+    assert_eq!(inner.kind, "function");
+    assert_eq!(inner.name, Some("inner".to_string()));
+
+    // Line 0 (outer def) -> should find outer function
+    let outer = parsed.find_enclosing_structure(0).unwrap();
+    assert_eq!(outer.kind, "function");
+    assert_eq!(outer.name, Some("outer".to_string()));
+
+    // Line 6 (method def) -> should find method
+    let method = parsed.find_enclosing_structure(6).unwrap();
+    assert_eq!(method.kind, "function");
+    assert_eq!(method.name, Some("method".to_string()));
+}
+
+#[test]
+fn test_python_smart_read_extends_to_function_boundary() {
+    let source = r#"def foo():
+    print("hello")
+    print("world")
+
+def bar():
+    print("bye")
+"#;
+    let parsed = ParsedFile::parse_with_path(source.to_string(), "test.py").unwrap();
+    // Lines: 0=def foo, 1=print, 2=print, 3=blank, 4=def bar, 5=print
+    let total = 6;
+
+    // Smart read starting at line 0 with limit 2 should extend through foo's body
+    let result = parsed.smart_read(0, 2, total);
+    assert_eq!(result.adjusted_end, 3, "Should extend to include full foo()");
+    assert_eq!(
+        result.extended_structure.as_ref().map(|s| s.name.as_deref()),
+        Some(Some("foo"))
+    );
+
+    // Smart read of entire file should NOT extend
+    let result2 = parsed.smart_read(0, 10, total);
+    assert!(result2.extended_structure.is_none(), "No extension when reading full file");
+}
+
+#[test]
+fn test_python_parse_class_with_methods() {
+    let source = r#"class MyClass:
+    def method(self):
+        pass
+"#;
+    let parsed = ParsedFile::parse_with_path(source.to_string(), "test.py").unwrap();
+    let structures = parsed.get_all_structures();
+
+    assert_eq!(structures.len(), 2, "Should find MyClass and method");
+    assert_eq!(structures[0].kind, "class");
+    assert_eq!(structures[0].name, Some("MyClass".to_string()));
+    assert_eq!(structures[1].kind, "function");
+    assert_eq!(structures[1].name, Some("method".to_string()));
 }

@@ -9,6 +9,7 @@ pub enum Language {
     Java,
     Html,
     Vue,
+    Python,
 }
 
 impl Language {
@@ -21,6 +22,7 @@ impl Language {
             "java" => Some(Language::Java),
             "html" | "htm" => Some(Language::Html),
             "vue" => Some(Language::Vue),
+            "py" => Some(Language::Python),
             _ => None,
         }
     }
@@ -101,6 +103,7 @@ impl ParsedFile {
             Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             Language::Java => tree_sitter_java::LANGUAGE.into(),
             Language::Html | Language::Vue => tree_sitter_html::LANGUAGE.into(),
+            Language::Python => tree_sitter_python::language().into(),
         };
         let mut parser = Parser::new();
         parser.set_language(&lang_fn).ok()?;
@@ -176,6 +179,7 @@ impl ParsedFile {
             Language::Java => Self::java_node_kind(node),
             Language::Html => Self::html_node_kind(node),
             Language::Vue => Self::vue_node_kind(node, &self.source),
+            Language::Python => Self::python_node_kind(node),
         };
 
         let kind = kind?;
@@ -284,6 +288,24 @@ impl ParsedFile {
             _ => None,
         }
     }
+    /// Map Python AST node kinds to structure types
+    fn python_node_kind(node: Node) -> Option<&'static str> {
+        match node.kind() {
+            "function_definition" => Some("function"),
+            "class_definition" => Some("class"),
+            "decorated_definition" => {
+                // Look inside for the actual definition
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if let Some(kind) = Self::python_node_kind(child) {
+                        return Some(kind);
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
 
     /// Check if a variable/lexical declaration has a function value
     fn has_function_value(node: Node, _source: &str) -> bool {
@@ -375,6 +397,7 @@ impl ParsedFile {
                 .child_by_field_name("name")
                 .and_then(|n| n.utf8_text(self.source.as_bytes()).ok())
                 .map(|s| s.to_string()),
+            Language::Python => Self::get_python_node_name(node, &self.source),
         }
     }
 
@@ -412,6 +435,28 @@ impl ParsedFile {
         None
     }
 
+    /// Get the name of a Python AST node.
+    /// For decorated definitions, looks inside for the actual function/class name.
+    fn get_python_node_name(node: Node, source: &str) -> Option<String> {
+        // For decorated_definition, look inside for the inner definition's name
+        if node.kind() == "decorated_definition" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if matches!(child.kind(), "function_definition" | "class_definition") {
+                    if let Some(name_node) = child.child_by_field_name("name") {
+                        if let Ok(text) = name_node.utf8_text(source.as_bytes()) {
+                            return Some(text.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        // For function_definition, class_definition, etc., use the "name" field
+        node.child_by_field_name("name")
+            .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+            .map(|s| s.to_string())
+    }
+
     /// Recursively collect structures from a node
     fn collect_structures(&self, node: Node, _top_level_only: bool) -> Vec<StructureInfo> {
         let mut structures = Vec::new();
@@ -425,6 +470,7 @@ impl ParsedFile {
                 Language::Java => Self::java_node_kind(child),
                 Language::Html => Self::html_node_kind(child),
                 Language::Vue => Self::vue_node_kind(child, &self.source),
+                Language::Python => Self::python_node_kind(child),
             };
 
             let kind = match kind {
@@ -455,6 +501,10 @@ impl ParsedFile {
             }
             // For class declarations (Java), also collect methods and constructors inside
             if self.language == Language::Java && matches!(kind, "class" | "interface" | "enum" | "record") {
+                structures.extend(self.collect_structures(child, false));
+            }
+            // For class definitions (Python), also collect methods/functions inside
+            if self.language == Language::Python && kind == "class" {
                 structures.extend(self.collect_structures(child, false));
             }
         }
