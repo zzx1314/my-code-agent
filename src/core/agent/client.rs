@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use std::time::Duration;
+use tracing::{debug, warn};
 
 use crate::core::types::{Message, StreamChunk, ToolDefinition};
 
@@ -110,6 +111,16 @@ impl LlmClient {
         let body = self.build_request_body(messages, tool_definitions, true);
         let headers = self.headers()?;
 
+        debug!(
+            url = %self.chat_url(),
+            model = %self.model,
+            message_count = messages.len(),
+            tool_count = tool_definitions.len(),
+            stream = true,
+            "Sending streaming chat request to LLM"
+        );
+        debug!(request_body = %body, "LLM request body");
+
         let response = self
             .http_client
             .post(&self.chat_url())
@@ -119,9 +130,12 @@ impl LlmClient {
             .await
             .context("Failed to send chat request")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
+        let status = response.status();
+        debug!(status = %status, "Received LLM response status");
+
+        if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
+            warn!(status = %status, error = %text, "LLM API error");
             anyhow::bail!("Chat API error ({}): {}", status, text);
         }
 
@@ -141,6 +155,16 @@ impl LlmClient {
         let body = self.build_request_body(messages, tool_definitions, false);
         let headers = self.headers()?;
 
+        debug!(
+            url = %self.chat_url(),
+            model = %self.model,
+            message_count = messages.len(),
+            tool_count = tool_definitions.len(),
+            stream = false,
+            "Sending non-streaming chat request to LLM"
+        );
+        debug!(request_body = %body, "LLM request body");
+
         let response = self
             .http_client
             .post(&self.chat_url())
@@ -150,9 +174,12 @@ impl LlmClient {
             .await
             .context("Failed to send chat request")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
+        let status = response.status();
+        debug!(status = %status, "Received LLM response status");
+
+        if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
+            warn!(status = %status, error = %text, "LLM API error");
             anyhow::bail!("Chat API error ({}): {}", status, text);
         }
 
@@ -161,6 +188,7 @@ impl LlmClient {
             .await
             .context("Failed to parse chat response")?;
 
+        debug!("Successfully parsed LLM response");
         Ok(json)
     }
 }

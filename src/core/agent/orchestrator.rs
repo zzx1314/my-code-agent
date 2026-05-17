@@ -108,11 +108,12 @@ impl AgentOrchestrator {
         let val: serde_json::Value = serde_json::from_str(&sanitized).ok()?;
         let path = val.get("path")?.as_str()?.to_string();
 
-        // Skip read-only tools (file_read/file_outline/code_review) that have
-        // a `path` field but didn't modify any files.
+        // Skip read-only tools (file_read/file_outline/code_review/propose_str_replace)
+        // that have a `path` field but didn't modify any files.
         let is_read_only = val.get("lines").is_some()
             || val.get("total_lines").is_some()
-            || val.get("files").is_some();
+            || val.get("files").is_some()
+            || val.get("lines_added").is_some();
         if is_read_only {
             return None;
         }

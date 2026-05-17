@@ -35,8 +35,27 @@ pub async fn init_app() -> Result<InitState> {
 
     // ── 2. Logging ──────────────────────────────────────────────────────────
     let log_path = crate::core::paths::app_file(".my-code-agent.log");
-    let log_file = std::fs::File::create(&log_path)
-        .unwrap_or_else(|_| std::fs::File::create("/tmp/my-code-agent.log").unwrap());
+
+    // Rotate log file if it exceeds 10 MB to prevent unbounded growth.
+    const MAX_LOG_SIZE: u64 = 10 * 1024 * 1024;
+    if let Ok(metadata) = std::fs::metadata(&log_path) {
+        if metadata.len() > MAX_LOG_SIZE {
+            let rotated = log_path.with_extension("log.old");
+            let _ = std::fs::rename(&log_path, &rotated);
+        }
+    }
+
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .unwrap_or_else(|_| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/tmp/my-code-agent.log")
+                .unwrap()
+        });
 
     tracing_subscriber::fmt()
         .with_writer(log_file)

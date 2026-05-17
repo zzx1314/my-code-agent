@@ -849,9 +849,8 @@ impl ReviewAgent {
 
         let has_functional_completeness_issues = issues.iter().any(|i| matches!(i.category, ReviewCategory::FunctionalCompleteness));
         let has_blocking_issues = critical_count > 0
-            || high_count > 1
-            || (high_count > 0 && has_functional_completeness_issues)
-            || medium_count > 3
+            || high_count > 0
+            || medium_count > 0
             || has_functional_completeness_issues;
 
         let verdict = if has_blocking_issues || !issues.is_empty() {
