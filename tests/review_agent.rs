@@ -1018,16 +1018,17 @@ fn test_iteration_status_messages() {
 use my_code_agent::core::agent::review_agent::ReviewAgent;
 use my_code_agent::core::types::Message;
 
-/// Test extract_context_from_history: keeps user messages, filters out fix prompts
+/// Test extract_context_from_history: keeps user messages, includes main agent's
+/// response to fix prompts as Previous Iteration Feedback, filters out fix prompt content itself.
 #[test]
-fn test_extract_context_from_history_filters_fix_prompts() {
+fn test_extract_context_from_history_includes_agent_feedback() {
     let history = vec![
         Message::user("Add a CSV parser that reads a file and sorts by column"),
         Message::assistant("Here is the code..."),
         Message::tool("call_1", "file_write result"),
-        // Simulated fix prompt from auto-review loop - should be filtered out
+        // Simulated fix prompt from auto-review loop - content should be filtered
         Message::user("fix the issues found in the code review (iteration 1/3)"),
-        Message::assistant("Fixing issues..."),
+        Message::assistant("The README language issue is not a real problem — the project uses English by convention. I'll fix the actual bugs though."),
         // Another fix prompt
         Message::user("Auto-Review Iteration 2/3 - Fix Required"),
     ];
@@ -1036,25 +1037,32 @@ fn test_extract_context_from_history_filters_fix_prompts() {
     
     // Should contain the original user request
     assert!(context.contains("Add a CSV parser"), "Should keep original user request");
-    // Should NOT contain fix loop messages
+    // Should NOT contain fix prompt content
     assert!(!context.contains("fix the issues found"), "Should filter out fix prompts");
     assert!(!context.contains("Auto-Review Iteration"), "Should filter out iteration messages");
     assert!(!context.contains("Fix Required"), "Should filter out fix required messages");
+    // Should include the main agent's response as Previous Iteration Feedback
+    assert!(context.contains("Previous Iteration Feedback"), "Should include feedback section");
+    assert!(context.contains("README language issue is not a real problem"), "Should include agent's response to review");
+    // Should NOT contain "What Was Implemented" since last assistant follows a fix prompt
+    assert!(!context.contains("What Was Implemented"), "Should skip What Was Implemented for fix responses");
 }
 
-/// Test extract_context_from_history: returns empty string when all messages are filtered
+/// Test extract_context_from_history: returns empty string when all messages are
+/// fix prompts with no agent responses (no feedback to extract).
 #[test]
-fn test_extract_context_from_history_all_filtered() {
+fn test_extract_context_from_history_only_fix_prompts() {
     let history = vec![
         Message::user("fix the issues found in the code review (iteration 1/3)"),
         Message::user("Auto-Review Iteration 2/3 - Fix Required"),
     ];
 
     let context = ReviewAgent::extract_context_from_history(&history);
-    assert!(context.is_empty(), "Should return empty when all messages are filtered");
+    assert!(context.is_empty(), "Should return empty when only fix prompts with no agent responses");
 }
 
 /// Test extract_context_from_history: includes original request + recent follow-up
+/// and should NOT include Previous Iteration Feedback when there are no fix prompts.
 #[test]
 fn test_extract_context_from_history_includes_original_and_recent() {
     let history = vec![
@@ -1073,6 +1081,8 @@ fn test_extract_context_from_history_includes_original_and_recent() {
     assert!(context.contains("Second question"), "Should contain follow-up message");
     // Messages after last assistant are not included
     assert!(!context.contains("Third question"), "Should NOT contain message after last assistant");
+    // No fix prompts → no Previous Iteration Feedback
+    assert!(!context.contains("Previous Iteration Feedback"), "Should not have feedback section when no fix prompts");
 }
 
 // =============================================================================

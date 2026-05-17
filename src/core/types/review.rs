@@ -79,6 +79,63 @@ pub struct ReviewIssue {
     pub fix_example: Option<String>,
 }
 
+impl ReviewIssue {
+    /// Compute a stable fingerprint for deduplication across review iterations.
+    ///
+    /// Uses `(file, title, description_prefix)` to identify duplicate issues.
+    /// This catches repeated false positives where the review agent reports the
+    /// same issue in consecutive iterations with no file changes.
+    pub fn fingerprint(&self) -> String {
+        let desc_prefix: String = self.description.chars().take(80).collect();
+        format!("{}::{}::{}", self.file, self.title, desc_prefix)
+    }
+
+    /// Filter out issues whose fingerprints match any in `previous_issues`.
+    ///
+    /// Only filters out if the issue's file was NOT modified in the current
+    /// iteration (checked via `current_changed_files`). If the file was
+    /// modified, the issue is kept — the main agent may have attempted a fix
+    /// and a remaining or different issue deserves another chance.
+    ///
+    /// This prevents the auto-review loop from repeatedly reporting the same
+    /// false positive across iterations when the main agent has chosen not
+    /// to act on a particular issue.
+    pub fn deduplicate_against(
+        issues: Vec<ReviewIssue>,
+        previous_issues: &[ReviewIssue],
+        current_changed_files: &[ChangedFile],
+    ) -> Vec<ReviewIssue> {
+        if previous_issues.is_empty() {
+            return issues;
+        }
+
+        // Build a set of file paths that were actually modified in this iteration.
+        // If a file was modified, we should NOT suppress issues for it even if
+        // the fingerprint matches — the agent may have fixed something else in
+        // that file but the issue remains.
+        let modified_files: std::collections::HashSet<&str> = current_changed_files
+            .iter()
+            .filter(|f| f.change_type != ChangeType::Deleted)
+            .map(|f| f.path.as_str())
+            .collect();
+
+        let prev_fingerprints: std::collections::HashSet<String> = previous_issues
+            .iter()
+            .filter(|i| !modified_files.contains(i.file.as_str()))
+            .map(|i| i.fingerprint())
+            .collect();
+
+        if prev_fingerprints.is_empty() {
+            return issues;
+        }
+
+        issues
+            .into_iter()
+            .filter(|issue| !prev_fingerprints.contains(&issue.fingerprint()))
+            .collect()
+    }
+}
+
 /// Changed file information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangedFile {

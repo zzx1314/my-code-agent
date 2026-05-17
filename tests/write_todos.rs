@@ -38,7 +38,7 @@ fn todo_with_id(id: u32, task: &str, status: TodoStatus) -> TodoItem {
 async fn test_pending_status() {
     let md = call_tool(vec![todo("Do something", TodoStatus::Pending)]).await;
 
-    assert!(md.contains("## Todos"));
+    assert!(md.contains("## 📋 Todos"));
     assert!(md.contains("Do something"));
     assert!(md.contains("[ ]"));
     assert!(md.contains("0/1"));
@@ -48,7 +48,7 @@ async fn test_pending_status() {
 async fn test_in_progress_status() {
     let md = call_tool(vec![todo("Working on it", TodoStatus::InProgress)]).await;
 
-    assert!(md.contains("## Todos"));
+    assert!(md.contains("## 📋 Todos"));
     assert!(md.contains("Working on it"));
     assert!(md.contains("[/]"));
     assert!(md.contains("0/1"));
@@ -58,7 +58,7 @@ async fn test_in_progress_status() {
 async fn test_completed_status() {
     let md = call_tool(vec![todo("Done task", TodoStatus::Completed)]).await;
 
-    assert!(md.contains("## Todos"));
+    assert!(md.contains("## 📋 Todos"));
     assert!(md.contains("Done task"));
     assert!(md.contains("[x]"));
     assert!(md.contains("1/1"));
@@ -68,7 +68,7 @@ async fn test_completed_status() {
 async fn test_failed_status() {
     let md = call_tool(vec![todo("Failed task", TodoStatus::Failed)]).await;
 
-    assert!(md.contains("## Todos"));
+    assert!(md.contains("## 📋 Todos"));
     assert!(md.contains("Failed task"));
     assert!(md.contains("[-]"));
     assert!(md.contains("0/1"));
@@ -87,7 +87,7 @@ async fn test_mixed_statuses() {
     let md = call_tool(todos).await;
 
     // Header
-    assert!(md.contains("## Todos (1/4)"));
+    assert!(md.contains("## 📋 Todos (1/4)"));
 
     // Summary line should mention all statuses
     assert!(md.contains("1 completed"));
@@ -114,7 +114,7 @@ async fn test_mixed_statuses() {
 async fn test_empty_todo_list() {
     let md = call_tool(vec![]).await;
 
-    assert!(md.contains("## Todos (0/0)"));
+    assert!(md.contains("## 📋 Todos (0/0)"));
     // Empty list = no summary parts, but header still shows
     assert!(md.contains("Todos (0/0)"));
 }
@@ -156,7 +156,7 @@ async fn test_all_completed() {
     ];
     let md = call_tool(todos).await;
 
-    assert!(md.contains("## Todos (3/3)"));
+    assert!(md.contains("## 📋 Todos (3/3)"));
     assert!(md.contains("3 completed"));
     // Zero-count statuses should NOT appear in summary
     assert!(!md.contains("0 pending"));
@@ -172,7 +172,7 @@ async fn test_all_pending() {
     ];
     let md = call_tool(todos).await;
 
-    assert!(md.contains("## Todos (0/2)"));
+    assert!(md.contains("## 📋 Todos (0/2)"));
     assert!(md.contains("2 pending"));
 }
 
@@ -186,7 +186,7 @@ async fn test_single_each_status() {
     ];
     let md = call_tool(todos).await;
 
-    assert!(md.contains("## Todos (1/4)"));
+    assert!(md.contains("## 📋 Todos (1/4)"));
     assert!(md.contains("1 completed"));
     assert!(md.contains("1 pending"));
     assert!(md.contains("1 in progress"));
@@ -262,8 +262,8 @@ async fn test_markdown_header() {
     let todos = vec![todo("Test", TodoStatus::Completed)];
     let md = call_tool(todos).await;
 
-    // Should start with h2 markdown header (no emoji)
-    assert!(md.starts_with("## Todos"));
+    // Should start with h2 markdown header with emoji
+    assert!(md.starts_with("## 📋 Todos"));
 }
 
 #[tokio::test]

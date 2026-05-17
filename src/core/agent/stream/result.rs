@@ -133,6 +133,13 @@ pub fn check_review_result(app: &mut App) {
                     app.is_reviewing = false;
                     app.review_result_rx = None;
 
+                    // Save current issues as previous_review_issues for fingerprint
+                    // deduplication in the next iteration.
+                    app.previous_review_issues = outcome.report
+                        .as_ref()
+                        .map(|r| r.issues.clone())
+                        .unwrap_or_default();
+
                     // Add a status message indicating re-review cycle
                     let iteration_status = if iteration + 1 >= max_iterations {
                         format!(
@@ -164,6 +171,7 @@ pub fn check_review_result(app: &mut App) {
                     app.is_reviewing = false;
                     app.review_result_rx = None;
                     app.review_iteration = 0; // Reset for next cycle
+                    app.previous_review_issues.clear(); // Clear for next review cycle
                     app.review_reasoning.clear();
                 }
             }
@@ -172,6 +180,7 @@ pub fn check_review_result(app: &mut App) {
                 app.review_result_rx = None;
                 app.is_reviewing = false;
                 app.review_iteration = 0;
+                app.previous_review_issues.clear();
                 app.review_reasoning.clear();
                 app.review_complete_message = Some("⚠️ Review Disconnected".to_string());
                 app.review_complete_timer = 30;
@@ -244,6 +253,8 @@ pub fn trigger_auto_review(app: &mut App) {
 
             let orchestrator = orchestrator.clone();
             let history_snapshot = app.chat_history.clone();
+            // Pass previous review issues for fingerprint-based deduplication
+            let previous_issues = app.previous_review_issues.clone();
 
             tokio::spawn(async move {
                 let messages: Vec<crate::core::types::Message> = history_snapshot
@@ -283,7 +294,34 @@ pub fn trigger_auto_review(app: &mut App) {
 
                 // Use phased review with events — sends phase progress through event_tx
                 match orchestrator.review_with_events(changed_files, context_opt.as_deref(), event_tx).await {
-                    Ok(report) => {
+                    Ok(mut report) => {
+                        // ── Fingerprint-based deduplication ─────────────────────
+                        // Filter out issues that have the same fingerprint as
+                        // issues from the previous review iteration AND whose
+                        // file was NOT modified in this iteration.
+                        // This prevents repeated false positives across the
+                        // auto-review loop (e.g., language nits that the main
+                        // agent chose to ignore).
+                        let before = report.issues.len();
+                        report.issues = crate::core::types::review::ReviewIssue::deduplicate_against(
+                            report.issues,
+                            &previous_issues,
+                            &report.changed_files,
+                        );
+                        let dedup_count = before.saturating_sub(report.issues.len());
+                        if dedup_count > 0 {
+                            tracing::info!(
+                                count = dedup_count,
+                                "Auto-review: filtered duplicate issues from previous iteration"
+                            );
+                            // Rebuild the report with the filtered issues
+                            // (summary, metrics, verdict all need to be recalculated)
+                            report = orchestrator.review_agent.rebuild_report(
+                                &report.issues,
+                                &report.changed_files,
+                            );
+                        }
+
                         let display_text = orchestrator.format_review_report(&report);
                         let report_summary = format!(
                             "Verdict: {} | Score: {:.0}/100 | Issues: {} (Critical: {}, High: {}, Medium: {}, Low: {})",

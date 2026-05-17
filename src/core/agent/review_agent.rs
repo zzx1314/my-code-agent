@@ -117,7 +117,7 @@ impl ReviewAgent {
         }
 
         let all_categories: Vec<(ReviewCategory, &str)> = vec![
-            (ReviewCategory::FunctionalCompleteness, "🎯 **CRITICAL: Does the code actually fulfill the user's requirements?** Check if:\n   - The implementation fully addresses ALL aspects of the user's request (not just part of it)\n   - There are no placeholder/stub implementations (e.g. `todo!()`, `unimplemented!()`, `throw new Error(\"Not implemented\")`, FIXME comments)\n   - All required functions/endpoints/components are actually implemented, not just declared\n   - Edge cases mentioned in the requirements are handled\n   - Return values and outputs match what was asked for\n   - Configuration and wiring (imports, routes, registrations) is complete — not just the core logic"),
+            (ReviewCategory::FunctionalCompleteness, "🎯 **CRITICAL: Does the code actually fulfill the user's requirements?** Check if:\n   - The implementation fully addresses ALL aspects of the user's request (not just part of it)\n   - There are no placeholder/stub implementations (e.g. `todo!()`, `unimplemented!()`, `throw new Error(\"Not implemented\")`, FIXME comments)\n   - All required functions/endpoints/components are actually implemented, not just declared\n   - Edge cases mentioned in the requirements are handled\n   - Return values and outputs match what was asked for\n   - Configuration and wiring (imports, routes, registrations) is complete — not just the core logic\n   - **IMPORTANT — Language awareness**: The user's conversation language does NOT dictate what language code, comments, or documentation should be in. The project's established conventions and the user's explicit requirements determine the correct language. Do NOT flag a language mismatch unless the user explicitly asked for a specific language or translation."),
             (ReviewCategory::Security, "Security — SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies"),
             (ReviewCategory::Performance, "Performance — Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning/allocation"),
             (ReviewCategory::BugRisk, "Bug Risk — Null/unchecked pointers, off-by-one errors, edge cases, type confusion, logic errors"),
@@ -175,7 +175,8 @@ impl ReviewAgent {
         prompt.push_str("  - **Python** — exception handling, type hints, dynamic pitfalls\n");
         prompt.push_str("  - **Other languages** — apply language-appropriate best practices\n");
         prompt.push_str("- Prioritize correctness and functional completeness over style preferences.\n");
-        prompt.push_str("- **Be concise**: Focus on high-impact issues. If there are no critical issues, say so briefly. Do not pad the review with unnecessary praise.\n\n");
+        prompt.push_str("- **Be concise**: Focus on high-impact issues. If there are no critical issues, say so briefly. Do not pad the review with unnecessary praise.\n");
+        prompt.push_str("- **Language awareness**: The language of the user's conversation is NOT a criterion for review. Projects and documentation may use any language. Only flag language-related issues if the user explicitly asked for a specific language or translation.\n\n");
 
         prompt.push_str("## Review Guidelines (from industry best practices)\n");
         prompt.push_str("- **Advocate for the user**: Ensure ALL aspects of the user's request are addressed. Call out any missing requirements.\n");
@@ -460,9 +461,14 @@ impl ReviewAgent {
     ///
     /// Uses an improved strategy:
     /// 1. Takes the FIRST user message (original request) — the most important context
-    /// 2. Includes the LAST assistant message before the review (what was implemented)
+    /// 2. Includes the LAST assistant message before the review (what was implemented),
+    ///    UNLESS it's a response to an auto-review fix prompt (that goes in
+    ///    the "Previous Iteration Feedback" section instead)
     /// 3. Includes the most recent follow-up user message (if any substantial one exists)
-    /// 4. Caps total context at ~2000 characters
+    /// 4. Adds the main agent's responses from previous auto-review iterations as
+    ///    "Previous Iteration Feedback" — so the review agent knows which
+    ///    issues were accepted, rejected, or partially fixed
+    /// 5. Caps total context at ~2000 characters
     pub fn extract_context_from_history(history: &[crate::core::types::Message]) -> String {
         let mut result = String::new();
 
@@ -480,13 +486,21 @@ impl ReviewAgent {
             }
         }
 
-        // 2. Include last assistant message summary (what was implemented)
+        // 2. Include last assistant message summary (what was implemented).
+        //    Skip if it follows a fix prompt — the agent's response to the
+        //    review belongs in the "Previous Iteration Feedback" section instead.
         if let Some(idx) = last_assistant_idx {
-            let content = clean_review_content(&history[idx].content);
-            if !content.is_empty() {
-                result.push_str("## What Was Implemented\n");
-                result.push_str(&truncate_content(&content, 1000));
-                result.push_str("\n\n");
+            let follows_fix_prompt = idx > 0
+                && history[idx - 1].role == "user"
+                && is_fix_prompt(&history[idx - 1].content);
+
+            if !follows_fix_prompt {
+                let content = clean_review_content(&history[idx].content);
+                if !content.is_empty() {
+                    result.push_str("## What Was Implemented\n");
+                    result.push_str(&truncate_content(&content, 1000));
+                    result.push_str("\n\n");
+                }
             }
         }
 
@@ -506,7 +520,18 @@ impl ReviewAgent {
             }
         }
 
-        // 4. Cap at 2000 characters (safely at UTF-8 char boundaries)
+        // 4. Add previous iteration feedback: the main agent's response(s) to
+        //    fix prompts from previous review iterations. This tells the review
+        //    agent which issues the main agent accepted/rejected/partially fixed.
+        let agent_feedback = extract_previous_iteration_feedback(history);
+        if !agent_feedback.is_empty() {
+            result.push_str("## Previous Iteration Feedback\n");
+            result.push_str("The main agent's response to the previous code review:\n");
+            result.push_str(&agent_feedback);
+            result.push_str("\n\n");
+        }
+
+        // 5. Cap at 2000 characters (safely at UTF-8 char boundaries)
         if result.len() > 2000 {
             let boundary = char_boundary_at_or_before(&result, 2000);
             result.truncate(boundary);
@@ -840,7 +865,24 @@ impl ReviewAgent {
 
     /// Build a complete ReviewReport from a list of issues and changed files.
     /// Calculates summary statistics, verdict, and auto-fixable list.
+    ///
+    /// This is a public wrapper used after post-processing (e.g., fingerprint
+    /// deduplication) has filtered some issues. Delegates to the shared
+    /// `build_report_inner` logic.
+    pub fn rebuild_report(&self, issues: &[ReviewIssue], changed_files: &[ChangedFile]) -> ReviewReport {
+        self.build_report_inner(issues, changed_files)
+    }
+
+    /// Build a complete ReviewReport from a list of issues and changed files.
+    /// This wrapper exists for callers that use `?` (Result-returning).
+    /// Delegates to the shared `build_report_inner` logic.
     fn build_report(&self, issues: &[ReviewIssue], changed_files: &[ChangedFile]) -> Result<ReviewReport> {
+        Ok(self.build_report_inner(issues, changed_files))
+    }
+
+    /// Shared internal logic for building a ReviewReport from issues and changed files.
+    /// Calculates summary statistics, verdict, overall score, and auto-fixable list.
+    fn build_report_inner(&self, issues: &[ReviewIssue], changed_files: &[ChangedFile]) -> ReviewReport {
         let critical_count = issues.iter().filter(|i| i.severity == Severity::Critical).count();
         let high_count = issues.iter().filter(|i| i.severity == Severity::High).count();
         let medium_count = issues.iter().filter(|i| i.severity == Severity::Medium).count();
@@ -878,7 +920,7 @@ impl ReviewAgent {
             .cloned()
             .collect();
 
-        Ok(ReviewReport {
+        ReviewReport {
             summary: ReviewSummary {
                 total_issues: issues.len(),
                 critical_count,
@@ -898,7 +940,7 @@ impl ReviewAgent {
                 complexity_estimate: None,
             },
             auto_fixable,
-        })
+        }
     }
 
     /// Extract JSON from response
@@ -1164,6 +1206,64 @@ fn clean_review_content(content: &str) -> String {
         .join("\n")
         .trim()
         .to_string()
+}
+
+/// Detect if a message content is an auto-review fix prompt.
+/// Matches the same patterns as `is_auto_fix_prompt` in result.rs
+/// (but lives here to avoid circular dependencies).
+/// Also matches the broader patterns used by `clean_review_content`
+/// to ensure consistency between what gets filtered and what's
+/// recognized as a fix prompt.
+fn is_fix_prompt(content: &str) -> bool {
+    content.contains("Code Review - Iteration")
+        || content.contains("fix the issues found in the code review")
+        || content.contains("Auto-Review Iteration")
+        || content.contains("Fix Required")
+}
+
+/// Extract the main agent's responses following fix prompts.
+/// For each fix prompt (user message), finds the next assistant message
+/// (the main agent's response) and includes it as "Previous Iteration
+/// Feedback" — so the review agent knows which issues were accepted,
+/// rejected, or partially fixed.
+fn extract_previous_iteration_feedback(history: &[crate::core::types::Message]) -> String {
+    let mut responses = Vec::new();
+
+    for i in 0..history.len() {
+        if history[i].role != "user" || !is_fix_prompt(&history[i].content) {
+            continue;
+        }
+
+        // Found a fix prompt — look for the next assistant message
+        // (the main agent's response to the review)
+        for j in (i + 1)..history.len() {
+            if history[j].role == "assistant" {
+                let content = history[j].content.trim();
+                if !content.is_empty() && content.len() > 10 {
+                    responses.push(content.to_string());
+                }
+                break;
+            }
+        }
+    }
+
+    // Deduplicate by content (same response may appear in multiple iterations)
+    responses.dedup();
+
+    let mut result = String::new();
+    if responses.len() == 1 {
+        result.push_str(&truncate_content(&responses[0], 600));
+    } else {
+        for (i, response) in responses.iter().enumerate() {
+            if i > 0 {
+                result.push_str("\n---\n");
+            }
+            result.push_str(&format!("**Iteration {}:** ", i + 1));
+            result.push_str(&truncate_content(response, 400));
+        }
+    }
+
+    result
 }
 
 /// Find the largest byte index ≤ `max` that is a valid UTF-8 char boundary.
