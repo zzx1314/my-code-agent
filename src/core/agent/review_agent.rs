@@ -3,7 +3,6 @@
 //! Responsible for automatically reviewing code changes after the main Agent completes modifications.
 
 use anyhow::Result;
-use futures::future::join_all;
 
 use super::client::LlmClient;
 use crate::core::types::review::*;
@@ -47,174 +46,37 @@ pub enum ReviewEvent {
     Error { message: String },
 }
 
-/// Phase definition for phased review
-struct ReviewPhase {
-    pub name: &'static str,
-    pub categories: &'static [ReviewCategory],
-}
 
-/// The 3 phases for phased review — ordered from most critical to least critical.
-const REVIEW_PHASES: &[ReviewPhase] = &[
-    // Phase 1: Does the code actually work and handle errors?
-    ReviewPhase {
-        name: "Core Correctness",
-        categories: &[
-            ReviewCategory::FunctionalCompleteness,
-            ReviewCategory::BugRisk,
-            ReviewCategory::ErrorHandling,
-        ],
-    },
-    // Phase 2: Is it safe, fast, and concurrent?
-    ReviewPhase {
-        name: "Safety & Reliability",
-        categories: &[
-            ReviewCategory::Security,
-            ReviewCategory::Performance,
-            ReviewCategory::Concurrency,
-        ],
-    },
-    // Phase 3: Is the code well-structured and documented?
-    ReviewPhase {
-        name: "Code Quality",
-        categories: &[
-            ReviewCategory::Maintainability,
-            ReviewCategory::Style,
-            ReviewCategory::Documentation,
-        ],
-    },
-];
-
-/// Default focus areas for parallel review
-const DEFAULT_FOCUSES: &[&str] = &[
-    "Security and bug risk review",
-    "Functional completeness — does the code fully address user requirements?",
-    "Code simplification and reuse of existing patterns",
-    "Performance and concurrency review",
-    "Maintainability and code style",
-];
 
 impl ReviewAgent {
     pub fn new(client: LlmClient, config: ReviewConfig) -> Self {
         Self { client, config }
     }
 
-    /// Build the system prompt, optionally filtering to only include specified categories
-    pub fn system_prompt(&self, phase_categories: Option<&[ReviewCategory]>) -> String {
-        // Build category filter set
-        let category_filter = phase_categories.map(|cats| {
-            cats.iter().map(|c| std::mem::discriminant(c)).collect::<std::collections::HashSet<_>>()
-        });
-
+    pub fn system_prompt(&self) -> String {
         let mut prompt = String::from(
-            "You are a professional code review expert. Your task is to analyze code changes, identify issues, and provide improvement suggestions.\n\n"
+            "You are a code review assistant. Review the code changes below and give helpful critical feedback.\n\n"
         );
 
-        prompt.push_str("## Review Categories\n");
-        if phase_categories.is_some() {
-            prompt.push_str("Focus ONLY on the following categories for this review phase:\n\n");
-        } else {
-            prompt.push_str("Analyze code across all of the following categories:\n\n");
-        }
+        prompt.push_str("## Important: Diff Awareness\n\n");
+        prompt.push_str("The diff below only shows what CHANGED. It does NOT show the entire file. ");
+        prompt.push_str("Existing code outside the diff range is still present and working. ");
+        prompt.push_str("Do NOT flag something as missing just because it's absent from the diff ");
+        prompt.push_str("— check the user's request and assume existing code still works.\n\n");
 
-        // ═══════════════════════════════════════════════════════════════
-        //  GLOBAL GUIDANCE: Applies to ALL categories below
-        // ═══════════════════════════════════════════════════════════════
-        prompt.push_str("### ⚠️ Global Guidance: Always Consider the Full File State\n\n");
-        prompt.push_str("When reviewing ANY category below, ALWAYS keep in mind:\n\n");
-        prompt.push_str("1. **The diff only shows what CHANGED** — it does NOT show the entire file. Existing code outside the diff range is still present and working.\n");
-        prompt.push_str("2. **The 'File Context' section** shows key declarations from the actual source files. Use it to verify whether a mapping, registration, import, or dispatch already exists.\n");
-        prompt.push_str("3. **Do NOT flag something as missing just because it's absent from the diff** — it might already exist elsewhere in the file. Always check the File Context section first.\n");
-        prompt.push_str("4. **Common false positive scenario**: A new enum variant is added → the `from_extension()` mapping or parser dispatch likely already exists but is outside the diff range. Verify via File Context before reporting.\n");
-        prompt.push_str("5. **When in doubt, assume existing code still works** — testing evidence (all tests passing) strongly suggests existing wiring is intact.\n\n");
-        prompt.push_str("---\n\n");
+        prompt.push_str("## Guidelines\n\n");
+        prompt.push_str("- Focus on high-impact issues: bugs, security, missing requirements.\n");
+        prompt.push_str("- Make sure ALL requirements in the user's request are addressed — advocate for the user.\n");
+        prompt.push_str("- Where a function can be reused, suggest reuse instead of creating new ones.\n");
+        prompt.push_str("- Make sure no dead code, missing imports, or accidental deletions are introduced.\n");
+        prompt.push_str("- New code should match the style of existing code.\n");
+        prompt.push_str("- Try to keep changes minimal — don't rewrite working code.\n");
+        prompt.push_str("- Be concise: If you don't have much critical feedback, simply say it looks good.\n");
+        prompt.push_str("- Do NOT nitpick style, formatting, or minor preferences.\n");
+        prompt.push_str("- Do NOT flag language issues — the user's conversation language is not a review criterion.\n\n");
 
-        let all_categories: Vec<(ReviewCategory, &str)> = vec![
-            (ReviewCategory::FunctionalCompleteness, "🎯 **CRITICAL: Does the code actually fulfill the user's requirements?** Check if:\n   - The implementation fully addresses ALL aspects of the user's request (not just part of it)\n   - There are no placeholder/stub implementations (e.g. `todo!()`, `unimplemented!()`, `throw new Error(\"Not implemented\")`, FIXME comments)\n   - All required functions/endpoints/components are actually implemented, not just declared\n   - Edge cases mentioned in the requirements are handled\n   - Return values and outputs match what was asked for\n   - Configuration and wiring (imports, routes, registrations) is complete — not just the core logic\n\n   - **IMPORTANT — Language awareness**: The user's conversation language does NOT dictate what language code, comments, or documentation should be in. The project's established conventions and the user's explicit requirements determine the correct language. Do NOT flag a language mismatch unless the user explicitly asked for a specific language or translation."),
-            (ReviewCategory::Security, "Security — SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies"),
-            (ReviewCategory::Performance, "Performance — Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning/allocation"),
-            (ReviewCategory::BugRisk, "Bug Risk — Null/unchecked pointers, off-by-one errors, edge cases, type confusion, logic errors\n\n   ⚠️ **Diff awareness**: A function call or variable reference may point to code OUTSIDE the diff range. Do NOT flag a call as \"undefined\" or \"potentially null\" just because the definition isn't in the diff. Check the File Context section and assume existing code is correct unless you have definitive evidence of a bug."),
-            (ReviewCategory::ErrorHandling, "Error Handling — Missing error propagation, ignored Results, unwrap/expect panics, silent failures"),
-            (ReviewCategory::Maintainability, "Maintainability — Code duplication, overlong functions, poor naming, magic numbers, dead code"),
-            (ReviewCategory::Style, "Style — Inconsistent formatting, non-idiomatic patterns, lint violations, naming convention breaks"),
-            (ReviewCategory::Documentation, "Documentation — Missing/misleading doc comments, stale comments, missing public API docs"),
-            (ReviewCategory::Concurrency, "Concurrency — Data races, deadlocks, missing synchronization, async misuse, Send/Sync issues"),
-        ];
-
-        let mut idx = 1;
-        for (category, description) in &all_categories {
-            let include = match &category_filter {
-                Some(filter) => filter.contains(&std::mem::discriminant(category)),
-                None => true,
-            };
-            if include {
-                let cat_name = match category {
-                    ReviewCategory::FunctionalCompleteness => "functional_completeness",
-                    ReviewCategory::Security => "security",
-                    ReviewCategory::Performance => "performance",
-                    ReviewCategory::BugRisk => "bug_risk",
-                    ReviewCategory::ErrorHandling => "error_handling",
-                    ReviewCategory::Maintainability => "maintainability",
-                    ReviewCategory::Style => "style",
-                    ReviewCategory::Documentation => "documentation",
-                    ReviewCategory::Concurrency => "concurrency",
-                };
-                let icon = category.icon();
-                prompt.push_str(&format!("{}. **{}** — {} {}\n", idx, cat_name, icon, description));
-                idx += 1;
-            }
-        }
-        prompt.push_str("\n");
-
-        prompt.push_str("## Valid Values\n");
-        prompt.push_str("- **severity**: `\"critical\"` | `\"high\"` | `\"medium\"` | `\"low\"` | `\"info\"`\n");
-        prompt.push_str("- **category**: one of the category names listed above (`\"functional_completeness\"`, `\"security\"`, `\"performance\"`, etc.)\n");
-        prompt.push_str("- **verdict**: `\"approved\"` (no blocking issues) | `\"needs_revision\"` (fixes required) | `\"rejected\"` (fundamental problems)\n");
-        prompt.push_str("- **overall_score**: integer 0–100 (higher = better)\n\n");
-
-        prompt.push_str("## Verdict Guidelines\n");
-        prompt.push_str("- Use `\"rejected\"` when functional_completeness has critical issues — the code fundamentally does not do what was asked.\n");
-        prompt.push_str("- Use `\"needs_revision\"` when there are any high/critical severity issues of ANY category, or when parts of the requirements are missing.\n");
-        prompt.push_str("- Use `\"approved\"` ONLY when ALL requirements are fully met AND there are no high/critical issues.\n");
-        prompt.push_str("- **Be strict about functional_completeness.** It is better to catch a missing feature than to approve incomplete code.\n\n");
-
-        prompt.push_str("## Review Principles\n");
-        prompt.push_str("- Focus on high-impact issues, avoid nitpicking. It's better to report 3 real bugs than 20 minor style nits.\n");
-        prompt.push_str("- Provide concrete fix code examples for every issue where possible.\n");
-        prompt.push_str("- Explain the root cause of issues, not just the symptom.\n");
-        prompt.push_str("- Adapt the review to the language of each file (detected by file extension):\n");
-        prompt.push_str("  - **Rust** — ownership/borrowing, unsafe blocks, unwrap/expect\n");
-        prompt.push_str("  - **TypeScript/JavaScript** — type safety, null handling, async/promise hygiene, `any` types, `as` casts\n");
-        prompt.push_str("  - **Python** — exception handling, type hints, dynamic pitfalls\n");
-        prompt.push_str("  - **Other languages** — apply language-appropriate best practices\n");
-        prompt.push_str("- Prioritize correctness and functional completeness over style preferences.\n");
-        prompt.push_str("- **Be concise**: Focus on high-impact issues. If there are no critical issues, say so briefly. Do not pad the review with unnecessary praise.\n");
-        prompt.push_str("- **Language awareness**: The language of the user's conversation is NOT a criterion for review. Projects and documentation may use any language. Only flag language-related issues if the user explicitly asked for a specific language or translation.\n\n");
-
-        prompt.push_str("## Review Guidelines (from industry best practices)\n");
-        prompt.push_str("- **Advocate for the user**: Ensure ALL aspects of the user's request are addressed. Call out any missing requirements.\n");
-        prompt.push_str("- **Minimal changes**: Prefer changing as few lines of code as possible. Don't rewrite working code.\n");
-        prompt.push_str("- **Reuse existing code**: Where a function already exists, reuse it — do not create a new one.\n");
-        prompt.push_str("- **No dead code**: Ensure no unused imports, variables, or functions are introduced.\n");
-        prompt.push_str("- **No missing imports**: Verify all imports are present for new code.\n");
-        prompt.push_str("- **No accidental deletions**: Verify no sections were deleted that weren't supposed to be.\n");
-        prompt.push_str("- **Match existing style**: New code must match the existing codebase's style and conventions.\n");
-        prompt.push_str("- **Avoid unnecessary try/catch**: Don't add try/catch blocks unless truly needed — they clutter the code.\n");
-        prompt.push_str("- **Simplify when possible**: If logic can be simplified, suggest it.\n\n");
-
-        prompt.push_str("## Reasoning Step\n");
-        prompt.push_str("Before providing your JSON review output, use <antThinking> tags to reason through the code changes and identify issues. Think through:\n");
-        prompt.push_str("1. Do the changes fully address the user's requirements?\n");
-        prompt.push_str("2. Are there any bugs, security issues, or performance problems?\n");
-        prompt.push_str("3. Can any code be simplified or reused?\n");
-        prompt.push_str("4. Are there any edge cases missed?\n\n");
-        prompt.push_str("Example format:\n");
-        prompt.push_str("<antThinking>\n");
-        prompt.push_str("The changes add a new API endpoint. Let me check: authentication is present but rate limiting is missing...\n");
-        prompt.push_str("</thinking>\n\n");
-        prompt.push_str("{\"issues\": [...], \"summary\": {...}}\n\n");
-
-        prompt.push_str("## Output Format\n");
-        prompt.push_str("You MUST output ONLY a valid JSON object. Do NOT include any other text or explanation. Output the JSON directly (either raw or wrapped in a ```json code block).\n");
+        prompt.push_str("## Output Format\n\n");
+        prompt.push_str("You MUST output ONLY a valid JSON object:\n\n");
         prompt.push_str("```json\n");
         prompt.push_str("{\n");
         prompt.push_str("  \"issues\": [\n");
@@ -223,12 +85,12 @@ impl ReviewAgent {
         prompt.push_str("      \"line\": 42,\n");
         prompt.push_str("      \"end_line\": 50,\n");
         prompt.push_str("      \"severity\": \"high\",\n");
-        prompt.push_str("      \"category\": \"security\",\n");
-        prompt.push_str("      \"title\": \"Issue title\",\n");
-        prompt.push_str("      \"description\": \"Detailed description\",\n");
-        prompt.push_str("      \"suggestion\": \"Fix suggestion\",\n");
-        prompt.push_str("      \"code_snippet\": \"Problem code\",\n");
-        prompt.push_str("      \"fix_example\": \"Fix example code\"\n");
+        prompt.push_str("      \"category\": \"bug_risk\",\n");
+        prompt.push_str("      \"title\": \"Short issue title\",\n");
+        prompt.push_str("      \"description\": \"What's wrong and why\",\n");
+        prompt.push_str("      \"suggestion\": \"How to fix it\",\n");
+        prompt.push_str("      \"code_snippet\": \"Problematic code\",\n");
+        prompt.push_str("      \"fix_example\": \"Fixed code\"\n");
         prompt.push_str("    }\n");
         prompt.push_str("  ],\n");
         prompt.push_str("  \"summary\": {\n");
@@ -238,17 +100,26 @@ impl ReviewAgent {
         prompt.push_str("}\n");
         prompt.push_str("```\n\n");
 
+        prompt.push_str("Severity: \"critical\" | \"high\" | \"medium\" | \"low\" | \"info\"\n");
+        prompt.push_str("Category: \"bug_risk\" | \"security\" | \"functional_completeness\" | \"performance\" | \"error_handling\" | \"style\" | \"maintainability\"\n");
+        prompt.push_str("Verdict: \"approved\" (no blocking issues) | \"needs_revision\" (fixes required)\n");
+        prompt.push_str("Score: 0-100 (higher = better)\n\n");
+
+        prompt.push_str("If there are no issues, simply return:\n");
+        prompt.push_str("{\"issues\": [], \"summary\": {\"overall_score\": 100, \"verdict\": \"approved\"}}\n");
+
         prompt
     }
 
-    /// Execute review (single phase — all categories at once)
     pub async fn review(&self, request: &ReviewRequest) -> Result<ReviewReport> {
-        let (all_issues, changed_files) = self.execute_phase(request, None).await?;
-        self.build_report(&all_issues, &changed_files)
+        let changes_summary = self.format_changes_summary(&request.changed_files);
+        let user_message = self.build_user_message(&changes_summary, &request.context);
+        let (response, _reasoning) = self.call_llm(&user_message).await?;
+        let issues = self.parse_issues_from_response(&response)?;
+        self.build_report(&issues, &request.changed_files)
     }
 
-    /// Execute phased review — runs 3 sequential phases, each reporting results via event_tx
-    pub async fn review_phased(
+    pub async fn review_with_events(
         &self,
         request: &ReviewRequest,
         event_tx: tokio::sync::mpsc::UnboundedSender<ReviewEvent>,
@@ -256,101 +127,16 @@ impl ReviewAgent {
         let file_count = request.changed_files.len();
         let _ = event_tx.send(ReviewEvent::Started { file_count });
 
-        // Token optimization strategy:
-        // - Phase 1: full diff (must check functional completeness + bugs)
-        // - Phase 2: signature summary (function/struct/import signatures for safety/perf)
-        // - Phase 3: compressed file list only (style/docs/maintainability)
-        let full_changes_summary = self.format_changes_summary(&request.changed_files);
-        let signature_changes_summary = self.format_changes_summary_signatures(&request.changed_files);
-        let compressed_changes_summary = self.format_changes_summary_compressed(&request.changed_files);
+        let _ = event_tx.send(ReviewEvent::Progress {
+            message: "Reviewing code changes...".to_string(),
+        });
 
-        let build_base_message = |summary: &str, ctx: &Option<String>| -> String {
-            if let Some(context) = ctx {
-                format!(
-                    "## User Request (Requirements)\n\n{context}\n\n## Code Changes to Review\n\n{summary}",
-                    context = context,
-                    summary = summary,
-                )
-            } else {
-                format!(
-                    "Please review the following code changes:\n\n{summary}",
-                    summary = summary,
-                )
-            }
-        };
+        let changes_summary = self.format_changes_summary(&request.changed_files);
+        let user_message = self.build_user_message(&changes_summary, &request.context);
 
-        let mut all_issues = Vec::new();
-        let total_phases = REVIEW_PHASES.len();
-
-        for (phase_index, phase) in REVIEW_PHASES.iter().enumerate() {
-            // Phase 1: full diff | Phase 2: signatures | Phase 3: compressed
-            let changes_summary = match phase_index {
-                0 => &full_changes_summary,
-                1 => &signature_changes_summary,
-                _ => &compressed_changes_summary,
-            };
-            let base_message = build_base_message(changes_summary, &request.context);
-
-            // Build phase-specific user message
-            let cat_names: Vec<String> = phase.categories.iter().map(|c| {
-                match c {
-                    ReviewCategory::FunctionalCompleteness => "functional_completeness".to_string(),
-                    ReviewCategory::Security => "security".to_string(),
-                    ReviewCategory::Performance => "performance".to_string(),
-                    ReviewCategory::BugRisk => "bug_risk".to_string(),
-                    ReviewCategory::ErrorHandling => "error_handling".to_string(),
-                    ReviewCategory::Maintainability => "maintainability".to_string(),
-                    ReviewCategory::Style => "style".to_string(),
-                    ReviewCategory::Documentation => "documentation".to_string(),
-                    ReviewCategory::Concurrency => "concurrency".to_string(),
-                }
-            }).collect();
-
-            let phase_message = format!(
-                "{}\n\n## Review Phase Focus\nFocus ONLY on the following categories in this phase:\n- {}\n\nDo NOT report issues in categories outside this phase. They will be checked in separate phases.",
-                base_message,
-                cat_names.join("\n- "),
-            );
-
-            let _ = event_tx.send(ReviewEvent::Progress {
-                message: format!("Phase {}/{}: {} — Reviewing...", phase_index + 1, total_phases, phase.name),
-            });
-
-            // Call LLM with streaming — reasoning deltas are sent in real-time via event_tx
-            let response = self.call_llm_stream(Some(phase.categories), &phase_message, &event_tx).await?;
-
-            // Parse issues for this phase — extract raw issues from JSON
-            let phase_issues = self.parse_issues_from_response(&response)?;
-
-            // Filter to only include issues in our phase's categories
-            let filtered: Vec<ReviewIssue> = phase_issues
-                .into_iter()
-                .filter(|i| phase.categories.contains(&i.category))
-                .collect();
-
-            let passed = filtered.is_empty();
-            let issues_found = filtered.len();
-
-            // Send phase completed event with details
-            let _ = event_tx.send(ReviewEvent::PhaseCompleted {
-                phase_index: phase_index + 1,
-                total_phases,
-                phase_name: phase.name.to_string(),
-                categories: cat_names,
-                issues_found,
-                passed,
-                details: if passed {
-                    format!("✅ No issues in {}", phase.name)
-                } else {
-                    format!("⚠️ Found {} issue(s) in {}", issues_found, phase.name)
-                },
-            });
-
-            all_issues.extend(filtered);
-        }
-
-        // Build final report from all aggregated issues
-        let report = self.build_report(&all_issues, &request.changed_files)?;
+        let response = self.call_llm_stream(&user_message, &event_tx).await?;
+        let issues = self.parse_issues_from_response(&response)?;
+        let report = self.build_report(&issues, &request.changed_files)?;
 
         let _ = event_tx.send(ReviewEvent::Completed {
             report: report.clone(),
@@ -359,18 +145,11 @@ impl ReviewAgent {
         Ok(report)
     }
 
-    /// Execute a single review phase (or full review if phase_categories is None)
-    async fn execute_phase(
-        &self,
-        request: &ReviewRequest,
-        phase_categories: Option<&[ReviewCategory]>,
-    ) -> Result<(Vec<ReviewIssue>, Vec<ChangedFile>)> {
-        let changes_summary = self.format_changes_summary(&request.changed_files);
-
-        let user_message = if let Some(ref context) = request.context {
+    fn build_user_message(&self, changes_summary: &str, context: &Option<String>) -> String {
+        if let Some(ctx) = context {
             format!(
-                "## User Request (Requirements)\n\n{context}\n\n## Code Changes to Review\n\n{changes_summary}",
-                context = context,
+                "## User Request (Requirements)\n\n{ctx}\n\n## Code Changes to Review\n\n{changes_summary}",
+                ctx = ctx,
                 changes_summary = changes_summary,
             )
         } else {
@@ -378,41 +157,24 @@ impl ReviewAgent {
                 "Please review the following code changes:\n\n{changes_summary}",
                 changes_summary = changes_summary,
             )
-        };
-
-        let (response, _reasoning) = self.call_llm(phase_categories, &user_message).await?;
-        let issues = self.parse_issues_from_response(&response)?;
-
-        Ok((issues, request.changed_files.clone()))
+        }
     }
 
-    /// Call LLM for review (non-streaming, returns full response and reasoning content)
-    ///
-    /// Returns `(content, reasoning_content)` where `reasoning_content` may be empty
-    /// for non-reasoning models.
-    ///
-    /// Note: tool definitions are intentionally NOT passed here.
-    /// The review agent should analyze the diffs we provide directly,
-    /// not call additional tools. Passing tools causes the LLM to
-    /// return tool calls instead of JSON review output.
-    async fn call_llm(&self, phase_categories: Option<&[ReviewCategory]>, user_message: &str) -> Result<(String, String)> {
+    async fn call_llm(&self, user_message: &str) -> Result<(String, String)> {
         use crate::core::types::Message;
         let messages = vec![
-            Message::system(self.system_prompt(phase_categories)),
+            Message::system(self.system_prompt()),
             Message::user(user_message),
         ];
 
         let response = self.client.chat(&messages, &[]).await?;
-
         let message = &response["choices"][0]["message"];
 
-        // Extract content from OpenAI-compatible response
         let content = message["content"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No content in review response"))?
             .to_string();
 
-        // Extract reasoning_content if present (for reasoning models like DeepSeek Reasoner)
         let reasoning = message.get("reasoning_content")
             .and_then(|v| v.as_str())
             .unwrap_or("")
@@ -422,19 +184,14 @@ impl ReviewAgent {
     }
 
     /// Call LLM with streaming, sending reasoning deltas via event_tx in real-time.
-    ///
-    /// Returns the full accumulated text content for JSON parsing.
-    /// Reasoning content is streamed as `ReviewEvent::ReasoningDelta` deltas to
-    /// the frontend for real-time display, without being added to conversation history.
     async fn call_llm_stream(
         &self,
-        phase_categories: Option<&[ReviewCategory]>,
         user_message: &str,
         event_tx: &tokio::sync::mpsc::UnboundedSender<ReviewEvent>,
     ) -> Result<String> {
         use crate::core::types::Message;
         let messages = vec![
-            Message::system(self.system_prompt(phase_categories)),
+            Message::system(self.system_prompt()),
             Message::user(user_message),
         ];
 
@@ -446,7 +203,6 @@ impl ReviewAgent {
             for choice in &chunk.choices {
                 let delta = &choice.delta;
 
-                // Stream reasoning deltas in real-time
                 if let Some(ref rt) = delta.reasoning_content {
                     if !rt.is_empty() {
                         let _ = event_tx.send(ReviewEvent::ReasoningDelta(rt.clone()));
@@ -457,7 +213,6 @@ impl ReviewAgent {
                     }
                 }
 
-                // Accumulate text content for later JSON parsing
                 if let Some(ref text) = delta.content {
                     if !text.is_empty() {
                         full_content.push_str(text);
@@ -564,30 +319,8 @@ impl ReviewAgent {
         result
     }
 
-    /// Format changes summary (full diff included)
     pub fn format_changes_summary(&self, files: &[ChangedFile]) -> String {
-        self.format_changes_summary_inner(files, true, false)
-    }
-
-    /// Format changes summary with function signatures extracted from the diff (no full diff body).
-    /// Used by Phase 2 — gives enough context for safety/performance/concurrency checks
-    /// without sending the entire diff.
-    pub fn format_changes_summary_signatures(&self, files: &[ChangedFile]) -> String {
-        self.format_changes_summary_inner(files, false, true)
-    }
-
-    /// Format changes summary (compressed — no diff body, only metadata).
-    /// Used by Phase 3 — only needs file list for style/docs/maintainability checks.
-    pub fn format_changes_summary_compressed(&self, files: &[ChangedFile]) -> String {
-        self.format_changes_summary_inner(files, false, false)
-    }
-
-    /// Shared implementation for formatting changes summary.
-    /// When `include_diff` is true, includes the full diff body for each file.
-    /// When `include_signatures` is true, includes function/struct signatures extracted from the diff.
-    fn format_changes_summary_inner(&self, files: &[ChangedFile], include_diff: bool, include_signatures: bool) -> String {
         let mut summary = String::new();
-
         summary.push_str(&format!("## Changed Files ({})\n\n", files.len()));
 
         for file in files {
@@ -606,198 +339,19 @@ impl ReviewAgent {
                 file.lines_added, file.lines_removed
             ));
 
-            if include_diff && !file.diff.is_empty() {
+            if !file.diff.is_empty() {
                 summary.push_str("```diff\n");
                 summary.push_str(&file.diff);
                 summary.push_str("\n```\n");
-            } else if include_signatures && !file.diff.is_empty() {
-                let sigs = Self::extract_signatures_from_diff(&file.diff);
-                if !sigs.is_empty() {
-                    summary.push_str(&format!("```\n{}\
-```\n", sigs.join("\n")));
-                }
             }
 
             summary.push_str("\n");
         }
 
-        // Append file context from disk — key declarations (function signatures,
-        // struct/enum/trait definitions, imports) from the actual source files.
-        //
-        // This is CRITICAL for ALL phases because:
-        // 1. Even with the full diff in Phase 1, the LLM's attention span may not
-        //    connect distant parts of the same diff (e.g., new enum variant vs the
-        //    from_extension() mapping 200 lines away).
-        // 2. Some context (like existing mappings and parser dispatch) may be OUTSIDE
-        //    the diff range entirely (if those parts of the file weren't modified).
-        //
-        // This prevents false positives where the LLM sees a new enum variant or
-        // function added but can't verify whether the associated wiring/registration/
-        // mapping code already exists elsewhere in the file.
-        if include_signatures {
-            summary.push_str("*Key signatures extracted from diff (context for Phase 2 review).*\n\n");
-        } else if !include_diff {
-            summary.push_str("*Full diff was reviewed in Phase 1. This phase checks additional quality dimensions.*\n\n");
-        }
-        summary.push_str(&Self::format_file_context(files));
-
         summary
     }
 
-    /// Extract function/struct/enum/trait/import signatures from a diff string.
-    /// Scans added lines (starting with `+`) for common declaration patterns
-    /// across Rust, TypeScript, Python, and other languages.
-    fn extract_signatures_from_diff(diff: &str) -> Vec<String> {
-        let mut sigs = Vec::new();
 
-        for line in diff.lines() {
-            let trimmed = line.trim_start();
-            // Only look at added lines (diff lines starting with +)
-            if !trimmed.starts_with('+') {
-                continue;
-            }
-            let content = trimmed[1..].trim();
-            if content.is_empty() {
-                continue;
-            }
-
-            if Self::is_declaration_line(content) {
-                // Take the full line up to the first { or ; for compactness
-                let sig = content.split(['{', ';', '=']).next().unwrap_or(content).trim();
-                sigs.push(sig.to_string());
-            }
-        }
-
-        sigs
-    }
-
-    /// Check if a line of code is a declaration (fn, struct, enum, trait, etc.)
-    /// across multiple languages.
-    pub fn is_declaration_line(line: &str) -> bool {
-        line.starts_with("fn ")
-            || line.starts_with("pub fn ")
-            || line.starts_with("pub async fn ")
-            || line.starts_with("async fn ")
-            || line.starts_with("pub struct ")
-            || line.starts_with("struct ")
-            || line.starts_with("pub enum ")
-            || line.starts_with("enum ")
-            || line.starts_with("pub trait ")
-            || line.starts_with("trait ")
-            || line.starts_with("impl ")
-            || line.starts_with("pub type ")
-            || line.starts_with("type ")
-            || line.starts_with("pub const ")
-            || line.starts_with("const ")
-            || line.starts_with("use ")
-            || line.starts_with("macro_rules!")
-            || line.starts_with("def ")
-            || line.starts_with("async def ")
-            || line.starts_with("class ")
-            || line.starts_with("function ")
-            || line.starts_with("export function ")
-            || line.starts_with("export default ")
-            || line.starts_with("export class ")
-            || line.starts_with("export interface ")
-            || line.starts_with("interface ")
-            || line.starts_with("import ")
-            || line.starts_with("from ")
-    }
-
-    /// Read changed files from disk and extract key declarations (function signatures,
-    /// struct, enum, trait definitions, imports, etc.) to provide full-file context
-    /// alongside the diff. This prevents false positives where the LLM sees a function
-    /// being used but can't see its definition because it's outside the diff range.
-    ///
-    /// Limits: MAX_SIGNATURES_PER_FILE signatures per file, MAX_TOTAL_CHARS total.
-    pub fn format_file_context(files: &[ChangedFile]) -> String {
-        const MAX_SIGNATURES_PER_FILE: usize = 80;
-        const MAX_TOTAL_CHARS: usize = 4000;
-
-        let mut context = String::new();
-        let mut has_content = false;
-
-        for file in files {
-            // Skip deleted files — they no longer exist on disk
-            if file.change_type == ChangeType::Deleted {
-                continue;
-            }
-
-            let path = std::path::Path::new(&file.path);
-            if !path.exists() {
-                continue;
-            }
-
-            // Read file content
-            let content = match std::fs::read_to_string(path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-
-            // Extract key declarations from the file
-            let sigs = Self::extract_signatures_from_content(&content);
-            if sigs.is_empty() {
-                continue;
-            }
-
-            if !has_content {
-                context.push_str(
-                    "## File Context (key declarations from source files)\n\n"
-                );
-                context.push_str(
-                    "This section shows key declarations from the actual source files "
-                );
-                context.push_str(
-                    "to help you understand the full context beyond just the diff:\n\n"
-                );
-                has_content = true;
-            }
-
-            context.push_str(&format!("### `{}`\n", file.path));
-            context.push_str("```\n");
-            let display_sigs: Vec<&str> = sigs.iter().take(MAX_SIGNATURES_PER_FILE).map(|s| s.as_str()).collect();
-            for sig in &display_sigs {
-                context.push_str(sig);
-                context.push('\n');
-            }
-            if sigs.len() > MAX_SIGNATURES_PER_FILE {
-                context.push_str(&format!(
-                    "... and {} more declarations\n",
-                    sigs.len() - MAX_SIGNATURES_PER_FILE
-                ));
-            }
-            context.push_str("```\n\n");
-
-            // Early exit if we've accumulated enough context
-            if context.len() > MAX_TOTAL_CHARS {
-                break;
-            }
-        }
-
-        context
-    }
-
-    /// Extract function/struct/enum/trait/import signatures from a file's content.
-    /// Similar to `extract_signatures_from_diff` but applies to raw file content
-    /// without the `+` prefix stripping needed for diff lines.
-    pub fn extract_signatures_from_content(content: &str) -> Vec<String> {
-        let mut sigs = Vec::new();
-
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-
-            if Self::is_declaration_line(trimmed) {
-                // Take the full line up to the first { or ; for compactness
-                let sig = trimmed.split(['{', ';', '=']).next().unwrap_or(trimmed).trim();
-                sigs.push(sig.to_string());
-            }
-        }
-
-        sigs
-    }
 
     /// Parse review response — full pipeline: extract JSON, parse issues, build report.
     /// (Kept for backward compatibility with tests.)
@@ -960,77 +514,6 @@ impl ReviewAgent {
         extract_json_from_response(response)
     }
 
-    /// Execute parallel review — runs multiple focused review prompts concurrently
-    /// and merges the results, deduplicating overlapping issues.
-    pub async fn review_parallel(
-        &self,
-        request: &ReviewRequest,
-        focus_prompts: Vec<String>,
-    ) -> Result<ReviewReport> {
-        let focuses = if focus_prompts.is_empty() {
-            DEFAULT_FOCUSES.iter().map(|s| s.to_string()).collect::<Vec<_>>()
-        } else {
-            focus_prompts
-        };
-
-        let changes_summary = self.format_changes_summary(&request.changed_files);
-
-        let base_message = if let Some(ref context) = request.context {
-            format!(
-                "## User Request (Requirements)\n\n{context}\n\n## Code Changes to Review\n\n{changes_summary}",
-                context = context,
-                changes_summary = changes_summary,
-            )
-        } else {
-            format!(
-                "Please review the following code changes:\n\n{changes_summary}",
-                changes_summary = changes_summary,
-            )
-        };
-
-        // Spawn concurrent review tasks for each focus area
-        let tasks: Vec<_> = focuses.into_iter().map(|focus| {
-            let message = format!(
-                "{}\n\n## Review Phase Focus\nFocus your review specifically on the following aspect:\n{focus}",
-                base_message, focus = focus,
-            );
-
-            async move {
-                let (response, _reasoning) = self.call_llm(None, &message).await?;
-                self.parse_issues_from_response(&response)
-            }
-        }).collect();
-
-        let results = join_all(tasks).await;
-
-        let mut all_issues = Vec::new();
-        for result in results {
-            match result {
-                Ok(issues) => all_issues.extend(issues),
-                Err(e) => {
-                    tracing::warn!("Parallel review task failed: {}", e);
-                }
-            }
-        }
-
-        // Deduplicate by (file, line)
-        all_issues = Self::deduplicate_issues(all_issues);
-
-        self.build_report(&all_issues, &request.changed_files)
-    }
-
-    /// Deduplicate issues: two issues are duplicates if they share the same file AND line number.
-    fn deduplicate_issues(issues: Vec<ReviewIssue>) -> Vec<ReviewIssue> {
-        let mut seen = std::collections::HashSet::new();
-        let mut deduped = Vec::new();
-        for issue in issues {
-            let key = (issue.file.clone(), issue.line);
-            if seen.insert(key) {
-                deduped.push(issue);
-            }
-        }
-        deduped
-    }
 }
 
 /// Extract a JSON object from an LLM response string.

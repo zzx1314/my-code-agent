@@ -197,7 +197,6 @@ impl AgentOrchestrator {
         self.review_agent.review(&request).await
     }
 
-    /// Execute review and return event stream (for phased progress display)
     pub async fn review_with_events(
         &self,
         changed_files: Vec<ChangedFile>,
@@ -209,8 +208,7 @@ impl AgentOrchestrator {
             context: context.map(|s| s.to_string()),
         };
 
-        // Use phased review — runs 3 sequential phases with progress events
-        self.review_agent.review_phased(&request, event_tx).await
+        self.review_agent.review_with_events(&request, event_tx).await
     }
 
     /// Format a review coverage summary table showing what categories were checked
