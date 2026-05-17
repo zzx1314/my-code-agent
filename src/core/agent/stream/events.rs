@@ -12,8 +12,9 @@ pub fn process_streaming_events(app: &mut App) {
                         app.streaming_text.push_str("\n");
                         app.current_tool_call = None;
                     }
-                    // Clear tool result and status when new text arrives — model is responding
+                    // Clear tool result, todos, and status when new text arrives — model is responding
                     app.streaming_tool_result = None;
+                    app.streaming_todos = None;
                     app.streaming_status.clear();
                     app.streaming_text.push_str(&delta);
                 }
@@ -29,6 +30,11 @@ pub fn process_streaming_events(app: &mut App) {
                 Ok(crate::core::agent::stream_response::StreamEvent::ToolResult { name, content }) => {
                     // Store the completed tool result for display during streaming
                     app.current_tool_call = None;
+                    // If this is a todos result, also persist it in streaming_todos
+                    // so it stays visible beyond the single `.take()` in the renderer.
+                    if content.starts_with("## 📋 Todos") {
+                        app.streaming_todos = Some(content.clone());
+                    }
                     app.streaming_tool_result = Some((name, content));
                 }
                 Ok(crate::core::agent::stream_response::StreamEvent::Status(msg)) => {

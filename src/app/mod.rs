@@ -120,6 +120,8 @@ pub struct App {
     pub streaming_tool_result: Option<(String, String)>,
     /// Status message for inter-turn waiting periods (e.g. "⏳ Waiting for model...")
     pub streaming_status: String,
+    /// Persistent todos display during streaming (survives single-frame `.take()` on tool result)
+    pub streaming_todos: Option<String>,
     pub status_messages: Vec<String>,
     pub turn_usage_line: Option<String>,
     /// Agent for processing requests
@@ -258,6 +260,7 @@ impl App {
             current_response: String::new(),
             streaming_tool_result: None,
             streaming_status: String::new(),
+            streaming_todos: None,
             input: input_area,
             scroll: 0,
             total_lines: 0,

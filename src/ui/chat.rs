@@ -512,6 +512,19 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App,
         return;
     }
 
+    // Render persistent todos FIRST so they stay visible even during
+    // inter-turn waiting periods (between tool execution and next text).
+    // streaming_todos is set when a write_todos tool result arrives and
+    // cleared when new streaming text arrives or streaming ends.
+    // Skip if streaming_tool_result is still present (it will render the
+    // same content via .take() on this same frame).
+    if app.streaming_tool_result.is_none() {
+        if let Some(ref todos) = app.streaming_todos {
+            try_render_todos(lines, todos, max_width);
+            lines.push(Line::default());
+        }
+    }
+
     if !app.streaming_text.is_empty() || app.current_tool_call.is_some() || app.streaming_tool_result.is_some() {
         lines.push(Line::from(vec![Span::styled(
             "Assistant: ",

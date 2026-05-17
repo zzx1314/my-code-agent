@@ -371,6 +371,7 @@ pub fn trigger_auto_review(app: &mut App) {
 fn process_stream_result(app: &mut App, result: crate::core::agent::stream_response::StreamResult) {
     app.is_streaming = false;
     app.streaming_text.clear();
+    app.streaming_todos = None;
     app.streaming_status.clear();
 
     // Use the authoritative reasoning from the backend ReasoningTracker.
