@@ -145,6 +145,9 @@ impl Tool for FileUpdate {
 /// Remove a trailing closing-bracket line from `new_lines` when it would duplicate
 /// the first preserved line after the deletion range. LLMs often include closing
 /// brackets that already exist in the original file, producing `}}` or `])`.
+///
+/// Only deduplicates when the bracket TYPE matches (e.g. `}` with `}` or `};`),
+/// NOT across different types (e.g. `}` with `)`) — that would cause bracket loss.
 fn deduplicate_closing_brackets<'a>(
     mut new_lines: Vec<&'a str>,
     start_line: usize,
@@ -161,9 +164,22 @@ fn deduplicate_closing_brackets<'a>(
         return new_lines;
     }
     let first_preserved = original_lines[preserved_start];
-    let is_closing = |s: &str| matches!(s.trim(), "}" | ")" | "]" | ">" | "}," | ");" | "]," | "};");
-    if is_closing(last_new) && is_closing(first_preserved) {
-        new_lines.pop();
+
+    // Extract the bracket character from a line if it's a closing bracket.
+    // Treats `}`, `},`, `};` all as `}`, etc.
+    let bracket_kind = |s: &str| -> Option<char> {
+        match s.trim() {
+            "}" | "}," | "};" => Some('}'),
+            ")" | ");" => Some(')'),
+            "]" | "]," => Some(']'),
+            _ => None,
+        }
+    };
+
+    if let (Some(b1), Some(b2)) = (bracket_kind(last_new), bracket_kind(first_preserved)) {
+        if b1 == b2 {
+            new_lines.pop();
+        }
     }
     new_lines
 }

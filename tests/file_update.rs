@@ -361,3 +361,69 @@ async fn test_closing_bracket_with_punctuation() {
     assert_eq!(output.replacements, 1);
 }
 
+#[tokio::test]
+async fn test_cross_bracket_type_no_dedup() {
+    // Model sends "}" but preserved line is ");" — different bracket types (} vs )),
+    // should NOT deduplicate. This test actually reaches the bracket_kind check
+    // because preserved_start (3) < total_lines (5).
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.rs");
+    fs::write(
+        &path,
+        "fn foo() -> Result<()> {\n    bar(\n        x\n    );\n}",
+    )
+    .unwrap();
+
+    // Replace lines 2-3 only. Preserved line 4 is "    );" (bracket kind: ')').
+    // Model includes "}" at end (bracket kind: '{').
+    let result = call_update(
+        path.to_str().unwrap(),
+        2,
+        2,
+        "    bar(\n        y\n    )\n}",
+    )
+    .await
+    .unwrap();
+    let output = parse_output(&result);
+
+    // bracket_kind("}") = Some('}'), bracket_kind(");") = Some(')')
+    // '}' != ')' → NOT deduped → model's "}" preserved
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "fn foo() -> Result<()> {\n    bar(\n        y\n    )\n}\n    );\n}"
+    );
+    assert_eq!(output.replacements, 2);
+}
+
+#[tokio::test]
+async fn test_cross_bracket_with_semicolon_no_dedup() {
+    // Model sends "}" but preserved line is "];" — different bracket types (} vs ]),
+    // should NOT deduplicate.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.rs");
+    fs::write(
+        &path,
+        "fn main() {\n    let arr = vec![\n        1,\n    ];\n}",
+    )
+    .unwrap();
+
+    // Replace lines 2-3 only. Preserved line 4 is "    ];" (bracket kind: ']').
+    // Model includes "}" at end (bracket kind: '{').
+    let result = call_update(
+        path.to_str().unwrap(),
+        2,
+        2,
+        "    let arr = vec![\n        42,\n    ]\n}",
+    )
+    .await
+    .unwrap();
+    let output = parse_output(&result);
+
+    // bracket_kind("}") = Some('}'), bracket_kind("];") = Some(']')
+    // '}' != ']' → NOT deduped → model's "}" preserved
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "fn main() {\n    let arr = vec![\n        42,\n    ]\n}\n    ];\n}"
+    );
+    assert_eq!(output.replacements, 2);
+}
