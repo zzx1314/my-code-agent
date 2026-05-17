@@ -2084,3 +2084,259 @@ fn test_should_auto_review_missing_file_path_returns_false() {
     ];
     assert!(!orch.should_auto_review(&history));
 }
+
+// =============================================================================
+// Tests for Review Agent Fix: Phase 1 File Context + Global Guidance
+// =============================================================================
+
+/// Test that the system prompt contains the global guidance section
+/// added to reduce false positives about diff-outside code.
+#[test]
+fn test_system_prompt_contains_global_guidance() {
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let config = ReviewConfig::from_app_config(&my_code_agent::core::config::Config::default().review);
+    let agent = ReviewAgent::new(client, config);
+    let prompt = agent.system_prompt(None);
+
+    // The global guidance section should be present
+    assert!(prompt.contains("### ⚠️ Global Guidance: Always Consider the Full File State"),
+        "System prompt must contain the global guidance section");
+
+    // Key bullet points from the global guidance
+    assert!(prompt.contains("The diff only shows what CHANGED"),
+        "Must explain that diff != full file");
+    assert!(prompt.contains("Do NOT flag something as missing just because it's absent from the diff"),
+        "Must warn against false positive pattern");
+    assert!(prompt.contains("File Context section"),
+        "Must reference the File Context section");
+    assert!(prompt.contains("from_extension"),
+        "Must mention the specific false positive example");
+
+    // The global guidance should appear BEFORE the category descriptions
+    let guidance_pos = prompt.find("Global Guidance").unwrap_or(usize::MAX);
+    let categories_pos = prompt.find("functional_completeness").unwrap_or(0);
+    assert!(guidance_pos < categories_pos,
+        "Global guidance must appear before category descriptions");
+}
+
+/// Test that FunctionalCompleteness category does NOT contain the removed
+/// "Avoid False Positives" section (now covered by global guidance).
+#[test]
+fn test_functional_completeness_no_duplicate_fp_warning() {
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let config = ReviewConfig::from_app_config(&my_code_agent::core::config::Config::default().review);
+    let agent = ReviewAgent::new(client, config);
+    let prompt = agent.system_prompt(None);
+
+    // The duplicate false positive section should NOT be in FunctionalCompleteness
+    assert!(!prompt.contains("Avoid False Positives About Missing Wiring"),
+        "FunctionalCompleteness should NOT have its own false positive section (removed)");
+
+    // But the language awareness note should STILL be present
+    assert!(prompt.contains("Language awareness"),
+        "Language awareness line should still be present");
+}
+
+/// Test that BugRisk category contains the diff awareness warning.
+#[test]
+fn test_bugrisk_contains_diff_awareness() {
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let config = ReviewConfig::from_app_config(&my_code_agent::core::config::Config::default().review);
+    let agent = ReviewAgent::new(client, config);
+    let prompt = agent.system_prompt(None);
+
+    // BugRisk should have the diff awareness section
+    assert!(prompt.contains("Diff awareness"),
+        "BugRisk category must contain Diff awareness warning");
+    assert!(prompt.contains("Do NOT flag a call as \"undefined\" or \"potentially null\" just because the definition isn't in the diff"),
+        "BugRisk must warn about flagging undefined calls outside diff");
+    assert!(prompt.contains("File Context section"),
+        "BugRisk must reference File Context section");
+}
+
+/// Test that the verfied guidance section is placed before all 9 categories.
+#[test]
+fn test_global_guidance_before_all_categories() {
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let config = ReviewConfig::from_app_config(&my_code_agent::core::config::Config::default().review);
+    let agent = ReviewAgent::new(client, config);
+    let prompt = agent.system_prompt(None);
+
+    let guidance_end = prompt.find("---").unwrap_or(usize::MAX);
+
+    // All category references should appear after the guidance separator
+    let cat_names = ["functional_completeness", "security", "performance",
+                     "bug_risk", "error_handling", "maintainability",
+                     "style", "documentation", "concurrency"];
+    for cat in &cat_names {
+        let pos = prompt.find(cat).unwrap_or(0);
+        assert!(pos > guidance_end,
+            "Category '{}' should appear after global guidance separator", cat);
+    }
+}
+
+/// Test that format_changes_summary (used by Phase 1) includes file context.
+/// This is the KEY fix: Phase 1 previously did NOT include file context,
+/// causing false positives when the LLM couldn't see existing code outside
+/// the diff range.
+#[test]
+fn test_phase1_format_includes_file_context() {
+    // Create a temporary file with declarations
+    let temp_dir = std::env::temp_dir().join("codebuff_phase1_test");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("parser.rs");
+    std::fs::write(&file_path, "pub enum FileType {\n    Csv,\n    Json,\n}\n\npub fn from_extension(ext: &str) -> Option<FileType> {\n    match ext {\n        \"csv\" => Some(FileType::Csv),\n        \"json\" => Some(FileType::Json),\n        _ => None,\n    }\n}\n").unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 1,
+            lines_removed: 0,
+            diff: "+    Xml,".to_string(),  // Just adding Xml variant
+        },
+    ];
+
+    // This uses format_changes_summary (include_diff=true, include_signatures=false)
+    // which is the Phase 1 format. It should NOW include file context.
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let config = ReviewConfig::from_app_config(&my_code_agent::core::config::Config::default().review);
+    let agent = ReviewAgent::new(client, config);
+    let summary = agent.format_changes_summary(&changed_files);
+
+    // Should contain the diff
+    assert!(summary.contains("+    Xml,"), "Phase 1 summary must contain the diff");
+
+    // SHOULD now contain file context (this was the fix!)
+    assert!(summary.contains("pub fn from_extension"),
+        "Phase 1 summary MUST contain file context (key fix: was missing before)");
+    assert!(summary.contains("pub enum FileType"),
+        "Phase 1 summary must show enum declarations from file context");
+    assert!(summary.contains("## File Context"),
+        "Phase 1 summary must have the File Context section header");
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Test that Phase 2 format (signatures) also includes file context
+/// (should still work, was already working before the fix).
+#[test]
+fn test_phase2_format_includes_file_context() {
+    let temp_dir = std::env::temp_dir().join("codebuff_phase2_test");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("utils.rs");
+    std::fs::write(&file_path, "pub fn helper() -> i32 { 42 }\n").unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 1,
+            lines_removed: 0,
+            diff: "+    println!(\"hello\");".to_string(),
+        },
+    ];
+
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let config = ReviewConfig::from_app_config(&my_code_agent::core::config::Config::default().review);
+    let agent = ReviewAgent::new(client, config);
+    let summary = agent.format_changes_summary_signatures(&changed_files);
+
+    assert!(summary.contains("## File Context"),
+        "Phase 2 summary must contain File Context section");
+    assert!(summary.contains("pub fn helper() -> i32"),
+        "Phase 2 summary must include declarations from disk");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Test that Phase 3 format (compressed) includes file context
+/// (should still work, was already working before the fix).
+#[test]
+fn test_phase3_format_includes_file_context() {
+    let temp_dir = std::env::temp_dir().join("codebuff_phase3_test");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("main.rs");
+    std::fs::write(&file_path, "fn main() { println!(\"hi\"); }\n").unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 1,
+            lines_removed: 0,
+            diff: String::new(),
+        },
+    ];
+
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let config = ReviewConfig::from_app_config(&my_code_agent::core::config::Config::default().review);
+    let agent = ReviewAgent::new(client, config);
+    let summary = agent.format_changes_summary_compressed(&changed_files);
+
+    assert!(summary.contains("## File Context"),
+        "Phase 3 summary must contain File Context section");
+    assert!(summary.contains("fn main()"),
+        "Phase 3 summary must include declarations from disk");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// Test that the system prompt explicitly warns about the enum variant
+/// vs from_extension false positive scenario (the exact bug that occurred).
+#[test]
+fn test_system_prompt_mentions_enum_variant_example() {
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let config = ReviewConfig::from_app_config(&my_code_agent::core::config::Config::default().review);
+    let agent = ReviewAgent::new(client, config);
+    let prompt = agent.system_prompt(None);
+
+    assert!(prompt.contains("enum variant"),
+        "System prompt should mention enum variant as a common FP example");
+    assert!(prompt.contains("from_extension()"),
+        "System prompt should mention from_extension as a mapping that might be outside diff");
+}
+
+/// Test that the note text for Phase 2 contains "Key signatures extracted from diff"
+/// and Phase 3 contains "Full diff was reviewed in Phase 1".
+#[test]
+fn test_phase_note_text_correct() {
+    let temp_dir = std::env::temp_dir().join("codebuff_note_test");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("note.rs");
+    std::fs::write(&file_path, "pub fn foo() {}\n").unwrap();
+
+    let changed_files = vec![
+        ChangedFile {
+            path: file_path.to_string_lossy().to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 1,
+            lines_removed: 0,
+            diff: "+    bar();".to_string(),
+        },
+    ];
+
+    let client = LlmClient::new("http://localhost:8080", "test-key", "test-model");
+    let config = ReviewConfig::from_app_config(&my_code_agent::core::config::Config::default().review);
+    let agent = ReviewAgent::new(client, config);
+
+    // Phase 1 (full diff): no note text
+    let phase1 = agent.format_changes_summary(&changed_files);
+    assert!(!phase1.contains("Key signatures extracted from diff"),
+        "Phase 1 should not have signatures note");
+    assert!(!phase1.contains("Full diff was reviewed in Phase 1"),
+        "Phase 1 should not have 'reviewed in Phase 1' note");
+
+    // Phase 2 (signatures): should have "Key signatures extracted from diff" note
+    let phase2 = agent.format_changes_summary_signatures(&changed_files);
+    assert!(phase2.contains("Key signatures extracted from diff"),
+        "Phase 2 should have signatures note");
+
+    // Phase 3 (compressed): should have "Full diff was reviewed in Phase 1" note
+    let phase3 = agent.format_changes_summary_compressed(&changed_files);
+    assert!(phase3.contains("Full diff was reviewed in Phase 1"),
+        "Phase 3 should have compressed note");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

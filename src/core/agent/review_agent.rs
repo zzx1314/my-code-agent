@@ -99,7 +99,7 @@ impl ReviewAgent {
     }
 
     /// Build the system prompt, optionally filtering to only include specified categories
-    fn system_prompt(&self, phase_categories: Option<&[ReviewCategory]>) -> String {
+    pub fn system_prompt(&self, phase_categories: Option<&[ReviewCategory]>) -> String {
         // Build category filter set
         let category_filter = phase_categories.map(|cats| {
             cats.iter().map(|c| std::mem::discriminant(c)).collect::<std::collections::HashSet<_>>()
@@ -116,11 +116,23 @@ impl ReviewAgent {
             prompt.push_str("Analyze code across all of the following categories:\n\n");
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        //  GLOBAL GUIDANCE: Applies to ALL categories below
+        // ═══════════════════════════════════════════════════════════════
+        prompt.push_str("### ⚠️ Global Guidance: Always Consider the Full File State\n\n");
+        prompt.push_str("When reviewing ANY category below, ALWAYS keep in mind:\n\n");
+        prompt.push_str("1. **The diff only shows what CHANGED** — it does NOT show the entire file. Existing code outside the diff range is still present and working.\n");
+        prompt.push_str("2. **The 'File Context' section** shows key declarations from the actual source files. Use it to verify whether a mapping, registration, import, or dispatch already exists.\n");
+        prompt.push_str("3. **Do NOT flag something as missing just because it's absent from the diff** — it might already exist elsewhere in the file. Always check the File Context section first.\n");
+        prompt.push_str("4. **Common false positive scenario**: A new enum variant is added → the `from_extension()` mapping or parser dispatch likely already exists but is outside the diff range. Verify via File Context before reporting.\n");
+        prompt.push_str("5. **When in doubt, assume existing code still works** — testing evidence (all tests passing) strongly suggests existing wiring is intact.\n\n");
+        prompt.push_str("---\n\n");
+
         let all_categories: Vec<(ReviewCategory, &str)> = vec![
-            (ReviewCategory::FunctionalCompleteness, "🎯 **CRITICAL: Does the code actually fulfill the user's requirements?** Check if:\n   - The implementation fully addresses ALL aspects of the user's request (not just part of it)\n   - There are no placeholder/stub implementations (e.g. `todo!()`, `unimplemented!()`, `throw new Error(\"Not implemented\")`, FIXME comments)\n   - All required functions/endpoints/components are actually implemented, not just declared\n   - Edge cases mentioned in the requirements are handled\n   - Return values and outputs match what was asked for\n   - Configuration and wiring (imports, routes, registrations) is complete — not just the core logic\n   - **IMPORTANT — Language awareness**: The user's conversation language does NOT dictate what language code, comments, or documentation should be in. The project's established conventions and the user's explicit requirements determine the correct language. Do NOT flag a language mismatch unless the user explicitly asked for a specific language or translation."),
+            (ReviewCategory::FunctionalCompleteness, "🎯 **CRITICAL: Does the code actually fulfill the user's requirements?** Check if:\n   - The implementation fully addresses ALL aspects of the user's request (not just part of it)\n   - There are no placeholder/stub implementations (e.g. `todo!()`, `unimplemented!()`, `throw new Error(\"Not implemented\")`, FIXME comments)\n   - All required functions/endpoints/components are actually implemented, not just declared\n   - Edge cases mentioned in the requirements are handled\n   - Return values and outputs match what was asked for\n   - Configuration and wiring (imports, routes, registrations) is complete — not just the core logic\n\n   - **IMPORTANT — Language awareness**: The user's conversation language does NOT dictate what language code, comments, or documentation should be in. The project's established conventions and the user's explicit requirements determine the correct language. Do NOT flag a language mismatch unless the user explicitly asked for a specific language or translation."),
             (ReviewCategory::Security, "Security — SQL injection, XSS, sensitive data leaks, permission issues, unsafe dependencies"),
             (ReviewCategory::Performance, "Performance — Memory leaks, algorithm complexity, unreleased resources, unnecessary cloning/allocation"),
-            (ReviewCategory::BugRisk, "Bug Risk — Null/unchecked pointers, off-by-one errors, edge cases, type confusion, logic errors"),
+            (ReviewCategory::BugRisk, "Bug Risk — Null/unchecked pointers, off-by-one errors, edge cases, type confusion, logic errors\n\n   ⚠️ **Diff awareness**: A function call or variable reference may point to code OUTSIDE the diff range. Do NOT flag a call as \"undefined\" or \"potentially null\" just because the definition isn't in the diff. Check the File Context section and assume existing code is correct unless you have definitive evidence of a bug."),
             (ReviewCategory::ErrorHandling, "Error Handling — Missing error propagation, ignored Results, unwrap/expect panics, silent failures"),
             (ReviewCategory::Maintainability, "Maintainability — Code duplication, overlong functions, poor naming, magic numbers, dead code"),
             (ReviewCategory::Style, "Style — Inconsistent formatting, non-idiomatic patterns, lint violations, naming convention breaks"),
@@ -553,20 +565,20 @@ impl ReviewAgent {
     }
 
     /// Format changes summary (full diff included)
-    fn format_changes_summary(&self, files: &[ChangedFile]) -> String {
+    pub fn format_changes_summary(&self, files: &[ChangedFile]) -> String {
         self.format_changes_summary_inner(files, true, false)
     }
 
     /// Format changes summary with function signatures extracted from the diff (no full diff body).
     /// Used by Phase 2 — gives enough context for safety/performance/concurrency checks
     /// without sending the entire diff.
-    fn format_changes_summary_signatures(&self, files: &[ChangedFile]) -> String {
+    pub fn format_changes_summary_signatures(&self, files: &[ChangedFile]) -> String {
         self.format_changes_summary_inner(files, false, true)
     }
 
     /// Format changes summary (compressed — no diff body, only metadata).
     /// Used by Phase 3 — only needs file list for style/docs/maintainability checks.
-    fn format_changes_summary_compressed(&self, files: &[ChangedFile]) -> String {
+    pub fn format_changes_summary_compressed(&self, files: &[ChangedFile]) -> String {
         self.format_changes_summary_inner(files, false, false)
     }
 
@@ -609,25 +621,25 @@ impl ReviewAgent {
             summary.push_str("\n");
         }
 
-        if !include_diff {
-            let note = if include_signatures {
-                "*Key signatures extracted from diff (context for Phase 2 review).*"
-            } else {
-                "*Full diff was reviewed in Phase 1. This phase checks additional quality dimensions.*"
-            };
-            summary.push_str(note);
-            summary.push_str("\n\n");
+        // Append file context from disk — key declarations (function signatures,
+        // struct/enum/trait definitions, imports) from the actual source files.
+        //
+        // This is CRITICAL for ALL phases because:
+        // 1. Even with the full diff in Phase 1, the LLM's attention span may not
+        //    connect distant parts of the same diff (e.g., new enum variant vs the
+        //    from_extension() mapping 200 lines away).
+        // 2. Some context (like existing mappings and parser dispatch) may be OUTSIDE
+        //    the diff range entirely (if those parts of the file weren't modified).
+        //
+        // This prevents false positives where the LLM sees a new enum variant or
+        // function added but can't verify whether the associated wiring/registration/
+        // mapping code already exists elsewhere in the file.
+        if include_signatures {
+            summary.push_str("*Key signatures extracted from diff (context for Phase 2 review).*\n\n");
+        } else if !include_diff {
+            summary.push_str("*Full diff was reviewed in Phase 1. This phase checks additional quality dimensions.*\n\n");
         }
-
-        // Append file context from disk — only for phases WITHOUT full diff
-        // (Phase 2: signatures, Phase 3: compressed). Phase 1 already has the
-        // complete diff, so file context would be redundant and waste tokens.
-        // This provides function signatures, struct/enum/trait declarations,
-        // and imports that may be outside the diff range, preventing false
-        // positives where the LLM sees a symbol used but can't find its definition.
-        if !include_diff {
-            summary.push_str(&Self::format_file_context(files));
-        }
+        summary.push_str(&Self::format_file_context(files));
 
         summary
     }
