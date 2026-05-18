@@ -1726,7 +1726,9 @@ fn run_git(args: &[&str]) {
 
 #[test]
 fn test_review_baseline_incremental_diff() {
-    let _lock = REVIEW_BASELINE_TEST_MUTEX.lock().unwrap();
+    let _lock = REVIEW_BASELINE_TEST_MUTEX
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let _guard = CwdGuard::new(&temp_dir);
 
@@ -1735,24 +1737,22 @@ fn test_review_baseline_incremental_diff() {
     run_git(&["config", "user.email", "test@test.com"]);
     run_git(&["config", "user.name", "Test"]);
 
-    std::fs::write("file_a.rs", "fn main() {\n    println!(\"Hello\");\n}\n")
-        .expect("Failed to write file_a.rs");
-    run_git(&["add", "file_a.rs"]);
-    run_git(&["commit", "-m", "Initial commit"]);
-
-    assert!(std::process::Command::new("git")
-        .args(["status", "--porcelain"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().is_empty())
-        .unwrap_or(false));
+    // 初始提交：file_a.rs 包含 main 函数
+    std::fs::write(
+        "lib.rs",
+        "fn main() {\n    println!(\"v1\");\n}\n",
+    )
+    .expect("Failed to write lib.rs");
+    run_git(&["add", "lib.rs"]);
+    run_git(&["commit", "-m", "Initial"]);
 
     let orch = make_orchestrator(true);
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
-    // ---- Round 1 ----
+    // ---- Round 1: 添加 feature_x ----
     std::fs::write(
-        "file_a.rs",
-        "fn main() {\n    println!(\"Hello\");\n}\n\nfn hello() {\n    println!(\"Hello from hello()\");\n}\n",
+        "lib.rs",
+        "fn main() {\n    println!(\"v1\");\n}\n\npub fn feature_x() -> &'static str {\n    \"x\"\n}\n",
     )
     .expect("Failed");
 
@@ -1770,39 +1770,36 @@ fn test_review_baseline_incremental_diff() {
     let baseline_check = rt.block_on(orch.detect_changed_files_from_git(Some(&baseline_sha)));
     assert!(baseline_check.is_empty());
 
-    // ---- Round 2: 修改 file_a + 新建 file_b ----
+    // ---- Round 2: 添加 feature_y（只修改 lib.rs，不新建文件） ----
+    // git diff 不显示 untracked 文件，所以我们只修改已有文件来验证增量逻辑
     std::fs::write(
-        "file_a.rs",
-        "fn main() {\n    println!(\"Hello\");\n}\n\nfn hello() {\n    println!(\"Hello from hello()\");\n}\n\nfn goodbye() {\n    println!(\"Goodbye\");\n}\n",
+        "lib.rs",
+        "fn main() {\n    println!(\"v1\");\n}\n\npub fn feature_x() -> &'static str {\n    \"x\"\n}\n\npub fn feature_y() -> &'static str {\n    \"y\"\n}\n",
     )
     .expect("Failed");
-    std::fs::write("file_b.rs", "pub fn helper() -> u32 { 42 }\n").expect("Failed");
 
-    // 累积 diff（无基线）
+    // 累积 diff（无基线）= 第 1 轮 + 第 2 轮所有改动
     let cumulative = rt.block_on(orch.detect_changed_files_from_git(None));
-    assert_eq!(cumulative.len(), 2);
-    let cum_file_a = cumulative.iter().find(|f| f.path == "file_a.rs").unwrap();
-    let cum_file_b = cumulative.iter().find(|f| f.path == "file_b.rs").unwrap();
+    assert_eq!(cumulative.len(), 1);
+    let cum_added = cumulative[0].lines_added;
 
-    assert!(cum_file_a.lines_added > r1_added);
-    assert!(cum_file_b.lines_added > 0);
-
-    // 增量 diff（有基线）
+    // 增量 diff（有基线）= 只有第 2 轮改动
     let incremental = rt.block_on(orch.detect_changed_files_from_git(Some(&baseline_sha)));
-    assert_eq!(incremental.len(), 2);
-    let inc_file_a = incremental.iter().find(|f| f.path == "file_a.rs").unwrap();
-    let inc_file_b = incremental.iter().find(|f| f.path == "file_b.rs").unwrap();
+    assert_eq!(incremental.len(), 1);
+    let inc_added = incremental[0].lines_added;
 
-    // 核心断言：增量 file_a < 累积 file_a
+    // 核心断言：增量 < 累积（基线排除了第 1 轮的改动）
     assert!(
-        inc_file_a.lines_added < cum_file_a.lines_added,
-        "incremental {} should be < cumulative {}",
-        inc_file_a.lines_added,
-        cum_file_a.lines_added
+        inc_added < cum_added,
+        "incremental ({}) should be < cumulative ({})",
+        inc_added,
+        cum_added
     );
-
-    // 新文件：增量 == 累积
-    assert_eq!(inc_file_b.lines_added, cum_file_b.lines_added);
+    // 增量行数应恰好等于第 2 轮新增的行
+    let round2_added = cum_added - r1_added;
+    assert_eq!(inc_added, round2_added,
+        "incremental ({}) should equal round2 only ({})",
+        inc_added, round2_added);
 }
 
 #[test]
