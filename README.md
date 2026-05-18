@@ -81,23 +81,42 @@ The tool returns search results with titles, URLs, and snippets from the web.
 
 The `spawn_agents` tool enables parallel execution of multiple specialized sub-agents, each with its own role and prompt. All agents run concurrently and their results are combined in a single response.
 
+**Key Features:**
+- **Parallel Execution** — All agents run concurrently using `tokio` tasks, dramatically reducing turnaround time
+- **Specialized Roles** — Each agent type has a tailored system prompt for optimal performance
+- **Custom Agents** — Use any custom agent type for flexible, domain-specific tasks
+- **Error Resilience** — Individual agent failures don't block other agents; errors are reported per-agent
+
 **Built-in agent types:**
 
-| Agent Type | Role |
-|------------|------|
-| `reviewer` | Code review specialist — analyzes code for bugs, security issues, performance problems, and suggests improvements |
-| `researcher` | Technical research specialist — provides comprehensive, well-structured answers with best practices and examples |
-| `coder` | Senior software engineer — writes clean, well-structured code with error handling, comments, and tests |
-| `summarizer` | Technical summarization specialist — condenses complex information into clear, concise summaries |
-| `security` | Security specialist — analyzes code for SQL injection, XSS, CSRF, auth flaws, and insecure dependencies |
-| *(custom)* | Any custom type uses a generic assistant prompt for flexible use cases |
+| Agent Type | Role | Best For |
+|------------|------|----------|
+| `reviewer` | Code review specialist | Analyzing code for bugs, security issues, performance problems, and suggesting improvements |
+| `researcher` | Technical research specialist | Providing comprehensive, well-structured answers with best practices and examples |
+| `coder` | Senior software engineer | Writing clean, well-structured code with error handling, comments, and tests |
+| `summarizer` | Technical summarization specialist | Condensing complex information into clear, concise summaries |
+| `security` | Security specialist | Analyzing code for SQL injection, XSS, CSRF, auth flaws, and insecure dependencies |
+| *(custom)* | Generic assistant | Any custom type uses a generic assistant prompt for flexible use cases |
+
+**Constraints:**
+- **Maximum 10 agents** per spawn request (to prevent resource exhaustion)
+- Each agent runs as an independent LLM call with its own system prompt
+- Results are combined into a single JSON response
 
 **Usage:**
 
-```
+```bash
+# Basic parallel review
 ❯ spawn multiple agents to review this PR from different perspectives
+
+# Code review + security audit
 ❯ Run a code review and security audit in parallel on @src/main.rs
+
+# Multi-perspective analysis
 ❯ Have a coder write the implementation, a reviewer check it, and a summarizer combine feedback
+
+# Technical research
+❯ Spawn a researcher to analyze Rust async patterns and a summarizer to create a cheat sheet
 ```
 
 **Example — parallel code review and security audit:**
@@ -110,10 +129,44 @@ The agent can orchestrate multiple sub-agents in a single turn. For instance, wh
 
 All three run concurrently, dramatically reducing turnaround time for complex multi-perspective analyses.
 
+**Example — custom agent types:**
+
+You can use any custom agent type for domain-specific tasks. Custom types use a **generic assistant prompt** (unless explicitly configured), which is suitable for flexible use cases:
+
+```bash
+# Custom domain expert (uses generic assistant prompt)
+❯ Spawn a "database" agent to analyze our schema and a "performance" agent to identify bottlenecks
+
+# Specialized reviewer (uses generic assistant prompt)
+❯ Have a "frontend" agent review our React components and a "backend" agent review the API
+```
+
+> **Note:** Custom agent types (e.g., `database`, `performance`, `frontend`, `backend`) use a generic assistant prompt by default. For specialized behavior, use the built-in agent types (`reviewer`, `researcher`, `coder`, `summarizer`, `security`) which have tailored system prompts.
+
 **Configuration:**
 
 No special configuration needed — `spawn_agents` is available by default. It uses the same LLM provider configured in `config.toml` to power all sub-agents.
 
+**Error Handling:**
+
+If an individual agent fails, its error is included in the response without affecting other agents:
+
+```json
+[
+  {
+    "agent_type": "reviewer",
+    "prompt": "Review this code...",
+    "content": "The code looks good overall...",
+    "error": null
+  },
+  {
+    "agent_type": "security",
+    "prompt": "Check for vulnerabilities...",
+    "content": "",
+    "error": "Rate limit exceeded"
+  }
+]
+```
 ## Getting Started
 
 ### Prerequisites
@@ -259,47 +312,6 @@ The agent is instructed to use `file_read` with the suggested offset when it enc
 ❯ Refactor the stream_response function to be shorter
 ❯ compare @src/main.rs and @src/lib.rs           # attach multiple files
 ```
-
-### Token Usage
-
-After each response, a brief token summary is displayed:
-
-```
-  📊 in: 1,234 · out: 567 · total: 1,801
-```
-
-Use the `usage` command for a detailed session report:
-
-```
-  ──────── Token Usage ────────
-  → Input tokens:              5,432
-  ← Output tokens:             2,100
-  Σ Total tokens:              7,532
-  ────────────────────────────
-```
-
-### Collapsible Reasoning
-
-The agent uses DeepSeek's reasoner model, which produces internal **reasoning** (chain-of-thought) before responding. To keep the terminal clean, reasoning is **collapsed** by default:
-
-```
-  💭 I need to check the file structure first... (142 chars, 3 lines) [type 'think' to expand]
-```
-
-To view the full reasoning content, type `think`:
-
-```
-❯ think
-
-  💭 Reasoning:
-  ─────────────────────────────────────────
-  I need to check the file structure first to understand the module layout.
-  Then I'll look at the specific function that needs refactoring.
-  ─────────────────────────────────────────
-```
-
-- The `think` command shows the **most recent** reasoning from the last response
-- `clear` also clears the stored reasoning
 
 ### Session Persistence
 
