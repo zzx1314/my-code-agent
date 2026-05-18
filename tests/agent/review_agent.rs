@@ -221,7 +221,7 @@ fn test_review_event_creation() {
 
 use my_code_agent::app::App;
 use my_code_agent::core::context::token_usage::TokenUsage;
-use my_code_agent::core::agent::review_agent::{extract_json_from_response, repair_truncated_json, sanitize_json_escapes};
+use my_code_agent::core::agent::review_agent::{extract_json_from_response, repair_truncated_json, sanitize_json_escapes, escape_control_chars_in_strings, remove_trailing_commas_from_json};
 use my_code_agent::core::agent::stream::{check_review_result, process_review_events};
 
 const VALID_JSON: &str = r#"{"issues":[],"summary":{"overall_score":100,"verdict":"approved"}}"#;
@@ -503,6 +503,177 @@ fn test_repair_truncated_nested_brackets() {
 fn test_repair_truncated_multi_level() {
     let result = repair_truncated_json(r#"{"a": {"b": {"c": 1"#);
     assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
+}
+
+// =============================================================================
+// Tests for escape_control_chars_in_strings
+// =============================================================================
+
+/// Raw newlines in JSON strings should be escaped
+#[test]
+fn test_escape_control_chars_newlines_in_string() {
+    let json = r#"{"desc": "line1
+line2"}"#;
+    let result = escape_control_chars_in_strings(json);
+    assert!(!result.contains("\n"), "should escape raw newlines");
+    assert!(result.contains("\\n"), "should replace with \\n");
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "escaped result should be valid JSON");
+}
+
+/// Raw tabs in JSON strings should be escaped
+#[test]
+fn test_escape_control_chars_tabs_in_string() {
+    let json = r#"{"code": "fn foo() {	bar()}"}"#;
+    let result = escape_control_chars_in_strings(json);
+    assert!(result.contains("\\t"), "should replace raw tabs with \\t");
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
+}
+
+/// Mixed raw newlines, tabs, and normal content
+#[test]
+fn test_escape_control_chars_mixed() {
+    let json = r#"{"snippet": "fn foo() {
+    let x = 1;	// tab here
+    bar(x);
+}"}"#;
+    let result = escape_control_chars_in_strings(json);
+    assert!(!result.contains("\n"), "should escape all raw newlines");
+    assert!(!result.contains("\t"), "should escape all raw tabs");
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "escaped result should be valid JSON");
+}
+
+/// Valid JSON without control chars should pass through unchanged
+#[test]
+fn test_escape_control_chars_already_valid() {
+    let json = r#"{"key": "value", "num": 42}"#;
+    let result = escape_control_chars_in_strings(json);
+    assert_eq!(result, json, "already-valid JSON should be unchanged");
+}
+
+/// Escaped sequences like \n, \t should NOT be double-escaped
+#[test]
+fn test_escape_control_chars_does_not_double_escape() {
+    let json = r#"{"desc": "line1\nline2"}"#;
+    let result = escape_control_chars_in_strings(json);
+    assert_eq!(result, json, "valid \\n should not be modified");
+}
+
+/// Control chars outside strings should not be touched
+#[test]
+fn test_escape_control_chars_outside_string() {
+    // Raw newline outside a string (before JSON) - should not crash
+    let json = "before\n{\"key\": \"value\"}";
+    let result = escape_control_chars_in_strings(json);
+    // The newline before the JSON is outside a string, so it stays
+    assert!(result.contains('\n'), "newlines outside strings should remain");
+}
+
+// =============================================================================
+// Tests for remove_trailing_commas_from_json
+// =============================================================================
+
+/// Nested trailing comma should be removed
+#[test]
+fn test_remove_trailing_commas_nested() {
+    let json = r#"{"issues": [{"file": "x.rs", "line": 42,}], "summary": {"score": 85}}"#;
+    let result = remove_trailing_commas_from_json(json);
+    assert!(!result.contains(",}"), "should remove nested trailing comma");
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "result should be valid JSON");
+}
+
+/// Multiple nested trailing commas at different levels
+#[test]
+fn test_remove_trailing_commas_multi_nested() {
+    let json = r#"{"issues": [{"a": 1, "b": 2,}, {"c": 3,}], "summary": {"score": 85,}}"#;
+    let result = remove_trailing_commas_from_json(json);
+    assert!(!result.contains(",}"), "should remove all nested trailing commas");
+    assert!(!result.contains(",]"), "should remove array trailing commas");
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
+}
+
+/// Trailing comma in array
+#[test]
+fn test_remove_trailing_commas_array() {
+    let json = r#"{"items": [1, 2, 3,]}"#;
+    let result = remove_trailing_commas_from_json(json);
+    assert!(!result.contains(",]"), "should remove array trailing comma");
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
+}
+
+/// Already-valid JSON should pass through unchanged
+#[test]
+fn test_remove_trailing_commas_already_valid() {
+    let json = r#"{"issues": [], "summary": {"score": 100}}"#;
+    let result = remove_trailing_commas_from_json(json);
+    assert_eq!(result, json, "valid JSON should be unchanged");
+}
+
+/// Commas inside strings that look like trailing commas should be preserved
+#[test]
+fn test_remove_trailing_commas_inside_string() {
+    let json = r#"{"desc": "looks like ,}"}"#;
+    let result = remove_trailing_commas_from_json(json);
+    assert_eq!(result, json, "comma inside string should not be removed");
+}
+
+/// Entire realistic review JSON with trailing comma issue
+#[test]
+fn test_remove_trailing_commas_realistic_review() {
+    let json = r#"{
+  "issues": [
+    {
+      "file": "src/main.rs",
+      "line": 42,
+      "severity": "high",
+      "category": "bug_risk",
+      "title": "Issue",
+      "description": "Bug found",
+      "suggestion": "Fix it",
+      "code_snippet": "bad_code()",
+      "fix_example": "good_code()",
+    }
+  ],
+  "summary": {
+    "overall_score": 80,
+    "verdict": "approved",
+  }
+}"#;
+    let result = remove_trailing_commas_from_json(json);
+    assert!(!result.contains(",}"), "should remove all trailing commas");
+    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "result should be valid JSON");
+}
+
+/// Combined test: trailing comma + raw newlines in same JSON
+#[test]
+fn test_combined_repair_pipeline() {
+    // JSON with BOTH trailing commas AND raw newlines in strings
+    let json = r#"{
+  "issues": [
+    {
+      "file": "src/main.rs",
+      "line": 42,
+      "severity": "high",
+      "description": "Found issue with
+multi-line description",
+      "code_snippet": "fn foo() {
+    let x = 1;
+}",
+    }
+  ],
+  "summary": {
+    "overall_score": 70,
+    "verdict": "needs_revision",
+  }
+}"#;
+    // First remove trailing commas, then escape control chars
+    let step1 = remove_trailing_commas_from_json(json);
+    let step2 = escape_control_chars_in_strings(&step1);
+    assert!(serde_json::from_str::<serde_json::Value>(&step2).is_ok(),
+        "combined repair should produce valid JSON");
 }
 
 // =============================================================================

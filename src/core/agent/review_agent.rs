@@ -577,9 +577,26 @@ impl ReviewAgent {
         let parsed: serde_json::Value = match serde_json::from_str(&sanitized) {
             Ok(v) => v,
             Err(_) => {
-                // Attempt JSON repair for truncated/malformed responses
+                // Attempt multi-strategy JSON repair for common LLM issues:
+                // 1. Truncation (unbalanced braces, unclosed strings, trailing commas)
+                // 2. Trailing commas in nested objects/arrays
+                // 3. Raw control characters in string values (newlines, tabs)
                 let repaired = repair_truncated_json(&sanitized);
-                serde_json::from_str(&repaired)?
+                match serde_json::from_str(&repaired) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        // Remove trailing commas throughout (not just outermost level)
+                        let no_trailing = remove_trailing_commas_from_json(&repaired);
+                        match serde_json::from_str(&no_trailing) {
+                            Ok(v) => v,
+                            Err(_) => {
+                                // Escape raw control characters in string values
+                                let escaped = escape_control_chars_in_strings(&no_trailing);
+                                serde_json::from_str(&escaped)?
+                            }
+                        }
+                    }
+                }
             }
         };
 
@@ -976,6 +993,98 @@ fn truncate_content(content: &str, max_bytes: usize) -> String {
     let mut s = content[..boundary].to_string();
     s.push_str("...");
     s
+}
+
+/// Escape raw control characters inside JSON string values.
+///
+/// LLMs frequently include multi-line content (code snippets, descriptions)
+/// with raw newlines (`\n`, `\r`) or tabs inside JSON string values.
+/// These are invalid in JSON and cause `serde_json` parse errors like
+/// "expected `,` or `}` at line X column Y".
+///
+/// Replaces raw control characters with their JSON escape equivalents:
+/// - `\x00-\x1F (except valid JSON whitespace in strings)` → `\\uXXXX` or standard escapes
+/// - Specifically: `\n` → `\\n`, `\r` → `\\r`, `\t` → `\\t`
+///
+/// Properly tracks string boundaries (respects escaped quotes).
+pub fn escape_control_chars_in_strings(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 32);
+    let mut in_string = false;
+    let mut prev_was_escape = false;
+
+    for ch in s.chars() {
+        if ch == '"' && !prev_was_escape {
+            in_string = !in_string;
+        }
+        prev_was_escape = ch == '\\' && !prev_was_escape;
+
+        if in_string {
+            match ch {
+                '\n' => result.push_str("\\n"),
+                '\r' => result.push_str("\\r"),
+                '\t' => result.push_str("\\t"),
+                '\x08' => result.push_str("\\b"),
+                '\x0C' => result.push_str("\\f"),
+                // Other C0 control characters (U+0000-U+001F except the ones above)
+                '\x00'..='\x07' | '\x0B' | '\x0E'..='\x1F' | '\x7F' => {
+                    // These are extremely unlikely but escape them as \uXXXX just in case
+                    let code = ch as u32;
+                    result.push_str(&format!("\\u{:04x}", code));
+                }
+                _ => result.push(ch),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
+/// Remove trailing commas before `}` and `]` throughout JSON.
+///
+/// LLMs frequently output JSON with trailing commas in nested objects/arrays:
+/// ```json
+/// {"issues": [{"file": "x.rs", "line": 42,}], ...}
+///                                   ^^ trailing comma
+/// ```
+///
+/// `serde_json` rejects these by default. This function removes ALL trailing
+/// commas throughout the JSON by scanning for `,` followed by optional
+/// whitespace and then `}` or `]`, respecting string boundaries.
+pub fn remove_trailing_commas_from_json(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut result = String::with_capacity(s.len());
+    let mut in_string = false;
+    let mut prev_was_escape = false;
+    let mut i = 0;
+
+    while i < chars.len() {
+        let ch = chars[i];
+
+        if ch == '"' && !prev_was_escape {
+            in_string = !in_string;
+        }
+        prev_was_escape = ch == '\\' && !prev_was_escape;
+
+        if !in_string && ch == ',' {
+            // Look ahead past whitespace for } or ]
+            let mut j = i + 1;
+            while j < chars.len() && (chars[j] == ' ' || chars[j] == '\t' || chars[j] == '\n' || chars[j] == '\r') {
+                j += 1;
+            }
+            if j < chars.len() && (chars[j] == '}' || chars[j] == ']') {
+                // This is a trailing comma — skip it
+                i += 1;
+                continue;
+            }
+        }
+
+        result.push(ch);
+        i += 1;
+    }
+
+    result
 }
 
 /// Attempt to repair a truncated/malformed JSON string from LLM output.
