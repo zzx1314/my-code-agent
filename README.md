@@ -79,13 +79,11 @@ The tool returns search results with titles, URLs, and snippets from the web.
 
 ### Multi-Agent Collaboration
 
-The `spawn_agents` tool enables parallel execution of multiple specialized sub-agents, each with its own role and prompt. All agents run concurrently and their results are combined in a single response.
+The project includes a comprehensive multi-agent system with two complementary mechanisms: **parallel sub-agents** (`spawn_agents`) and an **automated code review pipeline** (`AgentOrchestrator` + `ReviewAgent`).
 
-**Key Features:**
-- **Parallel Execution** — All agents run concurrently using `tokio` tasks, dramatically reducing turnaround time
-- **Specialized Roles** — Each agent type has a tailored system prompt for optimal performance
-- **Custom Agents** — Use any custom agent type for flexible, domain-specific tasks
-- **Error Resilience** — Individual agent failures don't block other agents; errors are reported per-agent
+#### 1. Parallel Sub-Agents (`spawn_agents`)
+
+The `spawn_agents` tool enables parallel execution of multiple specialized sub-agents, each with its own role and prompt. All agents run concurrently using `tokio` tasks and their results are combined in a single response.
 
 **Built-in agent types:**
 
@@ -98,18 +96,11 @@ The `spawn_agents` tool enables parallel execution of multiple specialized sub-a
 | `security` | Security specialist | Analyzing code for SQL injection, XSS, CSRF, auth flaws, and insecure dependencies |
 | *(custom)* | Generic assistant | Any custom type uses a generic assistant prompt for flexible use cases |
 
-**Constraints:**
-- **Maximum 10 agents** per spawn request (to prevent resource exhaustion)
-- Each agent runs as an independent LLM call with its own system prompt
-- Results are combined into a single JSON response
+**Constraints:** Max 10 agents per spawn request. Each agent runs as an independent LLM call with its own system prompt.
 
 **Usage:**
-
-```bash
-# Basic parallel review
-❯ spawn multiple agents to review this PR from different perspectives
-
-# Code review + security audit
+```
+# Parallel code review + security audit
 ❯ Run a code review and security audit in parallel on @src/main.rs
 
 # Multi-perspective analysis
@@ -119,54 +110,83 @@ The `spawn_agents` tool enables parallel execution of multiple specialized sub-a
 ❯ Spawn a researcher to analyze Rust async patterns and a summarizer to create a cheat sheet
 ```
 
-**Example — parallel code review and security audit:**
+#### 2. Automated Code Review (`/review` + Auto-Review)
 
-The agent can orchestrate multiple sub-agents in a single turn. For instance, when asked to review a pull request, it might spawn:
+The `AgentOrchestrator` coordinates collaboration between the **main agent** (handles tasks) and a dedicated **`ReviewAgent`** (performs code review). This is not a simple tool call — it's a full orchestration pipeline.
 
-1. **reviewer** — Analyze code quality, style, and logic
-2. **security** — Scan for vulnerabilities
-3. **summarizer** — Combine both reports into a structured response
+**Key capabilities:**
+- **Auto-detection** — Automatically detects changed files from tool execution history (`file_write`, `file_update`, `file_delete`, `apply_patch`)
+- **Phased multi-category review** — Structured analysis across functional completeness, security, logic, error handling, API misuse, performance, and concurrency
+- **Fix→Review loop** — When auto-review finds issues, the main agent can automatically fix them and re-review (up to `max_review_iterations`)
+- **Structured JSON output** — Returns issues with file, line, severity, category, title, description, suggestion, and fix examples
+- **Event streaming** — Review progress (phase completions, reasoning) streams to the UI in real-time
 
-All three run concurrently, dramatically reducing turnaround time for complex multi-perspective analyses.
+**The `/review` command:**
 
-**Example — custom agent types:**
+| Syntax | Description |
+|--------|-------------|
+| `/review` | Review code changes in the current conversation |
+| `/review <path>` | Review code at the specified file or directory |
+| `/review --auto` | Toggle auto-review mode on/off |
+| `/review --help` | Show review command help |
 
-You can use any custom agent type for domain-specific tasks. Custom types use a **generic assistant prompt** (unless explicitly configured), which is suitable for flexible use cases:
+**How it works:**
 
-```bash
-# Custom domain expert (uses generic assistant prompt)
-❯ Spawn a "database" agent to analyze our schema and a "performance" agent to identify bottlenecks
+1. Main agent completes code changes (e.g., `file_write`, `file_update`)
+2. `AgentOrchestrator` detects changed files from tool output
+3. `ReviewAgent` sends diffs directly to the LLM (no tools registered) with a structured system prompt
+4. LLM returns JSON with issues and a verdict (`approved` or `needs_revision`)
+5. If `needs_revision` and auto-review is enabled, the main agent receives the review feedback and attempts fixes
+6. Loop repeats up to `max_review_iterations` (default: 3)
 
-# Specialized reviewer (uses generic assistant prompt)
-❯ Have a "frontend" agent review our React components and a "backend" agent review the API
+**Example — review report output:**
+```json
+{
+  "issues": [
+    {
+      "file": "src/tools/shell_exec.rs",
+      "line": 42,
+      "end_line": 50,
+      "severity": "high",
+      "category": "security",
+      "title": "Missing input validation",
+      "description": "Shell command input is not sanitized before execution",
+      "suggestion": "Add input validation and escape special characters",
+      "code_snippet": "let cmd = args.command;",
+      "fix_example": "let cmd = sanitize_shell_input(&args.command);"
+    }
+  ],
+  "summary": {
+    "overall_score": 75,
+    "verdict": "needs_revision"
+  }
+}
 ```
 
-> **Note:** Custom agent types (e.g., `database`, `performance`, `frontend`, `backend`) use a generic assistant prompt by default. For specialized behavior, use the built-in agent types (`reviewer`, `researcher`, `coder`, `summarizer`, `security`) which have tailored system prompts.
+**Review categories:** `bug_risk`, `security`, `functional_completeness`, `performance`, `error_handling`, `style`, `maintainability`
+
+**Severity levels:** `critical` > `high` > `medium` > `low` > `info`
 
 **Configuration:**
 
-No special configuration needed — `spawn_agents` is available by default. It uses the same LLM provider configured in `config.toml` to power all sub-agents.
-
-**Error Handling:**
-
-If an individual agent fails, its error is included in the response without affecting other agents:
-
-```json
-[
-  {
-    "agent_type": "reviewer",
-    "prompt": "Review this code...",
-    "content": "The code looks good overall...",
-    "error": null
-  },
-  {
-    "agent_type": "security",
-    "prompt": "Check for vulnerabilities...",
-    "content": "",
-    "error": "Rate limit exceeded"
-  }
-]
+```toml
+[review]
+enabled = true               # Enable review functionality (default: true)
+auto_review = true            # Auto-review after main agent completes (default: true)
+threshold_lines = 5           # Min lines changed to trigger auto-review (default: 5)
+max_issues = 50               # Max issues to report per review (default: 50)
+severity_threshold = "low"    # Min severity to report (default: "low")
+on_file_write = true          # Trigger review on file_write (default: true)
+on_file_update = true         # Trigger review on file_update (default: true)
+max_review_iterations = 3     # Max fix→review loop iterations (default: 3)
 ```
+
+#### Error Handling
+
+Both systems handle errors gracefully:
+- **`spawn_agents`**: Individual agent failures don't block others; errors are reported per-agent in the JSON response
+- **`ReviewAgent`**: Review failures are reported without crashing the main session; the orchestrator falls back gracefully
+
 ## Getting Started
 
 ### Prerequisites
