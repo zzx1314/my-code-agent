@@ -227,6 +227,56 @@ async fn test_build_diff() {
     assert!(diff.contains("+hi"));
 }
 
+// ── Tests for leading-newline-in-new_content bug ──
+
+#[tokio::test]
+async fn test_new_content_with_leading_newline_in_replace_mode() {
+    // When new_content starts with \\n (common when LLM extracts code blocks),
+    // split('\\n') produces a leading empty string, creating an extra blank line above.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "line1\nline2\nline3").unwrap();
+
+    // new_content with leading \\n — simulates LLM code block extraction
+    let result = call_update(path.to_str().unwrap(), 2, 1, "\nnew_line2")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    // Should NOT have an extra blank line above "new_line2"
+    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nnew_line2\nline3");
+    assert_eq!(output.replacements, 1);
+}
+
+#[tokio::test]
+async fn test_new_content_with_leading_newline_in_insert_mode() {
+    // Same as above but for insert (delete_count=0)
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "line1\nline3").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 0, "\nnew_line2")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nnew_line2\nline3");
+    assert_eq!(output.replacements, 0);
+}
+
+#[tokio::test]
+async fn test_new_content_with_multiple_leading_newlines() {
+    // Multiple leading newlines should all be stripped
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "line1\nline2").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 1, "\n\n\nnew_line2")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nnew_line2");
+    assert_eq!(output.replacements, 1);
+}
+
 // ── Tests for the trailing-newline-in-new_content bug ──
 
 #[tokio::test]
@@ -472,9 +522,9 @@ async fn test_insert_no_duplicate_when_different() {
 }
 
 #[tokio::test]
-async fn test_replace_mode_does_not_dedup() {
-    // When deleting+replacing (delete_count>0), the first line of new_content
-    // should NOT be deduplicated even if it matches the line before insertion.
+async fn test_replace_mode_dedups_first_line() {
+    // When replacing (delete_count>0), if the first line of new_content
+    // matches the preceding line, it should be deduplicated.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.txt");
     fs::write(&path, "line1\nline2\nline3").unwrap();
@@ -484,11 +534,64 @@ async fn test_replace_mode_does_not_dedup() {
         .await
         .unwrap();
     let output = parse_output(&result);
+    // The leading "line1" should be deduplicated
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "line1\nline1\nnew_line2\nline3"
+        "line1\nnew_line2\nline3"
     );
     assert_eq!(output.replacements, 1);
+}
+
+#[tokio::test]
+async fn test_replace_mode_dedups_preceding_context_line() {
+    // Real-world bug: LLM replaces lines but includes the preceding context line
+    // (e.g. "    }," before the edit) in new_content, causing duplicate.
+    // Example from actual usage: "出现了重复的 '/' => {"
+    // The last line of new_content matches the first preserved line's bracket,
+    // so bracket dedup also applies. This tests both dedups working together.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.rs");
+    fs::write(
+        &path,
+        "fn foo() {\n    let x = 1;\n    let y = 2;\n}",
+    )
+    .unwrap();
+
+    // Replace lines 2-3, new_content starts with "fn foo() {" (same as line 1)
+    // The preceding line (line 1) matches first new_line → dedup removes it.
+    let result = call_update(
+        path.to_str().unwrap(),
+        2,
+        2,
+        "fn foo() {\n    let x = 10;\n    let y = 20;",
+    )
+    .await
+    .unwrap();
+    let output = parse_output(&result);
+    // "fn foo() {" should NOT be duplicated
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "fn foo() {\n    let x = 10;\n    let y = 20;\n}"
+    );
+    assert_eq!(output.replacements, 2);
+}
+
+#[tokio::test]
+async fn test_insert_mode_still_dedups() {
+    // Insert mode should still dedup (regression check)
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "prefix_line\n").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 0, "prefix_line\nnew_line1")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "prefix_line\nnew_line1\n"
+    );
+    assert_eq!(output.replacements, 0);
 }
 
 #[tokio::test]

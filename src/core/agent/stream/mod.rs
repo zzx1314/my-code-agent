@@ -16,4 +16,6 @@ pub use result::check_review_result;
 pub use spawn::send_message_to_llm;
 pub use spawn::spawn_llm_stream;
 pub use spawn::rebuild_agent;
+pub use state::cleanup_stream_state;
+pub use result::is_auto_fix_prompt;
 pub use state::reset_streaming_state;

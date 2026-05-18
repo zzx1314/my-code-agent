@@ -93,11 +93,14 @@ impl Tool for FileUpdate {
             ));
         }
 
-        // Trim trailing newlines from new_content to avoid empty-string elements
-        // from split('\n') when the model includes a trailing newline.
-        // This matches the behavior of str::lines() which doesn't return
-        // a trailing empty string.
-        let new_content_trimmed = args.new_content.trim_end_matches('\n');
+        // Trim leading and trailing newlines from new_content to avoid empty-string
+        // elements from split('\n') when the model includes newlines from code block
+        // fences or trailing formatting. This matches the behavior of str::lines()
+        // which doesn't return a trailing empty string.
+        // Common causes:
+        //   - Leading \\n: LLM code block extraction (```\ncode)
+        //   - Trailing \\n: LLM code block formatting (code\n```)
+        let new_content_trimmed = args.new_content.trim_matches('\n');
         let new_lines: Vec<&str> = if new_content_trimmed.is_empty() {
             vec![]
         } else {
@@ -105,11 +108,11 @@ impl Tool for FileUpdate {
         };
         let new_lines = deduplicate_closing_brackets(new_lines, args.start_line, args.delete_count, &lines, total_lines);
 
-        // When inserting (delete_count == 0), LLMs often include the preceding
-        // line in new_content, producing duplicate lines. Detect and remove
-        // the first line of new_content if it matches the line immediately
-        // before the insertion point.
-        let new_lines = if args.delete_count == 0 && args.start_line > 1 {
+        // LLMs often include the preceding line in new_content (from code block
+        // extraction or surrounding context), producing duplicate lines above the
+        // edit point. Detect and remove the first line of new_content if it matches
+        // the line immediately before the edit point.
+        let new_lines = if args.start_line > 1 {
             let prev_line = lines[args.start_line - 2];
             if new_lines.first().map_or(false, |first| *first == prev_line) {
                 new_lines[1..].to_vec()
