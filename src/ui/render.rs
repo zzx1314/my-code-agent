@@ -61,16 +61,61 @@ impl ReasoningTracker {
         if !self.is_reasoning {
             self.is_reasoning = true;
         }
+        // Some reasoning models wrap reasoning content in XML-like tags
+        // (e.g. <think>...</think>, <answer>...</answer>). Strip all such
+        // HTML/XML-style tags to keep the display clean.
+        let cleaned = Self::strip_html_tags(text);
         // Some API providers (e.g., OpenAI-compatible / ChatGPT-format endpoints)
         // return the FULL accumulated reasoning content in each SSE chunk rather
         // than incremental deltas. Detect this: if the new text starts with what
         // we already have, replace the buffer instead of appending — otherwise
         // the content grows exponentially.
-        if text.starts_with(self.reasoning_buf.as_str()) {
-            self.reasoning_buf = text.to_string();
+        if cleaned.starts_with(self.reasoning_buf.as_str()) {
+            self.reasoning_buf = cleaned.to_string();
         } else {
-            self.reasoning_buf.push_str(text);
+            self.reasoning_buf.push_str(&cleaned);
         }
+    }
+
+    /// Strip HTML/XML-like tags (`<tag>`, `</tag>`) from reasoning text.
+    ///
+    /// Reasoning content is internal monologue — any markup tags in it are
+    /// model-internal formatting noise, not meaningful output.
+    ///
+    /// This handles:
+    /// - `<think>`, `</think>`, `<answer>`, `</answer>`, etc.
+    ///
+    /// It does NOT strip bare `<` that isn't part of a tag (e.g. `x < y`).
+    fn strip_html_tags(text: &str) -> String {
+        let mut result = String::with_capacity(text.len());
+        let mut remaining = text;
+        loop {
+            if let Some(start) = remaining.find('<') {
+                let after = &remaining[start..];
+                // A tag starts with < followed by /, _, or an ASCII letter
+                let is_tag = after.len() > 1
+                    && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z');
+                if is_tag {
+                    if let Some(end) = after.find('>') {
+                        // Valid tag — strip the entire <...>
+                        result.push_str(&remaining[..start]);
+                        remaining = &after[end + 1..];
+                    } else {
+                        // Unclosed tag — keep the '<' and everything after as-is
+                        result.push_str(remaining);
+                        break;
+                    }
+                } else {
+                    // Not a tag (e.g. `x < y`) — keep the '<'
+                    result.push_str(&remaining[..start + 1]);
+                    remaining = &remaining[start + 1..];
+                }
+            } else {
+                result.push_str(remaining);
+                break;
+            }
+        }
+        result
     }
 
     pub fn end_segment(&mut self) {
