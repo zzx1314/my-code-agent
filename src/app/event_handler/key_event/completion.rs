@@ -160,6 +160,7 @@ fn get_completion_items(trigger_char: char) -> Vec<String> {
                 "/undo".to_string(),
                 "/plan".to_string(),
                 "/shell".to_string(),
+                "/compact".to_string(),
             ]
         }
         '@' => {
