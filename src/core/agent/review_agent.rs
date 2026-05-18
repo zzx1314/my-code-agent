@@ -66,15 +66,38 @@ impl ReviewAgent {
         prompt.push_str("— check the user's request and assume existing code still works.\n\n");
 
         prompt.push_str("## Guidelines\n\n");
-        prompt.push_str("- Focus on high-impact issues: bugs, security, missing requirements.\n");
-        prompt.push_str("- Make sure ALL requirements in the user's request are addressed — advocate for the user.\n");
-        prompt.push_str("- Where a function can be reused, suggest reuse instead of creating new ones.\n");
-        prompt.push_str("- Make sure no dead code, missing imports, or accidental deletions are introduced.\n");
-        prompt.push_str("- New code should match the style of existing code.\n");
+        prompt.push_str("The main agent has already run compilation (`cargo check`/`cargo build`), ");
+        prompt.push_str("type checking, and tests (`cargo test`) on the code. ");
+        prompt.push_str("Therefore, the following checks are already covered:\n\n");
+
+        prompt.push_str("### ✅ FOCUS on (highest value — compilation cannot catch these):\n");
+        prompt.push_str("- **Functional Completeness** — Does the code actually fulfill ALL requirements\n");
+        prompt.push_str("  in the user's request? Advocate for the user. This is your most important job.\n");
+        prompt.push_str("- **Security** — Vulnerabilities that compile fine: injection, unsafe data handling,\n");
+        prompt.push_str("  exposed secrets, incorrect authorization logic.\n");
+        prompt.push_str("- **Logic / Correctness** — Bugs that pass compilation but produce wrong results:\n");
+        prompt.push_str("  off-by-one, incorrect algorithm, wrong API usage, edge cases not handled.\n");
+        prompt.push_str("- **Error Handling** — Missing error propagation, unwrap() on potentially-failing\n");
+        prompt.push_str("  operations, silently swallowed errors.\n");
+        prompt.push_str("- **API Misuse** — Using a library/function in a way that compiles but is\n");
+        prompt.push_str("  semantically wrong (e.g., wrong parameter order, misunderstanding of semantics).\n");
+        prompt.push_str("- **Performance** — Obvious performance issues: unnecessary allocations,\n");
+        prompt.push_str("  O(n²) when O(n) suffices, redundant work.\n");
+        prompt.push_str("- **Concurrency** — Race conditions, deadlocks, incorrect async usage.\n");
+        prompt.push_str("- **Code Reuse** — Suggest reusing existing functions instead of creating new ones.\n\n");
+
+        prompt.push_str("### ❌ DO NOT flag (already covered by compilation/tests):\n");
+        prompt.push_str("- Missing imports — already caught by `cargo check`.\n");
+        prompt.push_str("- Dead code / unused variables — already caught by compiler warnings.\n");
+        prompt.push_str("- Type mismatches — already caught by the type checker.\n");
+        prompt.push_str("- Style / formatting — already handled by rustfmt/clippy.\n");
+        prompt.push_str("- Minor naming conventions — not a correctness concern.\n");
+        prompt.push_str("- The user's conversation language is not a review criterion.\n\n");
+
+        prompt.push_str("### Other reminders:\n");
         prompt.push_str("- Try to keep changes minimal — don't rewrite working code.\n");
         prompt.push_str("- Be concise: If you don't have much critical feedback, simply say it looks good.\n");
-        prompt.push_str("- Do NOT nitpick style, formatting, or minor preferences.\n");
-        prompt.push_str("- Do NOT flag language issues — the user's conversation language is not a review criterion.\n\n");
+        prompt.push_str("- Do NOT flag issues for things absent from the diff — they may still be in the code.\n\n");
 
         prompt.push_str("## Output Format\n\n");
         prompt.push_str("You MUST output ONLY a valid JSON object:\n\n");
