@@ -1,4 +1,5 @@
 mod clear;
+pub mod compact;
 mod connect;
 mod help;
 mod init;
@@ -40,6 +41,7 @@ pub fn handle_command(
         "/init" => init::handle(app),
         "/undo" => undo::handle(app),
         "/shell" => shell::handle(app),
+        cmd if cmd.starts_with("/compact") => compact::handle(app, input, context_manager),
         cmd if cmd.starts_with("/plan") => plan::handle(app, input, context_manager),
         cmd if cmd.starts_with("/review") => review::handle(app, input, context_manager),
         _ => {

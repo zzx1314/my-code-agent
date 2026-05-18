@@ -24,6 +24,9 @@ fn default_warn_threshold_percent() -> u64 {
 fn default_critical_threshold_percent() -> u64 {
     90
 }
+fn default_compact_retain_percent() -> u64 {
+    30
+}
 fn default_timeout_secs() -> u64 {
     30
 }
@@ -165,6 +168,10 @@ pub struct ContextConfig {
     /// Default: 90.
     #[serde(default = "default_critical_threshold_percent")]
     pub critical_threshold_percent: u64,
+    /// Percentage of recent messages to retain during manual /compact.
+    /// Default: 30.
+    #[serde(default = "default_compact_retain_percent")]
+    pub compact_retain_percent: u64,
 }
 
 /// Shell execution settings.
@@ -337,6 +344,7 @@ impl Default for ContextConfig {
             window_size: 1_048_576, // 1M tokens
             warn_threshold_percent: 75,
             critical_threshold_percent: 90,
+            compact_retain_percent: default_compact_retain_percent(),
         }
     }
 }

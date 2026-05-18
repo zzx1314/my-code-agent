@@ -105,6 +105,21 @@ impl Tool for FileUpdate {
         };
         let new_lines = deduplicate_closing_brackets(new_lines, args.start_line, args.delete_count, &lines, total_lines);
 
+        // When inserting (delete_count == 0), LLMs often include the preceding
+        // line in new_content, producing duplicate lines. Detect and remove
+        // the first line of new_content if it matches the line immediately
+        // before the insertion point.
+        let new_lines = if args.delete_count == 0 && args.start_line > 1 {
+            let prev_line = lines[args.start_line - 2];
+            if new_lines.first().map_or(false, |first| *first == prev_line) {
+                new_lines[1..].to_vec()
+            } else {
+                new_lines
+            }
+        } else {
+            new_lines
+        };
+
         let mut result_lines: Vec<&str> = Vec::with_capacity(
             total_lines - args.delete_count + new_lines.len(),
         );

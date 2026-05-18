@@ -226,6 +226,8 @@ pub struct App {
     pub review_complete_verdict: Option<crate::core::types::review::ReviewVerdict>,
     /// Frames remaining to show review_complete_message (~10 frames/second)
     pub review_complete_timer: u64,
+    /// Receiver for /compact async task results
+    pub compact_rx: Option<mpsc::Receiver<crate::app::commands::compact::CompactResult>>,
     /// Reasoning content from the review agent's LLM calls.
     /// Displayed on the frontend but NOT added to conversation history.
     pub review_reasoning: String,
@@ -340,6 +342,7 @@ impl App {
             cursor_anim_start: Instant::now(),
             collapsed_sections: std::collections::HashSet::new(),
             collapsed_toggles: Vec::new(),
+            compact_rx: None,
             // Code Review state
             orchestrator: None,
             is_reviewing: false,

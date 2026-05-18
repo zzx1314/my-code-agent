@@ -550,7 +550,7 @@ pub async fn stream_response(
                         // compactions or if the LLM call fails.
                         let mut compacted = false;
                         if context_manager.compact_count() == 0 {
-                            if let Some(compact_point) = context_manager.find_compact_point(&messages) {
+                            if let Some(compact_point) = context_manager.find_compact_point_percent(&messages, 30) {
                                 match generate_context_summary(client, &messages[..compact_point], reasoning_field).await {
                                     Ok(summary) => {
                                         messages = context_manager.compact_messages(&messages, &summary);

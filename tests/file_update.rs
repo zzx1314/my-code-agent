@@ -427,3 +427,120 @@ async fn test_cross_bracket_with_semicolon_no_dedup() {
     );
     assert_eq!(output.replacements, 2);
 }
+
+// ── Tests for insert-mode duplicate line prevention ──
+
+#[tokio::test]
+async fn test_insert_duplicate_first_line_dedup() {
+    // When inserting (delete_count=0) and new_content starts with the same
+    // line as the line before insertion point, the duplicate should be removed.
+    // This simulates LLM mistakenly including the preceding line in new_content.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "prefix_line\n").unwrap();
+
+    // Insert after line 1, but new_content INCORRECTLY includes "prefix_line"
+    let result = call_update(path.to_str().unwrap(), 2, 0, "prefix_line\nnew_line1\nnew_line2")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    // Should dedup the duplicate "prefix_line"
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "prefix_line\nnew_line1\nnew_line2\n"
+    );
+    assert_eq!(output.replacements, 0);
+}
+
+#[tokio::test]
+async fn test_insert_no_duplicate_when_different() {
+    // When inserting (delete_count=0) and new_content starts with a DIFFERENT
+    // line than the line before insertion, no dedup should occur.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "prefix_line\n").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 0, "different_line\nanother_line")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "prefix_line\ndifferent_line\nanother_line\n"
+    );
+    assert_eq!(output.replacements, 0);
+}
+
+#[tokio::test]
+async fn test_replace_mode_does_not_dedup() {
+    // When deleting+replacing (delete_count>0), the first line of new_content
+    // should NOT be deduplicated even if it matches the line before insertion.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "line1\nline2\nline3").unwrap();
+
+    // Replace line 2 with content that starts with "line1" (same as line before)
+    let result = call_update(path.to_str().unwrap(), 2, 1, "line1\nnew_line2")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "line1\nline1\nnew_line2\nline3"
+    );
+    assert_eq!(output.replacements, 1);
+}
+
+#[tokio::test]
+async fn test_insert_at_start_no_dedup() {
+    // When inserting at the very beginning (start_line=1), there's no previous
+    // line to compare against, so no dedup should occur.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "original_line\n").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 1, 0, "new_first_line")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "new_first_line\noriginal_line\n"
+    );
+    assert_eq!(output.replacements, 0);
+}
+
+#[tokio::test]
+async fn test_insert_empty_new_content_no_dedup() {
+    // When new_content is empty (inserting nothing), the dedup logic should
+    // not crash or cause issues.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "some_line\n").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 0, "")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "some_line\n");
+    assert_eq!(output.replacements, 0);
+}
+
+#[tokio::test]
+async fn test_insert_duplicate_first_line_with_trailing_newline() {
+    // Same as test_insert_duplicate_first_line_dedup but new_content has
+    // trailing newline (common LLM behavior).
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.txt");
+    fs::write(&path, "prefix_line\n").unwrap();
+
+    let result = call_update(path.to_str().unwrap(), 2, 0, "prefix_line\nnew_line1\n")
+        .await
+        .unwrap();
+    let output = parse_output(&result);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "prefix_line\nnew_line1\n"
+    );
+    assert_eq!(output.replacements, 0);
+}

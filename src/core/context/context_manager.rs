@@ -210,12 +210,14 @@ impl ContextManager {
     }
 
     /// Finds the earliest index (from oldest to newest) at which messages
-    /// exceed the retention budget (30% of window size) when counted from
-    /// the newest end. Used to determine where to insert a summary.
+    /// exceed the retention budget (specified percent of window size) when
+    /// counted from the newest end. Used to determine where to insert a summary.
+    ///
+    /// `retain_percent` specifies the percentage of the context window to retain (1-99).
     ///
     /// Returns `None` if all messages fit within the retention budget.
-    pub fn find_compact_point(&self, messages: &[Message]) -> Option<usize> {
-        let retain_tokens = self.config.context.window_size * 30 / 100;
+    pub fn find_compact_point_percent(&self, messages: &[Message], retain_percent: u64) -> Option<usize> {
+        let retain_tokens = self.config.context.window_size * retain_percent / 100;
         let mut token_count = 0;
         for (i, msg) in messages.iter().enumerate().rev() {
             let msg_tokens = Self::estimate_message_tokens(msg);
@@ -236,7 +238,7 @@ impl ContextManager {
         if messages.is_empty() {
             return vec![];
         }
-        let compact_point = self.find_compact_point(messages);
+        let compact_point = self.find_compact_point_percent(messages, 30);
         let mut new_messages = vec![Message::user(format!(
             "Previous conversation summary:\n{}",
             summary
