@@ -66,40 +66,115 @@ impl AgentOrchestrator {
     /// This enables incremental reviews: after each review completes, a baseline is
     /// created via `git stash create`, and subsequent reviews only show changes since
     /// that baseline.
+    ///
+    /// Also detects untracked files (e.g., from `mv` via shell tool) so the review
+    /// LLM has complete context — without this, a moved file would appear only as
+    /// "Deleted" with no corresponding "Added" entry, causing false positives.
     pub async fn detect_changed_files_from_git(&self, baseline: Option<&str>) -> Vec<ChangedFile> {
+        let mut files = Vec::new();
+
+        // Step 1: Get tracked changes via git diff
         let mut args = vec!["diff", "--no-color"];
         if let Some(base) = baseline {
             args.push(base);
         }
 
-        let output = match tokio::process::Command::new("git")
+        let has_tracked_changes = match tokio::process::Command::new("git")
             .args(&args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output()
             .await
         {
-            Ok(o) => o,
+            Ok(o) if o.status.success() => {
+                let diff_text = String::from_utf8_lossy(&o.stdout);
+                if !diff_text.trim().is_empty() {
+                    files = Self::parse_git_diff(&diff_text);
+                    true
+                } else {
+                    false
+                }
+            }
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                tracing::warn!("detect_changed_files_from_git: git diff failed: {}", stderr);
+                false
+            }
             Err(e) => {
                 tracing::warn!("detect_changed_files_from_git: failed to run git diff: {}", e);
-                return Vec::new();
+                false
             }
         };
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            tracing::warn!("detect_changed_files_from_git: git diff failed: {}", stderr);
-            return Vec::new();
+        // Step 2: Find untracked files (e.g., created by `mv` or `cp` via shell tool)
+        // `git ls-files --others --exclude-standard` lists untracked files not in .gitignore
+        let untracked_files = match tokio::process::Command::new("git")
+            .args(["ls-files", "--others", "--exclude-standard"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+        {
+            Ok(o) if o.status.success() => {
+                let output = String::from_utf8_lossy(&o.stdout);
+                output.lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect::<Vec<_>>()
+            }
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                tracing::warn!("detect_changed_files_from_git: git ls-files failed: {}", stderr);
+                Vec::new()
+            }
+            Err(e) => {
+                tracing::warn!("detect_changed_files_from_git: failed to run git ls-files: {}", e);
+                Vec::new()
+            }
+        };
+
+        // Build ChangedFile entries for untracked files
+        for path in &untracked_files {
+            // Don't add duplicates if the file already appears in tracked changes
+            if files.iter().any(|f| f.path == *path) {
+                continue;
+            }
+            // Read the file content
+            let content = match tokio::fs::read_to_string(path).await {
+                Ok(c) => c,
+                Err(_) => continue, // skip files that can't be read
+            };
+            let line_count = content.lines().count();
+            // Generate a unified diff for the added file
+            let mut diff = format!(
+                "diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n"
+            );
+            diff.push_str(&format!("@@ -0,0 +1,{} @@\n", line_count.max(1)));
+            for line in content.lines() {
+                diff.push('+');
+                diff.push_str(line);
+                diff.push('\n');
+            }
+            // Ensure trailing newline
+            if !content.ends_with('\n') {
+                diff.push('+');
+                diff.push('\n');
+            }
+            files.push(ChangedFile {
+                path: path.clone(),
+                change_type: ChangeType::Added,
+                lines_added: line_count,
+                lines_removed: 0,
+                diff,
+            });
         }
 
-        let diff_text = String::from_utf8_lossy(&output.stdout);
-        if diff_text.trim().is_empty() {
+        if files.is_empty() {
             tracing::info!("detect_changed_files_from_git: no changes");
-            return Vec::new();
+        } else {
+            tracing::info!(count = files.len(), tracked = has_tracked_changes, untracked = untracked_files.len(), baseline = ?baseline, "detect_changed_files_from_git: found changes");
         }
 
-        let files = Self::parse_git_diff(&diff_text);
-        tracing::info!(count = files.len(), baseline = ?baseline, "detect_changed_files_from_git: found changes");
         files
     }
 

@@ -12,6 +12,8 @@ const COLLAPSE_THRESHOLD: usize = 8;
 
 /// Render the chat history area including streaming content and reasoning.
 pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
+    // Clear per-frame caches at the start of each render pass
+    app.git_diff_cache.clear();
     if app.show_banner {
         render_banner(f, app, area);
         return;
@@ -90,9 +92,16 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_paragraph_with_scroll(f: &mut Frame, app: &mut App, lines: Vec<ratatui::text::Line>, area: Rect) {
-    let actual_lines = Paragraph::new(lines.clone())
-        .wrap(Wrap { trim: false })
-        .line_count(area.width) as u16;
+    // Estimate visual lines after word-wrap without cloning the entire lines vec.
+    // This avoids the expensive allocation of cloning all styled spans.
+    let actual_lines = if area.width > 0 {
+        lines.iter().map(|l| {
+            let w = l.width() as u16;
+            if w == 0 { 1 } else { (w + area.width - 1) / area.width }
+        }).sum::<u16>()
+    } else {
+        lines.len() as u16
+    };
 
     app.total_lines = actual_lines;
     app.chat_area_height = area.height;
@@ -293,9 +302,17 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
                     }
                 }
             }
-            // Display normal content
+            // Display normal content (cached to avoid re-parsing markdown every frame)
+            // Cache key includes max_width to handle terminal resizing correctly.
             if !entry.content.is_empty() {
-                let md = render_full(&entry.content, max_width);
+                let cache_key = format!("{}|{}", entry.content, max_width.map_or(0, |w| w as isize));
+                let md = if let Some(cached) = app.rendered_cache.get(&cache_key) {
+                    cached.clone()
+                } else {
+                    let rendered = render_full(&entry.content, max_width);
+                    app.rendered_cache.insert(cache_key, rendered.clone());
+                    rendered
+                };
                 lines.extend(md);
             }
             if (show_tool_calls && entry.tool_calls.is_some()) || !entry.content.is_empty() {
@@ -687,24 +704,32 @@ fn try_render_file_tool_result(
     let path = value.get("path")?.as_str()?;
 
     // Get the current diff from git (always up-to-date, not stale from tool output)
+    // Results are cached per frame in git_diff_cache to avoid spawning git
+    // subprocesses for the same file multiple times in one render pass.
     // When a review baseline exists, diff against it instead of HEAD
     // to show only changes since the last review.
     let git_diff_from_tool = value.get("git_diff").and_then(|v| v.as_str()).unwrap_or("");
-    let mut git_args = vec!["diff", "--no-color"];
-    if let Some(ref baseline) = app.review_baseline {
-        git_args.push(baseline.as_str());
-    }
-    git_args.push("--");
-    git_args.push(path);
-    let git_diff = match std::process::Command::new("git")
-        .args(&git_args)
-        .output()
-    {
-        Ok(o) if o.status.success() => {
-            let s = String::from_utf8_lossy(&o.stdout);
-            if s.trim().is_empty() { git_diff_from_tool.to_string() } else { s.to_string() }
+    let git_diff = if let Some(cached) = app.git_diff_cache.get(path) {
+        cached.clone()
+    } else {
+        let mut git_args = vec!["diff", "--no-color"];
+        if let Some(ref baseline) = app.review_baseline {
+            git_args.push(baseline.as_str());
         }
-        _ => git_diff_from_tool.to_string(),
+        git_args.push("--");
+        git_args.push(path);
+        let diff = match std::process::Command::new("git")
+            .args(&git_args)
+            .output()
+        {
+            Ok(o) if o.status.success() => {
+                let s = String::from_utf8_lossy(&o.stdout);
+                if s.trim().is_empty() { git_diff_from_tool.to_string() } else { s.to_string() }
+            }
+            _ => git_diff_from_tool.to_string(),
+        };
+        app.git_diff_cache.insert(path.to_string(), diff.clone());
+        diff
     };
     let git_diff = git_diff.as_str();
 

@@ -3,6 +3,7 @@ use crate::core::agent::preamble::Agent;
 use crate::core::agent::stream_response::{StreamEvent, StreamResult};
 use crate::core::context::token_usage::TokenUsage;
 use crate::tools::exec::confirmation::ConfirmationRequest;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -239,6 +240,13 @@ pub struct App {
     /// After each review completes, `git stash create` saves the current state.
     /// Next review will `git diff <baseline>` to show only changes since last review.
     pub review_baseline: Option<String>,
+    // === Performance caches ===
+    /// Cache of rendered markdown lines keyed by content string.
+    /// Avoids re-parsing markdown on every frame for unchanged content.
+    pub rendered_cache: HashMap<String, Vec<ratatui::text::Line<'static>>>,
+    /// Per-frame git diff cache keyed by file path.
+    /// Avoids spawning git subprocess multiple times for the same file in one frame.
+    pub git_diff_cache: HashMap<String, String>,
 }
 
 impl App {
@@ -355,6 +363,8 @@ impl App {
             review_reasoning: String::new(),
             previous_review_issues: Vec::new(),
             review_baseline: None,
+            rendered_cache: HashMap::new(),
+            git_diff_cache: HashMap::new(),
         }
     }
 }

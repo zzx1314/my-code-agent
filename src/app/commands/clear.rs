@@ -13,5 +13,7 @@ pub fn handle(app: &mut App) -> bool {
     app.turn_usage_line = None;
     app.streaming_events_rx = None;
     app.show_inline_reasoning = false;
+    app.rendered_cache.clear();
+    app.git_diff_cache.clear();
     true
 }
