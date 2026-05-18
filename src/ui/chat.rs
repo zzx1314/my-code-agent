@@ -696,29 +696,45 @@ fn try_render_file_tool_result(
             Style::default().fg(Color::Green),
         )));
 
-        // Build styled diff lines
+        // Build styled diff lines (inspired by codebuff's DiffViewer)
+        // Filter out hunk headers (@@) for a cleaner view - matches codebuff's behavior
         let diff_lines: Vec<Line> = git_diff
             .lines()
+            .filter(|line| !line.starts_with("@@"))
             .map(|line| {
                 let line = line.trim_end();
-                if line.starts_with('+') && !line.starts_with("+++") {
-                    Line::from(Span::styled(
-                        format!("  {}", line),
-                        Style::default().fg(Color::Green),
-                    ))
+                // Empty lines should have a space for rendering
+                let display_line = if line.is_empty() { " " } else { line };
+
+                let style = if line.starts_with('+') && !line.starts_with("+++") {
+                    // Added lines - green
+                    Style::default().fg(Color::Green)
                 } else if line.starts_with('-') && !line.starts_with("---") {
-                    Line::from(Span::styled(
-                        format!("  {}", line),
-                        Style::default().fg(Color::Red),
-                    ))
-                } else if line.starts_with("@@") {
-                    Line::from(Span::styled(
-                        format!("  {}", line),
-                        Style::default().fg(Color::Cyan),
-                    ))
+                    // Removed lines - red
+                    Style::default().fg(Color::Red)
+                } else if line.starts_with("+++") || line.starts_with("---") {
+                    // File header lines - gray bold
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD)
+                } else if line.starts_with("diff ")
+                    || line.starts_with("index ")
+                    || line.starts_with("rename ")
+                    || line.starts_with("similarity ")
+                    || line.starts_with("new file ")
+                    || line.starts_with("deleted file ")
+                {
+                    // Metadata lines - gray
+                    Style::default().fg(Color::DarkGray)
+                } else if line.starts_with('\\') {
+                    // "No newline at end of file" - gray
+                    Style::default().fg(Color::DarkGray)
                 } else {
-                    Line::from(format!("  {}", line))
-                }
+                    // Context lines - default
+                    Style::default()
+                };
+
+                Line::from(Span::styled(format!("  {}", display_line), style))
             })
             .collect();
 
