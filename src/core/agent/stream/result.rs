@@ -77,6 +77,11 @@ pub fn check_review_result(app: &mut App) {
     if let Some(ref mut rx) = app.review_result_rx {
         match rx.try_recv() {
             Ok(outcome) => {
+                // ── Update review baseline for incremental diff ──────────
+                // Always update the baseline from the outcome. None is harmless —
+                // it either preserves None or replaces a stale baseline on error.
+                app.review_baseline = outcome.review_baseline;
+
                 // Add the display text to chat history
                 app.chat_history.push(crate::app::ChatEntry::assistant(outcome.display_text));
                 app.auto_scroll = true;
@@ -255,6 +260,8 @@ pub fn trigger_auto_review(app: &mut App) {
             let history_snapshot = app.chat_history.clone();
             // Pass previous review issues for fingerprint-based deduplication
             let previous_issues = app.previous_review_issues.clone();
+            // Capture review baseline for incremental diff
+            let baseline = app.review_baseline.clone();
 
             tokio::spawn(async move {
                 let messages: Vec<crate::core::types::Message> = history_snapshot
@@ -268,7 +275,7 @@ pub fn trigger_auto_review(app: &mut App) {
                     })
                     .collect();
 
-                let changed_files = orchestrator.detect_changed_files(&messages);
+                let changed_files = orchestrator.detect_changed_files_from_git(baseline.as_deref()).await;
 
                 if changed_files.is_empty() {
                     tracing::info!("Auto-review: no changed files detected");
@@ -281,6 +288,7 @@ pub fn trigger_auto_review(app: &mut App) {
                         report_summary: String::new(),
                         report: None,
                         auto_trigger: false,
+                        review_baseline: baseline.clone(), // preserve existing baseline
                     };
                     let _ = result_tx.send(outcome).await;
                     return;
@@ -336,32 +344,36 @@ pub fn trigger_auto_review(app: &mut App) {
                             report.summary.medium_count,
                             report.summary.low_count,
                         );
-                        let verdict = report.summary.verdict.clone();
+                        let verdict = report.summary.verdict.clone();                            tracing::info!(
+                                issues = report.summary.total_issues,
+                                verdict = ?verdict,
+                                "Auto-review completed"
+                            );
 
-                        tracing::info!(
-                            issues = report.summary.total_issues,
-                            verdict = ?verdict,
-                            "Auto-review completed"
-                        );
+                            // Create a new baseline after review completes, so the next
+                            // review (e.g. after fix iteration) only shows incremental changes.
+                            let new_baseline = crate::core::agent::orchestrator::AgentOrchestrator::create_review_baseline();
 
-                        let outcome = ReviewOutcome {
-                            display_text,
-                            verdict,
-                            report_summary,
-                            report: Some(report),
-                            auto_trigger: true, // auto-review triggers iterative fix loop
-                        };
-                        let _ = result_tx.send(outcome).await;
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Auto-review failed");
-                        let outcome = ReviewOutcome {
-                            display_text: format!("⚠️ **Auto-Review Failed** — {e}"),
-                            verdict: ReviewVerdict::NeedsRevision,
-                            report_summary: String::new(),
-                            report: None,
-                            auto_trigger: false, // don't loop on errors
-                        };
+                            let outcome = ReviewOutcome {
+                                display_text,
+                                verdict,
+                                report_summary,
+                                report: Some(report),
+                                auto_trigger: true, // auto-review triggers iterative fix loop
+                                review_baseline: new_baseline,
+                            };
+                            let _ = result_tx.send(outcome).await;
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Auto-review failed");
+                            let outcome = ReviewOutcome {
+                                display_text: format!("⚠️ **Auto-Review Failed** — {e}"),
+                                verdict: ReviewVerdict::NeedsRevision,
+                                report_summary: String::new(),
+                                report: None,
+                                auto_trigger: false, // don't loop on errors
+                                review_baseline: baseline, // preserve existing baseline on error
+                            };
                         let _ = result_tx.send(outcome).await;
                     }
                 }

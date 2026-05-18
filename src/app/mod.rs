@@ -233,6 +233,10 @@ pub struct App {
     /// Used for fingerprint-based deduplication to prevent repeated false positives.
     /// Cleared when the review loop ends (approved or max iterations reached).
     pub previous_review_issues: Vec<crate::core::types::review::ReviewIssue>,
+    /// Git baseline SHA for incremental review diff detection.
+    /// After each review completes, `git stash create` saves the current state.
+    /// Next review will `git diff <baseline>` to show only changes since last review.
+    pub review_baseline: Option<String>,
 }
 
 impl App {
@@ -347,6 +351,7 @@ impl App {
             review_complete_timer: 0,
             review_reasoning: String::new(),
             previous_review_issues: Vec::new(),
+            review_baseline: None,
         }
     }
 }

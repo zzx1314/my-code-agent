@@ -685,7 +685,28 @@ fn try_render_file_tool_result(
 
     // Check if this is a file tool result by looking for a path field
     let path = value.get("path")?.as_str()?;
-    let git_diff = value.get("git_diff")?.as_str()?;
+
+    // Get the current diff from git (always up-to-date, not stale from tool output)
+    // When a review baseline exists, diff against it instead of HEAD
+    // to show only changes since the last review.
+    let git_diff_from_tool = value.get("git_diff").and_then(|v| v.as_str()).unwrap_or("");
+    let mut git_args = vec!["diff", "--no-color"];
+    if let Some(ref baseline) = app.review_baseline {
+        git_args.push(baseline.as_str());
+    }
+    git_args.push("--");
+    git_args.push(path);
+    let git_diff = match std::process::Command::new("git")
+        .args(&git_args)
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            let s = String::from_utf8_lossy(&o.stdout);
+            if s.trim().is_empty() { git_diff_from_tool.to_string() } else { s.to_string() }
+        }
+        _ => git_diff_from_tool.to_string(),
+    };
+    let git_diff = git_diff.as_str();
 
     // Determine the action type
     let action = if value.get("bytes_written").is_some() {

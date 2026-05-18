@@ -103,6 +103,9 @@ fn spawn_review(app: &mut App, path: Option<String>) {
     // Take snapshot from chat_history
     let history_snapshot: Vec<crate::app::ChatEntry> = app.chat_history.clone();
 
+    // Capture the current review baseline for incremental diff
+    let baseline = app.review_baseline.clone();
+
     let (result_tx, result_rx) = tokio::sync::mpsc::channel::<crate::core::types::review::ReviewOutcome>(1);
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<ReviewEvent>();
 
@@ -134,8 +137,8 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                 diff: String::new(),
             }]
         } else {
-            // Detect changes from conversation history snapshot
-            orchestrator.detect_changed_files(&messages)
+            // Pass review baseline for incremental diff (show only changes since last review)
+            orchestrator.detect_changed_files_from_git(baseline.as_deref()).await
         };
 
         if changed_files.is_empty() {
@@ -151,6 +154,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                 report_summary: String::new(),
                 report: None,
                 auto_trigger: false,
+                review_baseline: baseline.clone(), // preserve existing baseline
             }).await;
             let _ = event_tx.send(ReviewEvent::Error {
                 message: msg,
@@ -168,6 +172,10 @@ fn spawn_review(app: &mut App, path: Option<String>) {
         // Use phased review with events — sends phase progress through event_tx
         match orchestrator.review_with_events(changed_files, context_opt.as_deref(), history_summary.as_deref(), event_tx).await {
             Ok(report) => {
+                // Create a new baseline after review completes, so the next review
+                // only shows changes made after this point (incremental diff).
+                let new_baseline = crate::core::agent::orchestrator::AgentOrchestrator::create_review_baseline();
+
                 let display_text = orchestrator.format_review_report(&report);
                 let verdict = report.summary.verdict.clone();
                 let report_summary = format!(
@@ -182,6 +190,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                     report_summary,
                     report: Some(report),
                     auto_trigger: false, // manual review: no auto-fix loop
+                    review_baseline: new_baseline,
                 }).await;
             }
             Err(e) => {
@@ -192,6 +201,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                     report_summary: String::new(),
                     report: None,
                     auto_trigger: false,
+                    review_baseline: baseline.clone(), // preserve existing baseline on error
                 }).await;
             }
         }

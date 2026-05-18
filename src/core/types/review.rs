@@ -293,4 +293,7 @@ pub struct ReviewOutcome {
     pub report: Option<ReviewReport>,
     /// Whether to auto-trigger fixes (auto-review=true, manual=false)
     pub auto_trigger: bool,
+    /// Git baseline commit SHA created after review (for incremental diff detection).
+    /// Next review will diff against this baseline to show only new changes.
+    pub review_baseline: Option<String>,
 }

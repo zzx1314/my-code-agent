@@ -10,7 +10,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use super::preamble::Agent;
-use super::review_agent::{ReviewAgent, ReviewRequest, ReviewEvent, sanitize_json_escapes};
+use super::review_agent::{ReviewAgent, ReviewRequest, ReviewEvent};
 use crate::core::config::Config;
 use crate::core::types::review::*;
 use crate::core::types::Message;
@@ -58,135 +58,150 @@ impl AgentOrchestrator {
         )
     }
 
-    /// Detect file changes from the most recent round of the main agent
-    pub fn detect_changed_files(&self, history: &[Message]) -> Vec<ChangedFile> {
-        let mut files = Vec::new();
+    /// Detect changed files by running `git diff` directly.
+    /// This is more reliable than parsing tool outputs, as it always reflects
+    /// the actual working tree state.
+    ///
+    /// If `baseline` is `Some(sha)`, diff against that baseline commit instead of HEAD.
+    /// This enables incremental reviews: after each review completes, a baseline is
+    /// created via `git stash create`, and subsequent reviews only show changes since
+    /// that baseline.
+    pub async fn detect_changed_files_from_git(&self, baseline: Option<&str>) -> Vec<ChangedFile> {
+        let mut args = vec!["diff", "--no-color"];
+        if let Some(base) = baseline {
+            args.push(base);
+        }
 
-        for msg in history {
-            if msg.role == "tool" {
-                // Parse tool output JSON for write operations (file_write / file_update / file_delete / apply_patch)
-                if let Some(changed_file) = Self::parse_tool_output(&msg.content) {
-                    // Prefer entries with real diffs over earlier empty ones.
-                    // This handles the case where file_read/file_outline ran before file_update
-                    // for the same file — the read-only tools are now filtered out by
-                    // parse_tool_output, but apply_patch/file_undo may write without git_diff.
-                    if let Some(existing) = files.iter_mut().find(|f: &&mut ChangedFile| f.path == changed_file.path) {
-                        if !changed_file.diff.is_empty() && existing.diff.is_empty() {
-                            tracing::info!(path = %changed_file.path, "detect_changed_files: replaced empty diff with real diff");
-                            *existing = changed_file;
-                        }
-                    } else {
-                        tracing::info!(path = %changed_file.path, diff_lines = changed_file.diff.lines().count(), "detect_changed_files: parsed tool output");
-                        files.push(changed_file);
-                    }
-                } else if let Some(path) = Self::extract_file_path(&msg.content) {
-                    // Fallback: extract path from non-JSON text output
-                    if !files.iter().any(|f: &ChangedFile| f.path == path) {
-                        tracing::warn!(path = %path, "detect_changed_files: fallback text extraction (no git_diff)");
-                        files.push(ChangedFile {
-                            path,
-                            change_type: ChangeType::Modified,
-                            lines_added: 0,
-                            lines_removed: 0,
-                            diff: String::new(),
-                        });
-                    }
+        let output = match tokio::process::Command::new("git")
+            .args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+        {
+            Ok(o) => o,
+            Err(e) => {
+                tracing::warn!("detect_changed_files_from_git: failed to run git diff: {}", e);
+                return Vec::new();
+            }
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!("detect_changed_files_from_git: git diff failed: {}", stderr);
+            return Vec::new();
+        }
+
+        let diff_text = String::from_utf8_lossy(&output.stdout);
+        if diff_text.trim().is_empty() {
+            tracing::info!("detect_changed_files_from_git: no changes");
+            return Vec::new();
+        }
+
+        let files = Self::parse_git_diff(&diff_text);
+        tracing::info!(count = files.len(), baseline = ?baseline, "detect_changed_files_from_git: found changes");
+        files
+    }
+
+    /// Create a review baseline by running `git stash create`.
+    ///
+    /// This creates a lightweight dangling commit that captures the current working
+    /// tree state, and returns its SHA. The next call to `detect_changed_files_from_git`
+    /// with this SHA as the baseline will only show changes made *after* this point.
+    ///
+    /// This enables incremental reviews when the user hasn't committed between
+    /// agent change rounds, preventing previously reviewed changes from being
+    /// re-reviewed in each iteration.
+    pub fn create_review_baseline() -> Option<String> {
+        let output = match std::process::Command::new("git")
+            .args(["stash", "create"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                tracing::warn!("create_review_baseline: failed to run git stash create: {}", e);
+                return None;
+            }
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!("create_review_baseline: git stash create failed: {}", stderr);
+            return None;
+        }
+
+        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if sha.is_empty() {
+            // Clean working tree — nothing to baseline against
+            tracing::info!("create_review_baseline: clean working tree, no baseline created");
+            None
+        } else {
+            tracing::info!(sha = %sha, "create_review_baseline: created baseline");
+            Some(sha)
+        }
+    }
+
+    /// Parse unified diff output from `git diff` into per-file `ChangedFile` entries.
+    fn parse_git_diff(diff_text: &str) -> Vec<ChangedFile> {
+        let mut files = Vec::new();
+        let mut current_diff = String::new();
+        let mut current_path: Option<String> = None;
+        let mut current_change_type = ChangeType::Modified;
+
+        for line in diff_text.lines() {
+            if line.starts_with("diff --git ") {
+                // Save previous file if any
+                if let Some(path) = current_path.take() {
+                    let (added, removed) = count_diff_lines(&current_diff);
+                    files.push(ChangedFile {
+                        path,
+                        change_type: current_change_type.clone(),
+                        lines_added: added,
+                        lines_removed: removed,
+                        diff: current_diff.clone(),
+                    });
+                    current_diff.clear();
                 }
+                // Extract file path from "diff --git a/path b/path"
+                let path = line
+                    .strip_prefix("diff --git a/")
+                    .and_then(|s| s.split(" b/").next())
+                    .unwrap_or("")
+                    .to_string();
+                current_path = Some(path);
+                current_change_type = ChangeType::Modified;
+                current_diff.push_str(line);
+                current_diff.push('\n');
+            } else if line.starts_with("new file mode") {
+                current_change_type = ChangeType::Added;
+                current_diff.push_str(line);
+                current_diff.push('\n');
+            } else if line.starts_with("deleted file mode") {
+                current_change_type = ChangeType::Deleted;
+                current_diff.push_str(line);
+                current_diff.push('\n');
+            } else if current_path.is_some() {
+                current_diff.push_str(line);
+                current_diff.push('\n');
             }
         }
 
-        if files.is_empty() {
-            let tool_count = history.iter().filter(|m| m.role == "tool").count();
-            tracing::warn!(tool_messages = tool_count, history_len = history.len(), "detect_changed_files: no changes found");
-        } else {
-            tracing::info!(count = files.len(), "detect_changed_files: found changes");
+        // Save last file
+        if let Some(path) = current_path {
+            let (added, removed) = count_diff_lines(&current_diff);
+            files.push(ChangedFile {
+                path,
+                change_type: current_change_type,
+                lines_added: added,
+                lines_removed: removed,
+                diff: current_diff,
+            });
         }
 
         files
     }
-
-    /// Parse a tool message's JSON content to extract file change info.
-    /// Handles FileWriteOutput, FileUpdateOutput, FileDeleteOutput, and ApplyPatchOutput.
-    /// Returns `None` for read-only tool outputs (file_read, file_outline, code_review, etc.).
-    pub fn parse_tool_output(content: &str) -> Option<ChangedFile> {
-        let sanitized = sanitize_json_escapes(content);
-        let val: serde_json::Value = serde_json::from_str(&sanitized).ok()?;
-        let path = val.get("path")?.as_str()?.to_string();
-
-        // Skip read-only tools (file_read/file_outline/code_review/propose_str_replace)
-        // that have a `path` field but didn't modify any files.
-        let is_read_only = val.get("lines").is_some()
-            || val.get("total_lines").is_some()
-            || val.get("files").is_some()
-            || val.get("lines_added").is_some();
-        if is_read_only {
-            return None;
-        }
-
-        // Extract git_diff if available
-        let diff = val
-            .get("git_diff")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        // Count lines from git_diff to provide meaningful stats
-        let lines_added: usize = diff.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
-        let lines_removed: usize = diff.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
-
-        // Determine change type from git_diff header, or infer from context
-        let change_type = if diff.contains("new file mode") || diff.contains("--- /dev/null") {
-            ChangeType::Added
-        } else if diff.contains("deleted file mode") || diff.contains("+++ /dev/null") {
-            ChangeType::Deleted
-        } else {
-            ChangeType::Modified
-        };
-
-        Some(ChangedFile {
-            path,
-            change_type,
-            lines_added,
-            lines_removed,
-            diff,
-        })
-    }
-
-    /// Extract file path from tool execution result
-    fn extract_file_path(content: &str) -> Option<String> {
-        // Try to extract path field from JSON
-        let sanitized = sanitize_json_escapes(content);
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&sanitized) {
-            if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
-                return Some(path.to_string());
-            }
-        }
-
-        // Try to extract path pattern from text: `path/to/file.rs`
-        for line in content.lines() {
-            let line = line.trim();
-            // Match path containing extensions like .rs / .toml / .md
-            if line.ends_with(".rs")
-                || line.ends_with(".toml")
-                || line.ends_with(".md")
-                || line.ends_with(".js")
-                || line.ends_with(".ts")
-                || line.ends_with(".py")
-                || line.ends_with(".json")
-            {
-                // Remove leading asterisks, quotes, and other decorations
-                let cleaned = line
-                    .trim_start_matches(|c: char| "*`\"'".contains(c))
-                    .trim_end_matches(|c: char| "*`\"'".contains(c));
-                if cleaned.contains('/') || cleaned.contains('\\') {
-                    return Some(cleaned.to_string());
-                }
-            }
-        }
-
-        None
-    }
-
 
     /// Execute review (synchronously wait for result)
     pub async fn review(
@@ -501,13 +516,15 @@ impl AgentOrchestrator {
                     || tc.function.name == "apply_patch"
             });
 
-        if !has_recent_write {
-            return false;
-        }
-
-        let changed_files = self.detect_changed_files(history);
-        !changed_files.is_empty()
+        has_recent_write
     }
+}
+
+/// Count added/removed lines from a unified diff string.
+fn count_diff_lines(diff: &str) -> (usize, usize) {
+    let added = diff.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
+    let removed = diff.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
+    (added, removed)
 }
 
 // Type alias for simplified imports

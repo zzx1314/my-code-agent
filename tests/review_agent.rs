@@ -506,78 +506,6 @@ fn test_repair_truncated_multi_level() {
 }
 
 // =============================================================================
-// Tests for parse_tool_output
-// =============================================================================
-
-use my_code_agent::core::agent::orchestrator::AgentOrchestrator;
-
-/// Test parsing FileWriteOutput with git_diff
-#[test]
-fn test_parse_tool_output_file_write() {
-    let git_diff = "diff --git a/src/main.rs b/src/main.rs\nindex abc..def 100644\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,3 +1,4 @@\n fn main() {\n+    println!(\"hello\");\n     println!(\"world\");\n }\n";
-    let tool_output = serde_json::json!({
-        "path": "src/main.rs",
-        "bytes_written": 100,
-        "git_diff": git_diff
-    }).to_string();
-
-    let result = AgentOrchestrator::parse_tool_output(&tool_output).unwrap();
-    assert_eq!(result.path, "src/main.rs");
-    assert_eq!(result.change_type, ChangeType::Modified);
-    assert_eq!(result.lines_added, 1);
-    assert_eq!(result.lines_removed, 0);
-    assert_eq!(result.diff, git_diff);
-}
-
-/// Test parsing FileWriteOutput for a new file (added)
-#[test]
-fn test_parse_tool_output_file_added() {
-    let git_diff = "diff --git a/src/new.rs b/src/new.rs\nnew file mode 100644\nindex 000..abc\n--- /dev/null\n+++ b/src/new.rs\n@@ -0,0 +1,3 @@\n+fn new_func() {\n+    println!(\"new\");\n+}\n";
-    let tool_output = serde_json::json!({
-        "path": "src/new.rs",
-        "bytes_written": 50,
-        "git_diff": git_diff
-    }).to_string();
-
-    let result = AgentOrchestrator::parse_tool_output(&tool_output).unwrap();
-    assert_eq!(result.path, "src/new.rs");
-    assert_eq!(result.change_type, ChangeType::Added);
-    assert_eq!(result.lines_added, 3);
-}
-
-/// Test parsing FileUpdateOutput
-#[test]
-fn test_parse_tool_output_file_update() {
-    let git_diff = "diff --git a/src/lib.rs b/src/lib.rs\nindex 123..456 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -5,7 +5,7 @@\n-pub fn old_func() {\n+pub fn new_func() {\n     // body\n }\n";
-    let tool_output = serde_json::json!({
-        "path": "src/lib.rs",
-        "replacements": 1,
-        "diff": "@@ line 5 @@\n-old\n+new\n",
-        "git_diff": git_diff
-    }).to_string();
-
-    let result = AgentOrchestrator::parse_tool_output(&tool_output).unwrap();
-    assert_eq!(result.path, "src/lib.rs");
-    assert_eq!(result.change_type, ChangeType::Modified);
-    assert_eq!(result.lines_added, 1);
-    assert_eq!(result.lines_removed, 1);
-}
-
-/// Test parsing non-JSON content returns None (falls through to text extraction)
-#[test]
-fn test_parse_tool_output_non_json() {
-    let result = AgentOrchestrator::parse_tool_output("Path: src/main.rs (modified)");
-    assert!(result.is_none());
-}
-
-/// Test parsing JSON without path field returns None
-#[test]
-fn test_parse_tool_output_no_path() {
-    let output = serde_json::json!({"message": "success"}).to_string();
-    let result = AgentOrchestrator::parse_tool_output(&output);
-    assert!(result.is_none());
-}
-
 // =============================================================================
 // Tests for ReviewOutcome (iterative review-fix loop)
 // =============================================================================
@@ -591,6 +519,7 @@ fn test_review_outcome_approved() {
         report_summary: "Score: 95/100".to_string(),
         report: None,
         auto_trigger: true,
+        review_baseline: None,
     };
     assert_eq!(outcome.verdict, ReviewVerdict::Approved);
     assert!(outcome.auto_trigger);
@@ -608,6 +537,7 @@ fn test_review_outcome_needs_revision() {
         report_summary: "Score: 65/100, 3 issues".to_string(),
         report: None,
         auto_trigger: true,
+        review_baseline: None,
     };
     assert_eq!(outcome.verdict, ReviewVerdict::NeedsRevision);
     // NeedsRevision + auto_trigger = SHOULD trigger fix loop
@@ -624,6 +554,7 @@ fn test_review_outcome_manual_no_trigger() {
         report_summary: "Score: 50/100".to_string(),
         report: None,
         auto_trigger: false,
+        review_baseline: None,
     };
     // Even with NeedsRevision, auto_trigger=false = should NOT trigger fix loop
     let should_fix = outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved;
@@ -639,6 +570,7 @@ fn test_review_outcome_rejected() {
         report_summary: "Score: 30/100, 5 critical issues".to_string(),
         report: None,
         auto_trigger: true,
+        review_baseline: None,
     };
     // Rejected + auto_trigger = SHOULD trigger fix loop (code needs serious fixes)
     let should_fix = outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved;
@@ -810,6 +742,7 @@ fn test_check_review_result_clears_reasoning_on_completed() {
         report_summary: "Score: 95/100".to_string(),
         report: None,
         auto_trigger: true,
+        review_baseline: None,
     };
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -866,6 +799,7 @@ fn test_check_review_result_clears_reasoning_on_max_iterations() {
         report_summary: "Score: 60/100".to_string(),
         report: None,
         auto_trigger: true,
+        review_baseline: None,
     };
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1535,6 +1469,7 @@ fn test_is_auto_fix_prompt_edge_cases() {
 
 use std::sync::Arc;
 use my_code_agent::core::agent::client::LlmClient;
+use my_code_agent::core::agent::orchestrator::AgentOrchestrator;
 use my_code_agent::core::agent::preamble::Agent;
 use my_code_agent::core::config::Config;
 use my_code_agent::core::types::{ToolCall, ToolCallFunction};
@@ -1710,15 +1645,255 @@ fn test_should_auto_review_empty_history_returns_false() {
     assert!(!orch.should_auto_review(&[]));
 }
 
-/// Test 10: Tool result has no valid path → detect_changed_files returns empty
+/// Test 10: Tool result has no valid path but has recent write → still triggers review
+/// (actual diff is fetched via git diff, not from tool output)
 #[test]
-fn test_should_auto_review_missing_file_path_returns_false() {
+fn test_should_auto_review_missing_file_path_still_triggers() {
     let orch = make_orchestrator(true);
     let history = vec![
         Message::assistant_with_tool_calls("Writing...", vec![write_tc("call_1")]),
         // Tool result without a "path" field
         Message::tool("call_1", r#"{"message": "ok"}"#),
     ];
-    assert!(!orch.should_auto_review(&history));
+    assert!(orch.should_auto_review(&history));
 }
 
+// =============================================================================
+// Tests for review_baseline — 增量 diff 集成测试
+// =============================================================================
+//
+// 验证场景：多轮代码修改后，review_baseline 确保审查只看到增量变更而不是累积变更。
+//
+// 测试流程：
+// 1. 在临时目录创建独立 git 仓库，提交初始文件
+// 2. 第 1 轮修改：修改 file_a.rs（添加 hello 函数）
+//    - verify: detect_changed_files(None) 检测到 1 个变更文件
+// 3. 创建审查基线 (create_review_baseline)
+//    - verify: 返回有效的 SHA
+//    - verify: 刚创建基线后 detect_changed_files(baseline) 返回空（基线恰好捕获当前状态）
+// 4. 第 2 轮修改：修改 file_a.rs（再添加 goodbye 函数）+ 新建 file_b.rs
+//    - verify: detect_changed_files(None) 显示累积变更（2 文件，file_a 包含两轮的所有改动）
+//    - verify: detect_changed_files(Some(baseline)) 显示增量变更（2 文件，但 file_a 只含第 2 轮改动）
+//    - verify: 增量 file_a 行数 < 累积 file_a 行数
+//    - verify: 增量 file_b 行数 == 累积 file_b 行数（新文件，两轮结果一致）
+//
+// 注意：这些测试使用 set_current_dir 修改进程级全局目录，所以必须用全局互斥锁
+// 序列化执行，避免并行测试互相干扰。所有 test_review_baseline_* 测试都会获取
+// REVIEW_BASELINE_TEST_MUTEX。
+
+use tempfile::TempDir;
+
+use std::sync::LazyLock;
+use std::sync::Mutex;
+
+/// 全局互斥锁：序列化所有 review_baseline 集成测试。
+/// 这些测试必须独占 set_current_dir，并行运行会导致互相覆盖。
+static REVIEW_BASELINE_TEST_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+/// Drop guard：确保 panic 时也能恢复原始目录。
+/// 相比手动 `restore()` 闭包，这个结构体在 drop 时自动恢复，
+/// panic 也触发 drop（除非 abort）。
+struct CwdGuard {
+    original_dir: std::path::PathBuf,
+}
+
+impl CwdGuard {
+    fn new(temp_dir: &TempDir) -> Self {
+        let original_dir = std::env::current_dir().expect("Failed to get current dir");
+        std::env::set_current_dir(temp_dir.path()).expect("Failed to cd to temp dir");
+        CwdGuard { original_dir }
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        let _ = std::env::set_current_dir(&self.original_dir);
+    }
+}
+
+fn run_git(args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("Failed to run git command");
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        panic!("git {} failed: {}", args.join(" "), stderr);
+    }
+}
+
+#[test]
+fn test_review_baseline_incremental_diff() {
+    let _lock = REVIEW_BASELINE_TEST_MUTEX.lock().unwrap();
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let _guard = CwdGuard::new(&temp_dir);
+
+    // 初始化 git 仓库
+    run_git(&["init"]);
+    run_git(&["config", "user.email", "test@test.com"]);
+    run_git(&["config", "user.name", "Test"]);
+
+    std::fs::write("file_a.rs", "fn main() {\n    println!(\"Hello\");\n}\n")
+        .expect("Failed to write file_a.rs");
+    run_git(&["add", "file_a.rs"]);
+    run_git(&["commit", "-m", "Initial commit"]);
+
+    assert!(std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().is_empty())
+        .unwrap_or(false));
+
+    let orch = make_orchestrator(true);
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+
+    // ---- Round 1 ----
+    std::fs::write(
+        "file_a.rs",
+        "fn main() {\n    println!(\"Hello\");\n}\n\nfn hello() {\n    println!(\"Hello from hello()\");\n}\n",
+    )
+    .expect("Failed");
+
+    let round1_changes = rt.block_on(orch.detect_changed_files_from_git(None));
+    assert_eq!(round1_changes.len(), 1);
+    let r1_added = round1_changes[0].lines_added;
+    assert!(r1_added > 0);
+
+    // 创建基线
+    let baseline_sha = AgentOrchestrator::create_review_baseline()
+        .expect("Should create baseline after round 1");
+    assert!(!baseline_sha.is_empty());
+
+    // 基线精确捕获当前状态
+    let baseline_check = rt.block_on(orch.detect_changed_files_from_git(Some(&baseline_sha)));
+    assert!(baseline_check.is_empty());
+
+    // ---- Round 2: 修改 file_a + 新建 file_b ----
+    std::fs::write(
+        "file_a.rs",
+        "fn main() {\n    println!(\"Hello\");\n}\n\nfn hello() {\n    println!(\"Hello from hello()\");\n}\n\nfn goodbye() {\n    println!(\"Goodbye\");\n}\n",
+    )
+    .expect("Failed");
+    std::fs::write("file_b.rs", "pub fn helper() -> u32 { 42 }\n").expect("Failed");
+
+    // 累积 diff（无基线）
+    let cumulative = rt.block_on(orch.detect_changed_files_from_git(None));
+    assert_eq!(cumulative.len(), 2);
+    let cum_file_a = cumulative.iter().find(|f| f.path == "file_a.rs").unwrap();
+    let cum_file_b = cumulative.iter().find(|f| f.path == "file_b.rs").unwrap();
+
+    assert!(cum_file_a.lines_added > r1_added);
+    assert!(cum_file_b.lines_added > 0);
+
+    // 增量 diff（有基线）
+    let incremental = rt.block_on(orch.detect_changed_files_from_git(Some(&baseline_sha)));
+    assert_eq!(incremental.len(), 2);
+    let inc_file_a = incremental.iter().find(|f| f.path == "file_a.rs").unwrap();
+    let inc_file_b = incremental.iter().find(|f| f.path == "file_b.rs").unwrap();
+
+    // 核心断言：增量 file_a < 累积 file_a
+    assert!(
+        inc_file_a.lines_added < cum_file_a.lines_added,
+        "incremental {} should be < cumulative {}",
+        inc_file_a.lines_added,
+        cum_file_a.lines_added
+    );
+
+    // 新文件：增量 == 累积
+    assert_eq!(inc_file_b.lines_added, cum_file_b.lines_added);
+}
+
+#[test]
+fn test_create_review_baseline_clean_tree_returns_none() {
+    let _lock = REVIEW_BASELINE_TEST_MUTEX
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let _guard = CwdGuard::new(&temp_dir);
+
+    run_git(&["init"]);
+    run_git(&["config", "user.email", "test@test.com"]);
+    run_git(&["config", "user.name", "Test"]);
+
+    std::fs::write("main.rs", "fn main() {}").expect("Failed");
+    run_git(&["add", "main.rs"]);
+    run_git(&["commit", "-m", "Initial"]);
+
+    assert!(AgentOrchestrator::create_review_baseline().is_none());
+}
+
+#[test]
+fn test_detect_changed_files_non_git_directory() {
+    let _lock = REVIEW_BASELINE_TEST_MUTEX
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let _guard = CwdGuard::new(&temp_dir);
+
+    let orch = make_orchestrator(true);
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+
+    // 非 git 目录应返回空 Vec，无 panic
+    let changes = rt.block_on(orch.detect_changed_files_from_git(None));
+    assert!(changes.is_empty());
+
+    // 无效基线也不 panic
+    let changes_with_baseline = rt.block_on(orch.detect_changed_files_from_git(Some("invalid-sha")));
+    assert!(changes_with_baseline.is_empty());
+}
+
+/// 完整生命周期：3 轮修改 + 2 次基线创建，验证链式增量
+#[test]
+fn test_review_baseline_full_lifecycle() {
+    let _lock = REVIEW_BASELINE_TEST_MUTEX
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let _guard = CwdGuard::new(&temp_dir);
+
+    run_git(&["init"]);
+    run_git(&["config", "user.email", "test@test.com"]);
+    run_git(&["config", "user.name", "Test"]);
+
+    std::fs::write("lib.rs", "fn init() {}\n").expect("Failed");
+    run_git(&["add", "lib.rs"]);
+    run_git(&["commit", "-m", "Initial"]);
+
+    let orch = make_orchestrator(true);
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+
+    // ---- Round 1 ----
+    std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x\"\n}\n").expect("Failed");
+    let sha1 = AgentOrchestrator::create_review_baseline().expect("Round 1 baseline");
+    assert!(rt.block_on(orch.detect_changed_files_from_git(Some(&sha1))).is_empty());
+
+    // ---- Round 2 ----
+    std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x\"\n}\n\npub fn feature_y() -> &'static str {\n    \"feature_y\"\n}\n").expect("Failed");
+
+    let cumulative2 = rt.block_on(orch.detect_changed_files_from_git(None));
+    let cum2_added = cumulative2[0].lines_added;
+
+    let incremental2 = rt.block_on(orch.detect_changed_files_from_git(Some(&sha1)));
+    let inc2_added = incremental2[0].lines_added;
+
+    // 增量 < 累积：基线排除了第 1 轮改动
+    assert!(inc2_added < cum2_added);
+
+    // 第 2 次基线
+    let sha2 = AgentOrchestrator::create_review_baseline().expect("Round 2 baseline");
+    assert_ne!(sha1, sha2);
+    assert!(rt.block_on(orch.detect_changed_files_from_git(Some(&sha2))).is_empty());
+
+    // ---- Round 3 ----
+    std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x_updated\"\n}\n\npub fn feature_y() -> &'static str {\n    \"feature_y\"\n}\n").expect("Failed");
+
+    let from_sha1 = rt.block_on(orch.detect_changed_files_from_git(Some(&sha1)));
+    let from_sha2 = rt.block_on(orch.detect_changed_files_from_git(Some(&sha2)));
+
+    // 旧的基线显示更多改动（第 2 轮 + 第 3 轮）
+    assert!(from_sha1[0].lines_added > from_sha2[0].lines_added);
+}
+
+// _guard 和 _lock 在这里 drop → CwdGuard 恢复目录，Mutex 解锁, TempDir 清理
