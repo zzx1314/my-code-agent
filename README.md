@@ -335,24 +335,64 @@ The agent is instructed to use `file_read` with the suggested offset when it enc
 
 ### Session Persistence
 
-The agent supports session persistence (save/load/resume). By default, persistence is **disabled** — enable it in `config.toml`:
+The agent supports a **two-tier** session persistence system:
+
+1. **📁 Timestamped Sessions** (always on) — automatically saves a named session snapshot to the `.sessions/` directory on exit, keeping the 5 most recent sessions.
+2. **🔄 Auto-Resume Session** (opt-in) — saves to a default file that auto-loads on next startup for seamless continuation.
+
+#### Configuration
 
 ```toml
 [session]
-enabled = true
-save_file = ".session.json"   # default
+enabled = false                  # Enable auto-resume (save/load on start/exit)
+save_file = ".session.json"      # Default session file for auto-resume
+cleanup_undo_history = false     # Clean up undo history entries on exit
 ```
 
-When enabled:
-- **Auto-save on exit**: When you quit (`quit`, Ctrl+C, Ctrl+D), the session is saved to `.session.json`
-- **Auto-resume on start**: If a saved session exists, the agent restores your chat history, token usage, and reasoning state
-- **`save` command**: Explicitly save the current session without quitting
-- **`load` command**: Load a previously saved session
-- **`new` command**: Start a fresh session (clears current history)
-- **`clear` command**: Clears history **and** deletes the saved session file, so it won't resume on next launch
-- **Double Ctrl+C during streaming**: Saves prior conversation history (the interrupted turn is discarded, but earlier turns are preserved)
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `false` | Enable auto-save on exit **and** auto-resume on startup |
+| `save_file` | `".session.json"` | File path for the auto-resume session (resolved in app data directory) |
+| `cleanup_undo_history` | `false` | Remove undo history entries for the current session on exit |
 
-The session file is gitignored by default.
+#### How It Works
+
+**On every exit** (quit, Ctrl+C, Ctrl+D):  
+Always saves a timestamped session file to `<app_data>/.sessions/<timestamp>.json` — this is unconditional (even if `session.enabled = false`). Old sessions are pruned to keep only the **5 most recent** ones.
+
+**When `session.enabled = true`**:  
+In addition to the timestamped snapshot, the agent saves a **default session** file (e.g. `.session.json`). On next startup, if this file exists, the agent automatically restores your chat history, token usage, and reasoning state — you pick up right where you left off.
+
+#### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/save` | Explicitly save the current session with a timestamp name to `.sessions/` |
+| `/load` | Open an interactive picker showing up to 5 most recent sessions to restore |
+| `/new` | Start a fresh session (clears current in-memory history) |
+| `/clear` | Clear history **and** delete the default session file (prevents auto-resume) |
+
+#### Session Storage
+
+- **Named sessions**: `<app_data>/.sessions/<name>.json` — created by `/save`, `/load`, and auto-save on exit
+- **Default session**: `<app_data>/.session.json` (or custom `save_file` path) — used for auto-resume only
+- **Pruning**: Only the 5 most recent timestamped sessions are kept; older ones are auto-removed
+- The session files are gitignored by default
+
+#### Auto-Save During Streaming
+
+- **Double Ctrl+C during streaming**: Saves the conversation history **before** the interrupted turn, so earlier turns are preserved
+- The interrupted (incomplete) turn is discarded, but all prior messages, token usage, and reasoning state are safely persisted
+
+#### Session Data
+
+Each saved session includes:
+
+- Complete message history (preserving roles, content, tool calls, and reasoning)
+- Cumulative token usage statistics
+- Last reasoning output (for DeepSeek reasoning models)
+- Unix timestamp of when the session was saved
+- Optional human-readable name
 
 ### Interrupting Responses
 
@@ -386,8 +426,9 @@ think_command = true
 thinking_display_height = 5
 
 [session]
-enabled = false                 # set to true to enable session persistence
-save_file = ".session.json"     # default
+enabled = false                 # Enable auto-resume (save default session, restore on start)
+save_file = ".session.json"     # Default session file path for auto-resume
+cleanup_undo_history = false    # Clean up undo history entries for this session on exit
 
 [mcp]
 enabled = false
