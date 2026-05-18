@@ -162,8 +162,11 @@ fn spawn_review(app: &mut App, path: Option<String>) {
         let context = ReviewAgent::extract_context_from_history(&messages);
         let context_opt = if context.is_empty() { None } else { Some(context) };
 
+        // Extract conversation history summary for consistency checking
+        let history_summary = ReviewAgent::extract_history_summary(&messages);
+
         // Use phased review with events — sends phase progress through event_tx
-        match orchestrator.review_with_events(changed_files, context_opt.as_deref(), event_tx).await {
+        match orchestrator.review_with_events(changed_files, context_opt.as_deref(), history_summary.as_deref(), event_tx).await {
             Ok(report) => {
                 let display_text = orchestrator.format_review_report(&report);
                 let verdict = report.summary.verdict.clone();

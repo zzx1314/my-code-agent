@@ -25,6 +25,7 @@ pub struct ReviewAgent {
 pub struct ReviewRequest {
     pub changed_files: Vec<ChangedFile>,
     pub context: Option<String>,  // Original task description
+    pub history_summary: Option<String>,  // Conversation history summary for consistency checking
 }
 
 /// Review response events
@@ -69,9 +70,15 @@ impl ReviewAgent {
         prompt.push_str("— check the user's request and assume existing code still works.\n\n");
 
         prompt.push_str("## Guidelines\n\n");
-        prompt.push_str("The main agent has already run compilation (`cargo check`/`cargo build`), ");
-        prompt.push_str("type checking, and tests (`cargo test`) on the code. ");
-        prompt.push_str("Therefore, the following checks are already covered:\n\n");
+        prompt.push_str("The main agent typically runs compilation, type checking, and tests before review. ");
+        prompt.push_str("However, do NOT assume these checks have passed — flag issues you find regardless.\n\n");
+
+        prompt.push_str("### Conversation History Analysis\n\n");
+        prompt.push_str("If conversation history is provided, you MUST:\n");
+        prompt.push_str("1. **Verify Requirements Fulfillment** — Check if ALL user requirements from the conversation are addressed in the code\n");
+        prompt.push_str("2. **Check Consistency** — Ensure the implementation matches what was discussed/agreed upon\n");
+        prompt.push_str("3. **Identify Deviations** — Flag any changes from the original plan without user approval\n");
+        prompt.push_str("4. **Catch Missed Items** — Report if the agent skipped or forgot any requested features\n\n");
 
         prompt.push_str("### ✅ FOCUS on (highest value — compilation cannot catch these):\n");
         prompt.push_str("- **Functional Completeness** — Does the code actually fulfill ALL requirements\n");
@@ -100,7 +107,7 @@ impl ReviewAgent {
         prompt.push_str("### Other reminders:\n");
         prompt.push_str("- Try to keep changes minimal — don't rewrite working code.\n");
         prompt.push_str("- Be concise: If you don't have much critical feedback, simply say it looks good.\n");
-        prompt.push_str("- Do NOT flag issues for things absent from the diff — they may still be in the code.\n\n");
+        prompt.push_str("- When uncertain whether something is a real issue, err on the side of reporting it.\n\n");
 
         prompt.push_str("## Output Format\n\n");
         prompt.push_str("You MUST output ONLY a valid JSON object:\n\n");
@@ -116,8 +123,8 @@ impl ReviewAgent {
         prompt.push_str("      \"title\": \"Short issue title\",\n");
         prompt.push_str("      \"description\": \"What's wrong and why\",\n");
         prompt.push_str("      \"suggestion\": \"How to fix it\",\n");
-        prompt.push_str("      \"code_snippet\": \"Problematic code\",\n");
-        prompt.push_str("      \"fix_example\": \"Fixed code\"\n");
+        prompt.push_str("      \"code_snippet\": \"Problematic code (omit if not applicable)\",\n");
+        prompt.push_str("      \"fix_example\": \"Fixed code (omit if not applicable)\"\n");
         prompt.push_str("    }\n");
         prompt.push_str("  ],\n");
         prompt.push_str("  \"summary\": {\n");
@@ -127,10 +134,32 @@ impl ReviewAgent {
         prompt.push_str("}\n");
         prompt.push_str("```\n\n");
 
-        prompt.push_str("Severity: \"critical\" | \"high\" | \"medium\" | \"low\" | \"info\"\n");
-        prompt.push_str("Category: \"bug_risk\" | \"security\" | \"functional_completeness\" | \"performance\" | \"error_handling\" | \"style\" | \"maintainability\"\n");
-        prompt.push_str("Verdict: \"approved\" (no blocking issues) | \"needs_revision\" (fixes required)\n");
-        prompt.push_str("Score: 0-100 (higher = better)\n\n");
+        prompt.push_str("### Field Reference\n\n");
+        prompt.push_str("Severity (ordered by criticality):\n");
+        prompt.push_str("- \"critical\" — Must fix: security vulnerabilities, data loss, crashes\n");
+        prompt.push_str("- \"high\" — Should fix: logic errors, incorrect behavior\n");
+        prompt.push_str("- \"medium\" — Recommended: potential bugs, poor error handling\n");
+        prompt.push_str("- \"low\" — Could improve: performance, code clarity\n");
+        prompt.push_str("- \"info\" — For reference: suggestions, best practices\n\n");
+
+        prompt.push_str("Category:\n");
+        prompt.push_str("- \"functional_completeness\" — Code doesn't fulfill user requirements\n");
+        prompt.push_str("- \"security\" — Vulnerabilities, injection, exposed secrets\n");
+        prompt.push_str("- \"bug_risk\" — Logic errors, edge cases, incorrect behavior\n");
+        prompt.push_str("- \"performance\" — Unnecessary allocations, O(n²) when O(n) possible\n");
+        prompt.push_str("- \"error_handling\" — Missing error propagation, swallowed errors\n");
+        prompt.push_str("- \"concurrency\" — Race conditions, deadlocks, async misuse\n");
+        prompt.push_str("- \"maintainability\" — Code structure, readability, coupling\n");
+        prompt.push_str("- \"documentation\" — Missing or incorrect docs/comments\n\n");
+
+        prompt.push_str("Verdict:\n");
+        prompt.push_str("- \"approved\" — No issues, or only low/info severity issues\n");
+        prompt.push_str("- \"needs_revision\" — Has medium/high severity issues that should be fixed\n");
+        prompt.push_str("- \"rejected\" — Has critical issues or fundamental design problems\n\n");
+
+        prompt.push_str("Score: 0-100 (higher = better)\n");
+        prompt.push_str("- Start at 100, deduct: critical -25, high -10, medium -5, low -2, info -1\n");
+        prompt.push_str("- Minimum score is 0\n\n");
 
         prompt.push_str("If there are no issues, simply return:\n");
         prompt.push_str("{\"issues\": [], \"summary\": {\"overall_score\": 100, \"verdict\": \"approved\"}}\n");
@@ -140,7 +169,7 @@ impl ReviewAgent {
 
     pub async fn review(&self, request: &ReviewRequest) -> Result<ReviewReport> {
         let changes_summary = self.format_changes_summary(&request.changed_files);
-        let user_message = self.build_user_message(&changes_summary, &request.context);
+        let user_message = self.build_user_message(&changes_summary, &request.context, &request.history_summary);
         let (response, _reasoning) = self.call_llm(&user_message).await?;
         let issues = self.parse_issues_from_response(&response)?;
         self.build_report(&issues, &request.changed_files)
@@ -159,7 +188,7 @@ impl ReviewAgent {
         });
 
         let changes_summary = self.format_changes_summary(&request.changed_files);
-        let user_message = self.build_user_message(&changes_summary, &request.context);
+        let user_message = self.build_user_message(&changes_summary, &request.context, &request.history_summary);
 
         let response = self.call_llm_stream(&user_message, &event_tx).await?;
         let issues = self.parse_issues_from_response(&response)?;
@@ -172,19 +201,20 @@ impl ReviewAgent {
         Ok(report)
     }
 
-    fn build_user_message(&self, changes_summary: &str, context: &Option<String>) -> String {
+    fn build_user_message(&self, changes_summary: &str, context: &Option<String>, history_summary: &Option<String>) -> String {
+        let mut msg = String::new();
+
         if let Some(ctx) = context {
-            format!(
-                "## User Request (Requirements)\n\n{ctx}\n\n## Code Changes to Review\n\n{changes_summary}",
-                ctx = ctx,
-                changes_summary = changes_summary,
-            )
-        } else {
-            format!(
-                "Please review the following code changes:\n\n{changes_summary}",
-                changes_summary = changes_summary,
-            )
+            msg.push_str(&format!("## User Request (Requirements)\n\n{ctx}\n\n"));
         }
+
+        if let Some(history) = history_summary {
+            msg.push_str(&format!("## Conversation History Summary\n\n{history}\n\n"));
+            msg.push_str("**Consistency Check**: Please verify the implementation matches what was discussed in the conversation. Flag any contradictions, missed requirements, or deviations from the agreed approach.\n\n");
+        }
+
+        msg.push_str(&format!("## Code Changes to Review\n\n{changes_summary}"));
+        msg
     }
 
     async fn call_llm(&self, user_message: &str) -> Result<(String, String)> {
@@ -366,6 +396,112 @@ impl ReviewAgent {
         }
 
         result
+    }
+
+    /// Extract conversation history summary for consistency checking.
+    ///
+    /// Creates a structured summary of the conversation that allows the review agent
+    /// to verify if the implementation matches what was discussed. Focuses on:
+    /// 1. User requirements and preferences expressed during conversation
+    /// 2. Technical decisions and agreements made
+    /// 3. Features/changes explicitly requested
+    /// 4. Constraints or limitations mentioned
+    ///
+    /// Returns None if history is too short or contains no useful information.
+    pub fn extract_history_summary(history: &[crate::core::types::Message]) -> Option<String> {
+        if history.len() < 3 {
+            return None;
+        }
+
+        let mut requirements = Vec::new();
+        let mut decisions = Vec::new();
+        let mut features = Vec::new();
+
+        for msg in history.iter() {
+            if msg.role != "user" {
+                continue;
+            }
+
+            let content = msg.content.trim();
+            if content.is_empty() || content.len() < 10 {
+                continue;
+            }
+
+            // Skip fix prompts and auto-review messages
+            if is_fix_prompt(content) {
+                continue;
+            }
+
+            // Extract key points from user messages
+            let lower = content.to_lowercase();
+
+            // Detect requirements (keywords like "need", "want", "should", "must", "require")
+            if lower.contains("need") || lower.contains("want") || lower.contains("should")
+                || lower.contains("must") || lower.contains("require") || lower.contains("please")
+            {
+                let summary = truncate_content(content, 200);
+                if !summary.is_empty() {
+                    requirements.push(format!("- {}", summary));
+                }
+            }
+
+            // Detect feature requests (keywords like "add", "implement", "create", "build")
+            if lower.contains("add") || lower.contains("implement") || lower.contains("create")
+                || lower.contains("build") || lower.contains("support") || lower.contains("feature")
+            {
+                let summary = truncate_content(content, 150);
+                if !summary.is_empty() {
+                    features.push(format!("- {}", summary));
+                }
+            }
+
+            // Detect decisions/constraints (keywords like "use", "choose", "prefer", "instead", "must not")
+            if lower.contains("use ") || lower.contains("choose") || lower.contains("prefer")
+                || lower.contains("instead") || lower.contains("must not") || lower.contains("don't")
+                || lower.contains("avoid")
+            {
+                let summary = truncate_content(content, 150);
+                if !summary.is_empty() {
+                    decisions.push(format!("- {}", summary));
+                }
+            }
+        }
+
+        let mut summary = String::new();
+
+        if !requirements.is_empty() {
+            summary.push_str("**User Requirements:**\n");
+            // Take up to 5 most recent requirements
+            let start = requirements.len().saturating_sub(5);
+            for req in &requirements[start..] {
+                summary.push_str(&format!("{}\n", req));
+            }
+            summary.push_str("\n");
+        }
+
+        if !features.is_empty() {
+            summary.push_str("**Requested Features:**\n");
+            let start = features.len().saturating_sub(5);
+            for feat in &features[start..] {
+                summary.push_str(&format!("{}\n", feat));
+            }
+            summary.push_str("\n");
+        }
+
+        if !decisions.is_empty() {
+            summary.push_str("**Technical Decisions/Constraints:**\n");
+            let start = decisions.len().saturating_sub(3);
+            for dec in &decisions[start..] {
+                summary.push_str(&format!("{}\n", dec));
+            }
+            summary.push_str("\n");
+        }
+
+        if summary.is_empty() {
+            None
+        } else {
+            Some(summary)
+        }
     }
 
     pub fn format_changes_summary(&self, files: &[ChangedFile]) -> String {

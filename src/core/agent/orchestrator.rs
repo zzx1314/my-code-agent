@@ -193,10 +193,12 @@ impl AgentOrchestrator {
         &self,
         changed_files: Vec<ChangedFile>,
         context: Option<&str>,
+        history_summary: Option<&str>,
     ) -> Result<ReviewReport> {
         let request = ReviewRequest {
             changed_files,
             context: context.map(|s| s.to_string()),
+            history_summary: history_summary.map(|s| s.to_string()),
         };
 
         self.review_agent.review(&request).await
@@ -206,11 +208,13 @@ impl AgentOrchestrator {
         &self,
         changed_files: Vec<ChangedFile>,
         context: Option<&str>,
+        history_summary: Option<&str>,
         event_tx: tokio::sync::mpsc::UnboundedSender<ReviewEvent>,
     ) -> Result<ReviewReport> {
         let request = ReviewRequest {
             changed_files,
             context: context.map(|s| s.to_string()),
+            history_summary: history_summary.map(|s| s.to_string()),
         };
 
         self.review_agent.review_with_events(&request, event_tx).await
