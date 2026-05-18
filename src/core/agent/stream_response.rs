@@ -6,7 +6,7 @@ use crate::core::config::AgentConfig;
 use crate::core::context::context_manager::ContextManager;
 use crate::core::context::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::tools::ToolRegistry;
-use crate::core::types::{Message, ToolCall};
+use crate::core::types::{FinishReason, Message, ToolCall};
 use crate::ui::render::ReasoningTracker;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,8 +24,8 @@ struct ToolCallHistory {
 impl ToolCallHistory {
     fn new() -> Self {
         Self {
-            calls: VecDeque::with_capacity(4),
-            max_len: 4,
+            calls: VecDeque::with_capacity(6),
+            max_len: 6,
         }
     }
 
@@ -105,6 +105,32 @@ impl ToolCallHistory {
                  then try a different approach.",
                 name,
                 same_tool_count + 1,
+            ))
+        } else {
+            None
+        }
+    }
+
+    /// Detect alternating pattern of two tools (A, B, A, B, ...).
+    /// Returns a diagnostic message if the last 4+ calls form an alternating pattern.
+    fn detect_alternating_pattern(&self) -> Option<String> {
+        if self.calls.len() < 4 {
+            return None;
+        }
+        let v: Vec<&str> = self.calls.iter().map(|(n, _)| n.as_str()).collect();
+        let len = v.len();
+
+        // Check if the last 4 entries alternate between two tools:
+        //   v[len-4] == v[len-2]  AND  v[len-3] == v[len-1]  AND  they're different tools
+        if v[len - 4] == v[len - 2] && v[len - 3] == v[len - 1] && v[len - 4] != v[len - 3] {
+            let a = v[len - 4];
+            let b = v[len - 3];
+            Some(format!(
+                "[LOOP DETECTED] You are alternating between `{}` and `{}`. \
+                 Neither approach is producing the expected result. \
+                 Stop and reassess: re-read the file to see its current state, \
+                 then try a completely different strategy.",
+                a, b,
             ))
         } else {
             None
@@ -245,12 +271,53 @@ async fn process_sse_stream(
             usage = Some(*u);
         }
 
-        if chunk.choices.iter().any(|c| c.finish_reason.is_some()) {
-            return ProcessResult::Complete {
-                response_text,
-                tool_calls: build_tool_calls(&acc_tool_calls),
-                usage,
-            };
+        if let Some(ref reason) = chunk.choices.iter().find_map(|c| c.finish_reason.as_ref()) {
+            tracing::info!(mapped = ?reason, "Stream chunk finished");
+
+            match reason {
+                FinishReason::Stop => {
+                    return ProcessResult::Complete {
+                        response_text,
+                        tool_calls: build_tool_calls(&acc_tool_calls),
+                        usage,
+                    };
+                }
+                FinishReason::ToolCalls => {
+                    return ProcessResult::Complete {
+                        response_text,
+                        tool_calls: build_tool_calls(&acc_tool_calls),
+                        usage,
+                    };
+                }
+                FinishReason::Length => {
+                    let msg = "⚠ Response was truncated due to token length limit. \
+                               Consider breaking the task into smaller steps."
+                        .to_string();
+                    status_messages.push(msg.clone());
+                    send_event(StreamEvent::Status(msg));
+                    return ProcessResult::Complete {
+                        response_text,
+                        tool_calls: build_tool_calls(&acc_tool_calls),
+                        usage,
+                    };
+                }
+                FinishReason::ContentFilter => {
+                    return ProcessResult::Error(
+                        "Response was filtered by content moderation policy.".to_string(),
+                    );
+                }
+                FinishReason::Unknown(original) => {
+                    tracing::warn!(
+                        reason = %original,
+                        "Unknown finish_reason from LLM — treating as stop"
+                    );
+                    return ProcessResult::Complete {
+                        response_text,
+                        tool_calls: build_tool_calls(&acc_tool_calls),
+                        usage,
+                    };
+                }
+            }
         }
     }
 }
@@ -289,6 +356,7 @@ enum ProcessResult {
 async fn generate_context_summary(
     client: &LlmClient,
     old_messages: &[Message],
+    reasoning_field: &str,
 ) -> anyhow::Result<String> {
     let summary_prompt = Message::user(
         "Please provide a concise summary of the above conversation. \
@@ -304,7 +372,7 @@ async fn generate_context_summary(
     api_messages.extend_from_slice(old_messages);
     api_messages.push(summary_prompt);
 
-    let response = client.chat(&api_messages, &[]).await?;
+    let response = client.chat(&api_messages, &[], reasoning_field).await?;
 
     let content = response["choices"][0]["message"]["content"]
         .as_str()
@@ -325,6 +393,7 @@ pub async fn stream_response(
     context_manager: &mut ContextManager,
     agent_config: &AgentConfig,
     event_tx: Option<mpsc::UnboundedSender<StreamEvent>>,
+    reasoning_field: &str,
 ) -> StreamResult {
     let display_mode = agent_config.thinking_display.as_str();
     let mut reasoning = ReasoningTracker::new_with_config(&agent_config.thinking_display);
@@ -362,7 +431,7 @@ pub async fn stream_response(
         api_messages.extend_from_slice(&messages);
 
         let tool_defs = tools.definitions();
-        let mut chat_stream = match client.stream_chat(&api_messages, &tool_defs).await {
+        let mut chat_stream = match client.stream_chat(&api_messages, &tool_defs, reasoning_field).await {
             Ok(s) => s,
             Err(e) => {
                 status_messages.push(format!("✗ Failed to start stream: {}", e));
@@ -474,7 +543,7 @@ pub async fn stream_response(
                         let mut compacted = false;
                         if context_manager.compact_count() == 0 {
                             if let Some(compact_point) = context_manager.find_compact_point(&messages) {
-                                match generate_context_summary(client, &messages[..compact_point]).await {
+                                match generate_context_summary(client, &messages[..compact_point], reasoning_field).await {
                                     Ok(summary) => {
                                         messages = context_manager.compact_messages(&messages, &summary);
                                         compacted = true;
@@ -618,6 +687,14 @@ pub async fn stream_response(
 
                     // Check for same-tool spiral: same tool 3+ times
                     if let Some(msg) = loop_detector.build_loop_message(&tc.function.name) {
+                        let tr = Message::tool(&tc.id, msg);
+                        messages.push(tr);
+                        loop_detector.record(&tc.function.name, &tc.function.arguments);
+                        continue;
+                    }
+
+                    // Check for alternating tool pattern (A, B, A, B, A...)
+                    if let Some(msg) = loop_detector.detect_alternating_pattern() {
                         let tr = Message::tool(&tc.id, msg);
                         messages.push(tr);
                         loop_detector.record(&tc.function.name, &tc.function.arguments);

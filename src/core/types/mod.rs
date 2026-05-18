@@ -225,6 +225,62 @@ impl Message {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// FinishReason (deserialized from OpenAI-compatible `finish_reason` strings)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Why the model stopped generating.
+///
+/// Maps from the OpenAI-compatible `finish_reason` string field.
+/// - `stop` → `Stop` (model finished naturally)
+/// - `tool_calls` / `function_call` → `ToolCalls` (model wants to call tools)
+/// - `length` → `Length` (max tokens exceeded)
+/// - `content_filter` → `ContentFilter` (content policy triggered)
+/// - anything else → `Unknown(String)`
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FinishReason {
+    Stop,
+    ToolCalls,
+    Length,
+    ContentFilter,
+    Unknown(String),
+}
+
+/// Custom deserializer that maps OpenAI-compatible `finish_reason` strings.
+///
+/// Handles both `tool_calls` and the legacy `function_call` → `ToolCalls`.
+impl<'de> serde::Deserialize<'de> for FinishReason {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(match s.as_str() {
+            "stop" => FinishReason::Stop,
+            "tool_calls" => FinishReason::ToolCalls,
+            "function_call" => FinishReason::ToolCalls,
+            "length" => FinishReason::Length,
+            "content_filter" => FinishReason::ContentFilter,
+            other => FinishReason::Unknown(other.to_string()),
+        })
+    }
+}
+
+impl FinishReason {
+    /// Returns `true` when the stream should be considered finished.
+    ///
+    /// `Stop`, `ToolCalls`, and `Length` all indicate the model will not
+    /// produce more content for this choice. `ContentFilter` and `Unknown`
+    /// are also terminal but may warrant special handling upstream.
+    pub fn is_complete(&self) -> bool {
+        matches!(
+            self,
+            FinishReason::Stop | FinishReason::ToolCalls | FinishReason::Length
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SSE Streaming types
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -240,7 +296,7 @@ pub struct StreamChunk {
 pub struct StreamChoice {
     pub delta: StreamDelta,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub finish_reason: Option<String>,
+    pub finish_reason: Option<FinishReason>,
     pub index: u64,
 }
 

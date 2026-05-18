@@ -50,6 +50,7 @@ pub fn handle(app: &mut App) -> bool {
             &mut ctx_mgr,
             &config_clone.agent,
             Some(event_tx),
+            &config_clone.llm.reasoning_field,
         )
         .await;
 

@@ -15,6 +15,7 @@ use crate::core::types::review::*;
 pub struct ReviewAgent {
     pub client: LlmClient,
     pub config: ReviewConfig,
+    pub reasoning_field: String,
 }
 
 /// Review Request
@@ -49,8 +50,8 @@ pub enum ReviewEvent {
 
 
 impl ReviewAgent {
-    pub fn new(client: LlmClient, config: ReviewConfig) -> Self {
-        Self { client, config }
+    pub fn new(client: LlmClient, config: ReviewConfig, reasoning_field: String) -> Self {
+        Self { client, config, reasoning_field }
     }
 
     pub fn system_prompt(&self) -> String {
@@ -167,7 +168,7 @@ impl ReviewAgent {
             Message::user(user_message),
         ];
 
-        let response = self.client.chat(&messages, &[]).await?;
+        let response = self.client.chat(&messages, &[], &self.reasoning_field).await?;
         let message = &response["choices"][0]["message"];
 
         let content = message["content"]
@@ -195,7 +196,7 @@ impl ReviewAgent {
             Message::user(user_message),
         ];
 
-        let mut chat_stream = self.client.stream_chat(&messages, &[]).await?;
+        let mut chat_stream = self.client.stream_chat(&messages, &[], &self.reasoning_field).await?;
         let mut full_content = String::new();
 
         while let Some(chunk_result) = chat_stream.next().await {

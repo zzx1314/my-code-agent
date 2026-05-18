@@ -232,10 +232,21 @@ pub struct LLMConfig {
     /// Set to 0 to disable timeout (not recommended).
     #[serde(default = "default_llm_timeout_secs")]
     pub timeout_secs: u64,
+    /// Reasoning content field name for serialization.
+    /// Different providers expect different field names:
+    /// - "reasoning_content": DeepSeek (default)
+    /// - "reasoning": OpenRouter, vLLM, some other providers
+    /// This controls the field name used when sending assistant messages back to the API.
+    /// Default: "reasoning_content"
+    #[serde(default = "default_reasoning_field")]
+    pub reasoning_field: String,
 }
 
 fn default_llm_timeout_secs() -> u64 {
     1800 // 30 minutes for long reasoning models like deepseek-reasoner
+}
+fn default_reasoning_field() -> String {
+    "reasoning_content".to_string()
 }
 
 /// MCP (Model Context Protocol) settings.
@@ -360,6 +371,7 @@ impl Default for LLMConfig {
             api_key_env: String::new(), // Empty means use provider default
             base_url: None,
             timeout_secs: default_llm_timeout_secs(),
+            reasoning_field: default_reasoning_field(),
         }
     }
 }

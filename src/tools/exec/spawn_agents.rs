@@ -23,11 +23,12 @@ pub struct SpawnAgentResult {
 #[derive(Clone)]
 pub struct SpawnAgents {
     client: LlmClient,
+    reasoning_field: String,
 }
 
 impl SpawnAgents {
-    pub fn new(client: LlmClient) -> Self {
-        Self { client }
+    pub fn new(client: LlmClient, reasoning_field: String) -> Self {
+        Self { client, reasoning_field }
     }
 
     fn system_prompt_for_type(agent_type: &str) -> String {
@@ -137,7 +138,7 @@ impl Tool for SpawnAgents {
                         Message::user(agent.prompt.clone()),
                     ];
 
-                    match client.chat(&messages, &[]).await {
+                    match client.chat(&messages, &[], &self.reasoning_field).await {
                         Ok(response) => {
                             let content = response["choices"][0]["message"]["content"]
                                 .as_str()

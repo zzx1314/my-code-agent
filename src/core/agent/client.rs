@@ -70,6 +70,7 @@ impl LlmClient {
         messages: &[Message],
         tool_definitions: &[ToolDefinition],
         stream: bool,
+        reasoning_field: &str,
     ) -> serde_json::Value {
         let mut body = serde_json::json!({
             "model": self.model,
@@ -97,6 +98,24 @@ impl LlmClient {
                 })
                 .collect();
             body["tools"] = serde_json::json!(tools);
+            body["parallel_tool_calls"] = serde_json::json!(false);
+        }
+
+        if stream {
+            body["stream_options"] = serde_json::json!({"include_usage": true});
+        }
+
+        // Transform reasoning_content field name if needed
+        if reasoning_field != "reasoning_content" {
+            if let Some(msgs) = body["messages"].as_array_mut() {
+                for msg in msgs.iter_mut() {
+                    if let Some(obj) = msg.as_object_mut() {
+                        if let Some(reasoning) = obj.remove("reasoning_content") {
+                            obj.insert(reasoning_field.to_string(), reasoning);
+                        }
+                    }
+                }
+            }
         }
 
         body
@@ -107,8 +126,9 @@ impl LlmClient {
         &self,
         messages: &[Message],
         tool_definitions: &[ToolDefinition],
+        reasoning_field: &str,
     ) -> Result<ChatStream> {
-        let body = self.build_request_body(messages, tool_definitions, true);
+        let body = self.build_request_body(messages, tool_definitions, true, reasoning_field);
         let headers = self.headers()?;
 
         debug!(
@@ -151,8 +171,9 @@ impl LlmClient {
         &self,
         messages: &[Message],
         tool_definitions: &[ToolDefinition],
+        reasoning_field: &str,
     ) -> Result<serde_json::Value> {
-        let body = self.build_request_body(messages, tool_definitions, false);
+        let body = self.build_request_body(messages, tool_definitions, false, reasoning_field);
         let headers = self.headers()?;
 
         debug!(

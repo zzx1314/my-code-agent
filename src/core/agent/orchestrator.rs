@@ -47,10 +47,10 @@ impl AgentOrchestrator {
     /// to the LLM and expects a JSON response.
     fn build_review_agent(
         main_agent: &Agent,
-        _config: &Config,
+        config: &Config,
         review_config: &ReviewConfig,
     ) -> ReviewAgent {
-        ReviewAgent::new(main_agent.client.clone(), review_config.clone())
+        ReviewAgent::new(main_agent.client.clone(), review_config.clone(), config.llm.reasoning_field.clone())
     }
 
     /// Detect file changes from the most recent round of the main agent

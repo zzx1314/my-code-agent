@@ -97,6 +97,7 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
             &mut ctx_mgr,
             &config_clone.agent,
             Some(event_tx),
+            &config_clone.llm.reasoning_field,
         )
         .await;
 
@@ -124,7 +125,7 @@ pub fn rebuild_agent(
     let client = build_client(config);
     let system_prompt = build_preamble();
     let mut tools = crate::tools::ToolRegistry::from_config(config);
-    tools.register(crate::tools::SpawnAgents::new(client.clone()));
+    tools.register(crate::tools::SpawnAgents::new(client.clone(), config.llm.reasoning_field.clone()));
     let mcp_tools = futures::executor::block_on(create_mcp_tools(config));
     for tool in mcp_tools {
         tools.register_boxed(tool);
