@@ -216,7 +216,6 @@ Review safety module before allowing destructive operations.
 
 - Auto-saves on quit to `.session.json` (gitignored)
 - `/save <name>` and `/load <name>` commands
-- `/sessions` lists available sessions
 - Sessions stored in `.sessions/` directory as timestamped JSON files
 
 ## Testing
