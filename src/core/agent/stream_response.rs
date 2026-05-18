@@ -7,7 +7,7 @@ use crate::core::context::context_manager::ContextManager;
 use crate::core::context::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::tools::ToolRegistry;
 use crate::core::types::{FinishReason, Message, ToolCall};
-use crate::ui::render::ReasoningTracker;
+use crate::ui::render::{ReasoningTracker, strip_html_tags};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tool call history — detects repeated identical calls to break loops
@@ -228,9 +228,10 @@ async fn process_sse_stream(
                         reasoning.end_segment();
                         send_event(StreamEvent::ReasoningActive(false));
                     }
-                    send_event(StreamEvent::Text(text.clone()));
-                    response_text.push_str(text);
-                    *running_approx += ContextManager::estimate_text_tokens(text);
+                    let cleaned = strip_html_tags(text);
+                    send_event(StreamEvent::Text(cleaned.clone()));
+                    response_text.push_str(&cleaned);
+                    *running_approx += ContextManager::estimate_text_tokens(&cleaned);
                 }
             }
 

@@ -304,7 +304,8 @@ impl ReviewAgent {
 
                 if let Some(ref text) = delta.content {
                     if !text.is_empty() {
-                        full_content.push_str(text);
+                        let cleaned = strip_html_tags(text);
+                        full_content.push_str(&cleaned);
                     }
                 }
             }

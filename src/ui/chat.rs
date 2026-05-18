@@ -416,7 +416,10 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
 /// Uses the same blockquote style as the main reasoning block but with a shorter fixed height
 /// since review phases complete quickly and reasoning is shown within the scrollable chat area.
 fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App, _max_width: Option<usize>, max_height: u16) {
-    if !app.is_reviewing || app.review_reasoning.is_empty() {
+    if !app.is_reviewing {
+        return;
+    }
+    if app.review_reasoning.is_empty() {
         // Pad with empty lines to maintain fixed height even when no content
         if max_height > 0 {
             let header_reserve: u16 = 2; // header + trailing empty

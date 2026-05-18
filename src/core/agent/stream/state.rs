@@ -17,10 +17,11 @@ pub fn reset_streaming_state(app: &mut App) {
     app.status_messages.clear();
     app.turn_usage_line = None;
 
-    // Clear any transient review completion message
+    // Clear any transient review completion message and reasoning
     app.review_complete_message = None;
     app.review_complete_verdict = None;
     app.review_complete_timer = 0;
+    app.review_reasoning.clear();
 }
 
 /// Clean up streaming state on disconnect/error
