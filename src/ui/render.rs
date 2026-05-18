@@ -87,35 +87,7 @@ impl ReasoningTracker {
     ///
     /// It does NOT strip bare `<` that isn't part of a tag (e.g. `x < y`).
     fn strip_html_tags(text: &str) -> String {
-        let mut result = String::with_capacity(text.len());
-        let mut remaining = text;
-        loop {
-            if let Some(start) = remaining.find('<') {
-                let after = &remaining[start..];
-                // A tag starts with < followed by /, _, or an ASCII letter
-                let is_tag = after.len() > 1
-                    && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z');
-                if is_tag {
-                    if let Some(end) = after.find('>') {
-                        // Valid tag — strip the entire <...>
-                        result.push_str(&remaining[..start]);
-                        remaining = &after[end + 1..];
-                    } else {
-                        // Unclosed tag — keep the '<' and everything after as-is
-                        result.push_str(remaining);
-                        break;
-                    }
-                } else {
-                    // Not a tag (e.g. `x < y`) — keep the '<'
-                    result.push_str(&remaining[..start + 1]);
-                    remaining = &remaining[start + 1..];
-                }
-            } else {
-                result.push_str(remaining);
-                break;
-            }
-        }
-        result
+        strip_html_tags(text)
     }
 
     pub fn end_segment(&mut self) {
@@ -158,6 +130,47 @@ impl Default for ReasoningTracker {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Strip HTML/XML-like tags (`<tag>`, `</tag>`) from text.
+///
+/// Reasoning content is internal monologue — any markup tags in it are
+/// model-internal formatting noise, not meaningful output.
+///
+/// This handles:
+/// - `<think>`, `</think>`, `<answer>`, `</answer>`, etc.
+///
+/// It does NOT strip bare `<` that isn't part of a tag (e.g. `x < y`).
+pub fn strip_html_tags(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut remaining = text;
+    loop {
+        if let Some(start) = remaining.find('<') {
+            let after = &remaining[start..];
+            // A tag starts with < followed by /, _, or an ASCII letter
+            let is_tag = after.len() > 1
+                && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z');
+            if is_tag {
+                if let Some(end) = after.find('>') {
+                    // Valid tag — strip the entire <...>
+                    result.push_str(&remaining[..start]);
+                    remaining = &after[end + 1..];
+                } else {
+                    // Unclosed tag — keep the '<' and everything after as-is
+                    result.push_str(remaining);
+                    break;
+                }
+            } else {
+                // Not a tag (e.g. `x < y`) — keep the '<'
+                result.push_str(&remaining[..start + 1]);
+                remaining = &remaining[start + 1..];
+            }
+        } else {
+            result.push_str(remaining);
+            break;
+        }
+    }
+    result
 }
 
 pub fn get_reasoning_summary(reasoning: &str) -> String {

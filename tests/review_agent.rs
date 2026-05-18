@@ -1550,7 +1550,7 @@ fn make_orchestrator(auto_review_enabled: bool) -> AgentOrchestrator {
         ToolRegistry::new(),
     ));
     let rcfg = my_code_agent::core::types::review::ReviewConfig::from_app_config(&config.review);
-    let review_agent = Arc::new(ReviewAgent::new(client, rcfg.clone(), "reasoning_content".to_string()));
+    let review_agent = Arc::new(ReviewAgent::new(client, rcfg.clone(), "reasoning_content".to_string(), "collapsed".to_string()));
 
     AgentOrchestrator {
         main_agent: agent,

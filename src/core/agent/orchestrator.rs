@@ -50,7 +50,12 @@ impl AgentOrchestrator {
         config: &Config,
         review_config: &ReviewConfig,
     ) -> ReviewAgent {
-        ReviewAgent::new(main_agent.client.clone(), review_config.clone(), config.llm.reasoning_field.clone())
+        ReviewAgent::new(
+            main_agent.client.clone(),
+            review_config.clone(),
+            config.llm.reasoning_field.clone(),
+            config.agent.thinking_display.clone(),
+        )
     }
 
     /// Detect file changes from the most recent round of the main agent

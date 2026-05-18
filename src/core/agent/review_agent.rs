@@ -16,6 +16,9 @@ pub struct ReviewAgent {
     pub client: LlmClient,
     pub config: ReviewConfig,
     pub reasoning_field: String,
+    /// How thinking/reasoning content should be displayed to the user.
+    /// "streaming" | "collapsed" | "hidden"
+    pub thinking_display: String,
 }
 
 /// Review Request
@@ -50,8 +53,8 @@ pub enum ReviewEvent {
 
 
 impl ReviewAgent {
-    pub fn new(client: LlmClient, config: ReviewConfig, reasoning_field: String) -> Self {
-        Self { client, config, reasoning_field }
+    pub fn new(client: LlmClient, config: ReviewConfig, reasoning_field: String, thinking_display: String) -> Self {
+        Self { client, config, reasoning_field, thinking_display }
     }
 
     pub fn system_prompt(&self) -> String {
@@ -214,6 +217,7 @@ impl ReviewAgent {
         event_tx: &tokio::sync::mpsc::UnboundedSender<ReviewEvent>,
     ) -> Result<String> {
         use crate::core::types::Message;
+        use crate::ui::render::strip_html_tags;
         let messages = vec![
             Message::system(self.system_prompt()),
             Message::user(user_message),
@@ -222,18 +226,39 @@ impl ReviewAgent {
         let mut chat_stream = self.client.stream_chat(&messages, &[], &self.reasoning_field).await?;
         let mut full_content = String::new();
 
+        // Reasoning accumulation buffer for full-vs-incremental dedup.
+        // Some API providers send FULL accumulated reasoning_content in each
+        // SSE chunk; others send incremental deltas.
+        let mut reasoning_buf = String::new();
+
         while let Some(chunk_result) = chat_stream.next().await {
             let chunk = chunk_result?;
             for choice in &chunk.choices {
                 let delta = &choice.delta;
 
-                if let Some(ref rt) = delta.reasoning_content {
-                    if !rt.is_empty() {
-                        let _ = event_tx.send(ReviewEvent::ReasoningDelta(rt.clone()));
-                    }
-                } else if let Some(ref rt) = delta.reasoning {
-                    if !rt.is_empty() {
-                        let _ = event_tx.send(ReviewEvent::ReasoningDelta(rt.clone()));
+                // Process reasoning_content or reasoning field
+                let reasoning_text = delta.reasoning_content.as_ref()
+                    .or_else(|| delta.reasoning.as_ref());
+
+                if let Some(rt) = reasoning_text {
+                    if !rt.is_empty() && self.thinking_display != "hidden" {
+                        // Strip HTML/XML tags (e.g., <think>, </think>)
+                        let cleaned = strip_html_tags(rt);
+
+                        // Handle full vs incremental reasoning delta:
+                        // If cleaned starts with what we already have, it's a
+                        // full-accumulation response — send only the new portion.
+                        // Otherwise it's incremental — send as-is.
+                        if cleaned.starts_with(reasoning_buf.as_str()) {
+                            let delta_text = &cleaned[reasoning_buf.len()..];
+                            if !delta_text.is_empty() {
+                                let _ = event_tx.send(ReviewEvent::ReasoningDelta(delta_text.to_string()));
+                            }
+                            reasoning_buf = cleaned;
+                        } else {
+                            reasoning_buf.push_str(&cleaned);
+                            let _ = event_tx.send(ReviewEvent::ReasoningDelta(cleaned));
+                        }
                     }
                 }
 
