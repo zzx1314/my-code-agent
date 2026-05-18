@@ -69,6 +69,13 @@ impl ReviewAgent {
         prompt.push_str("Do NOT flag something as missing just because it's absent from the diff ");
         prompt.push_str("— check the user's request and assume existing code still works.\n\n");
 
+        prompt.push_str("### Critical Rule: No Speculation About Unseen Code\n\n");
+        prompt.push_str("You CANNOT make claims about code that is NOT in the diff. Specifically:\n");
+        prompt.push_str("- Do NOT say 'this code path has X but that code path doesn't' unless BOTH paths are fully visible in the diff\n");
+        prompt.push_str("- Do NOT assume code is missing in one place just because you added it in another\n");
+        prompt.push_str("- If the diff shows a fix in one location, do NOT assume other locations need the same fix without seeing them\n");
+        prompt.push_str("- **Every claim must be directly verifiable from the provided diff text**\n\n");
+
         prompt.push_str("## Guidelines\n\n");
         prompt.push_str("The main agent typically runs compilation, type checking, and tests before review. ");
         prompt.push_str("However, do NOT assume these checks have passed — flag issues you find regardless.\n\n");
@@ -107,7 +114,10 @@ impl ReviewAgent {
         prompt.push_str("### Other reminders:\n");
         prompt.push_str("- Try to keep changes minimal — don't rewrite working code.\n");
         prompt.push_str("- Be concise: If you don't have much critical feedback, simply say it looks good.\n");
-        prompt.push_str("- When uncertain whether something is a real issue, err on the side of reporting it.\n\n");
+        prompt.push_str("- **IMPORTANT: Only report issues you are CONFIDENT about.** Do NOT speculate or assume.\n");
+        prompt.push_str("- If you cannot verify a claim from the diff alone (e.g., 'other code path is missing X'), do NOT report it.\n");
+        prompt.push_str("- When the diff shows code was added/fixed in one place, assume similar patterns exist elsewhere unless proven otherwise.\n");
+        prompt.push_str("- **Never fabricate issues.** Every issue must be directly verifiable from the provided diff.\n\n");
 
         prompt.push_str("## Output Format\n\n");
         prompt.push_str("You MUST output ONLY a valid JSON object:\n\n");

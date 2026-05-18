@@ -30,7 +30,7 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     if !app.is_streaming && has_reasoning && app.show_inline_reasoning {
         let mut lines: Vec<ratatui::text::Line> = Vec::new();
         render_chat_with_reasoning(&mut lines, app, width);
-        render_review_reasoning(&mut lines, app, width);
+        render_review_reasoning(&mut lines, app, width, 8);
         render_status_messages(&mut lines, app, area);
         render_paragraph_with_scroll(f, app, lines, area);
     } else if has_reasoning {
@@ -61,7 +61,7 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         // Top: history + streaming content + review reasoning
         let mut content_lines: Vec<ratatui::text::Line> = Vec::new();
         render_chat_messages(&mut content_lines, app, width);
-        render_review_reasoning(&mut content_lines, app, width);
+        render_review_reasoning(&mut content_lines, app, width, 8);
         render_streaming_content(&mut content_lines, app, width);
         render_status_messages(&mut content_lines, app, area);
         render_paragraph_with_scroll(f, app, content_lines, content_area);
@@ -82,7 +82,7 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         let mut lines: Vec<ratatui::text::Line> = Vec::new();
         render_chat_messages(&mut lines, app, width);
         // Render review reasoning (transient — not added to chat history)
-        render_review_reasoning(&mut lines, app, width);
+        render_review_reasoning(&mut lines, app, width, 8);
         render_streaming_content(&mut lines, app, width);
         render_status_messages(&mut lines, app, area);
         render_paragraph_with_scroll(f, app, lines, area);
@@ -415,10 +415,32 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
 /// Render review reasoning block — transient thinking content shown during code review.
 /// Uses the same blockquote style as the main reasoning block but with a shorter fixed height
 /// since review phases complete quickly and reasoning is shown within the scrollable chat area.
-fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App, _max_width: Option<usize>) {
+fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App, _max_width: Option<usize>, max_height: u16) {
     if !app.is_reviewing || app.review_reasoning.is_empty() {
+        // Pad with empty lines to maintain fixed height even when no content
+        if max_height > 0 {
+            let header_reserve: u16 = 2; // header + trailing empty
+            let content_budget = max_height.saturating_sub(header_reserve).max(1);
+            lines.push(Line::from(Span::styled(
+                "💭 Review Analysis:",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for _ in 0..content_budget {
+                lines.push(Line::from(Span::styled(
+                    "│",
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+            lines.push(Line::default());
+        }
         return;
     }
+
+    // Reserve lines for: header ("💭 Review Analysis:") and trailing empty line
+    let header_reserve: u16 = 2; // header + trailing empty
+    let content_budget = max_height.saturating_sub(header_reserve).max(1);
 
     lines.push(Line::from(Span::styled(
         "💭 Review Analysis:",
@@ -428,28 +450,39 @@ fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App, _max
     )));
 
     let reasoning_lines: Vec<&str> = app.review_reasoning.lines().collect();
-    // Show at most 10 lines of review reasoning to keep the display compact
-    let max_display = 10;
     let total = reasoning_lines.len();
+    let max_display = content_budget as usize;
 
     if total > max_display {
         let skipped = total - max_display;
+        // "hidden" message line also counts toward the budget
+        let effective_display = max_display.saturating_sub(1).max(1);
         lines.push(Line::from(Span::styled(
-            format!("│ … {} lines hidden …", skipped),
+            format!("│ … {} lines hidden (showing last {}) …", skipped, effective_display),
             Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
         )));
-        for line in &reasoning_lines[total - max_display..] {
+        for line in &reasoning_lines[total - effective_display..] {
             lines.push(Line::from(vec![
                 Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
                 Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
             ]));
         }
     } else {
+        let mut content_lines_added: u16 = 0;
         for line in &reasoning_lines {
             lines.push(Line::from(vec![
                 Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
                 Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
             ]));
+            content_lines_added += 1;
+        }
+        // Pad with empty placeholder lines to keep a fixed height
+        while content_lines_added < content_budget {
+            lines.push(Line::from(Span::styled(
+                "│",
+                Style::default().fg(Color::DarkGray),
+            )));
+            content_lines_added += 1;
         }
     }
 
