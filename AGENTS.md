@@ -154,7 +154,7 @@ cargo test <test_name>
 ```toml
 [llm]
 provider = "deepseek"           # deepseek, openai, anthropic, cohere, openrouter, custom
-model = "deepseek-reasoner"     # model name
+model = "deepseek-v4-pro"     # model name
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "http://localhost:8080/v1"  # custom endpoint (for "custom" provider)
 timeout_secs = 60               # LLM API request timeout (0 to disable)

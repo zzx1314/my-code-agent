@@ -354,13 +354,13 @@ impl App {
 /// Return the list of model options for the given provider
 pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
     match provider {
-        "deepseek" => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
+        "deepseek" => vec!["deepseek-v4-flash".to_string(), "deepseek-v4-pro".to_string()],
         "openrouter" => vec![
             // ── DeepSeek V4 ──────────────────────────────────────────────
             "deepseek/deepseek-v4-flash".to_string(),
             "deepseek/deepseek-v4-pro".to_string(),
         ],
         "custom" => vec!["custom-model".to_string()],
-        _ => vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
+        _ => vec!["deepseek-v4-flash".to_string(), "deepseek-v4-pro".to_string()],
     }
 }

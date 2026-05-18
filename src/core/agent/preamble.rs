@@ -187,7 +187,7 @@ impl Provider {
 
     pub fn default_model(&self) -> &'static str {
         match self {
-            Provider::DeepSeek => "deepseek-chat",
+            Provider::DeepSeek => "deepseek-v4-flash",
             Provider::OpenAI => "gpt-4o",
             Provider::Anthropic => "claude-3-5-sonnet-20241022",
             Provider::Cohere => "command-r-plus",

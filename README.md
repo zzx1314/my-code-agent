@@ -347,7 +347,7 @@ Below is the full `config.toml` (optional, placed in the working directory):
 ```toml
 [llm]
 provider = "deepseek"           # deepseek, openai, anthropic, cohere, openrouter, custom
-model = "deepseek-reasoner"      # model name
+model = "deepseek-v4-pro"      # model name
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "http://localhost:8080/v1"  # custom endpoint
 

@@ -13,7 +13,7 @@ use std::ops::AddAssign;
 /// Token usage data from an API response.
 ///
 /// Different providers/models may omit some usage fields in their SSE
-/// responses (e.g. deepseek-chat may not include `input_tokens` in
+/// responses (e.g. deepseek-v4-flash may not include `input_tokens` in
 /// streaming chunks). The custom `Deserialize` impl handles this by
 /// defaulting any missing field to 0.
 #[derive(Debug, Clone, Copy, Default, Serialize)]

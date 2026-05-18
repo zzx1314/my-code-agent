@@ -8,8 +8,8 @@
 [llm]
 # Default provider: deepseek, openai, anthropic, cohere, openrouter, custom
 provider = "deepseek"
-# Model name: deepseek-chat (default), deepseek-reasoner, etc.
-model = "deepseek-chat"
+# Model name: deepseek-v4-flash (default), deepseek-v4-pro, etc.
+model = "deepseek-v4-flash"
 # Environment variable name for the API key
 api_key_env = "DEEPSEEK_API_KEY"
 

@@ -215,7 +215,7 @@ pub struct LLMConfig {
     /// Default: "deepseek"
     #[serde(default = "default_provider_name")]
     pub provider: String,
-    /// Model name (e.g., "deepseek-reasoner", "gpt-4o", "claude-3-5-sonnet-20241022")
+    /// Model name (e.g., "deepseek-v4-pro", "gpt-4o", "claude-3-5-sonnet-20241022")
     /// Default: provider-specific
     #[serde(default)]
     pub model: Option<String>,
@@ -243,7 +243,7 @@ pub struct LLMConfig {
 }
 
 fn default_llm_timeout_secs() -> u64 {
-    1800 // 30 minutes for long reasoning models like deepseek-reasoner
+    1800 // 30 minutes for long reasoning models like deepseek-v4-pro
 }
 fn default_reasoning_field() -> String {
     "reasoning_content".to_string()
