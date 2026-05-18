@@ -310,7 +310,7 @@ impl AgentOrchestrator {
         self.review_agent.review_with_events(&request, event_tx).await
     }
 
-    /// Format a review coverage summary table showing what categories were checked
+    /// Format a review coverage summary list showing what categories were checked
     /// and how many issues were found in each.
     pub fn format_review_coverage(&self, report: &ReviewReport) -> String {
         let all_categories: Vec<(ReviewCategory, &str)> = vec![
@@ -327,8 +327,6 @@ impl AgentOrchestrator {
 
         let mut output = String::new();
         output.push_str("### 🔍 Review Coverage\n\n");
-        output.push_str("| Category | Status | Issues |\n");
-        output.push_str("|----------|--------|:-----:|\n");
 
         for (category, label) in &all_categories {
             let count = report.issues.iter().filter(|i| i.category == *category).count();
@@ -338,15 +336,17 @@ impl AgentOrchestrator {
             } else {
                 ("Passed", "✅")
             };
-            let count_str = if count > 0 {
-                format!("{}", count)
+            if count > 0 {
+                output.push_str(&format!(
+                    "- {} {}: {} {} ({} issues)\n",
+                    icon, label, status_icon, status, count
+                ));
             } else {
-                "—".to_string()
-            };
-            output.push_str(&format!(
-                "| {} {} | {} {} | {} |\n",
-                icon, label, status_icon, status, count_str
-            ));
+                output.push_str(&format!(
+                    "- {} {}: {} {}\n",
+                    icon, label, status_icon, status
+                ));
+            }
         }
 
         output.push_str("\n");
@@ -385,27 +385,11 @@ impl AgentOrchestrator {
 
         // Severity Distribution
         output.push_str("### Severity Distribution\n\n");
-        output.push_str(&format!("| Severity | Count |\n|---------|:-----:|\n"));
-        output.push_str(&format!(
-            "| 🔴 Critical | {} |\n",
-            report.summary.critical_count
-        ));
-        output.push_str(&format!(
-            "| 🟠 High | {} |\n",
-            report.summary.high_count
-        ));
-        output.push_str(&format!(
-            "| 🟡 Medium | {} |\n",
-            report.summary.medium_count
-        ));
-        output.push_str(&format!(
-            "| 🔵 Low | {} |\n",
-            report.summary.low_count
-        ));
-        output.push_str(&format!(
-            "| ℹ️ Info | {} |\n\n",
-            report.summary.info_count
-        ));
+        output.push_str(&format!("- 🔴 Critical: {}\n", report.summary.critical_count));
+        output.push_str(&format!("- 🟠 High: {}\n", report.summary.high_count));
+        output.push_str(&format!("- 🟡 Medium: {}\n", report.summary.medium_count));
+        output.push_str(&format!("- 🔵 Low: {}\n", report.summary.low_count));
+        output.push_str(&format!("- ℹ️ Info: {}\n\n", report.summary.info_count));
 
         if report.issues.is_empty() {
             output.push_str("✅ No issues found!\n\n");
@@ -512,12 +496,10 @@ impl AgentOrchestrator {
                 "### Found {} Issues\n\n",
                 report.summary.total_issues
             ));
-            prompt.push_str(&format!(
-                "| Severity | Count |\n|---------|:-----:|\n"));
-            prompt.push_str(&format!("| 🔴 Critical | {} |\n", report.summary.critical_count));
-            prompt.push_str(&format!("| 🟠 High | {} |\n", report.summary.high_count));
-            prompt.push_str(&format!("| 🟡 Medium | {} |\n", report.summary.medium_count));
-            prompt.push_str(&format!("| 🔵 Low | {} |\n\n", report.summary.low_count));
+            prompt.push_str(&format!("- 🔴 Critical: {}\n", report.summary.critical_count));
+            prompt.push_str(&format!("- 🟠 High: {}\n", report.summary.high_count));
+            prompt.push_str(&format!("- 🟡 Medium: {}\n", report.summary.medium_count));
+            prompt.push_str(&format!("- 🔵 Low: {}\n\n", report.summary.low_count));
 
             prompt.push_str("### Issues to Fix\n\n");
             for (i, issue) in report.issues.iter().enumerate() {
