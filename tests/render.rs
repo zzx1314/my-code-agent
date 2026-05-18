@@ -1,4 +1,4 @@
-use my_code_agent::ui::render::{MarkdownRenderer, ReasoningTracker};
+use my_code_agent::ui::render::{MarkdownRenderer, ReasoningTracker, StatefulTagStripper};
 use my_code_agent::ui::render::{render_full, render_streaming_markdown};
 
 // ── MarkdownRenderer state tests ──
@@ -204,6 +204,141 @@ fn test_render_second_fence_unclosed() {
     let text = "```rust\na\n```\n```python\nb";
     let lines = render_streaming_markdown(text, None);
     assert!(!lines.is_empty());
+}
+
+// ── StatefulTagStripper cross-chunk tag boundary tests ──
+
+#[test]
+fn test_stripper_new_not_inside_tag() {
+    let s = StatefulTagStripper::new();
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_default_not_inside_tag() {
+    let s = StatefulTagStripper::default();
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_normal_text_noop() {
+    let mut s = StatefulTagStripper::new();
+    assert_eq!(s.process("hello world"), "hello world");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_removes_closed_tags() {
+    let mut s = StatefulTagStripper::new();
+    assert_eq!(s.process("hello <think>world</think>"), "hello world");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_removes_answer_tag() {
+    let mut s = StatefulTagStripper::new();
+    assert_eq!(s.process("<answer>42</answer>"), "42");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_preserves_non_tag_angle() {
+    let mut s = StatefulTagStripper::new();
+    // `x < y` is not a tag (followed by space, not letter)
+    assert_eq!(s.process("x < y"), "x < y");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_cross_chunk_tag_split() {
+    let mut s = StatefulTagStripper::new();
+    // Chunk 1: tag opens but no closing '>'
+    assert_eq!(s.process("text<thi"), "text");
+    assert!(s.is_inside_tag());
+    // Chunk 2: tag completes with '>'
+    assert_eq!(s.process("nk>more"), "more");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_cross_chunk_closing_tag() {
+    let mut s = StatefulTagStripper::new();
+    // Complete tag first
+    assert_eq!(s.process("hello <think>world"), "hello world");
+    assert!(!s.is_inside_tag());
+    // Closing tag split across chunks
+    assert_eq!(s.process("</th"), "");
+    assert!(s.is_inside_tag());
+    assert_eq!(s.process("ink>"), "");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_multiple_chunks() {
+    let mut s = StatefulTagStripper::new();
+    assert_eq!(s.process("<th"), "");
+    assert!(s.is_inside_tag());
+    assert_eq!(s.process("ink>"), "");
+    assert!(!s.is_inside_tag());
+    assert_eq!(s.process("text"), "text");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_no_close_in_next_chunk() {
+    let mut s = StatefulTagStripper::new();
+    assert_eq!(s.process("<thin"), "");
+    assert!(s.is_inside_tag());
+    // Next chunk still has no '>'
+    assert_eq!(s.process("king"), "");
+    assert!(s.is_inside_tag());
+    // Finally closes
+    assert_eq!(s.process(">done"), "done");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_tag_at_start_of_first_chunk() {
+    let mut s = StatefulTagStripper::new();
+    assert_eq!(s.process("<think"), "");
+    assert!(s.is_inside_tag());
+    assert_eq!(s.process(">hello"), "hello");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_reset_clears_state() {
+    let mut s = StatefulTagStripper::new();
+    assert_eq!(s.process("<thin"), "");
+    assert!(s.is_inside_tag());
+    s.reset();
+    assert!(!s.is_inside_tag());
+    // After reset, next chunk is processed independently
+    assert_eq!(s.process("new text"), "new text");
+}
+
+#[test]
+fn test_stripper_mixed_content_with_tags() {
+    let mut s = StatefulTagStripper::new();
+    assert_eq!(s.process("a<tag>b"), "ab");
+    assert!(!s.is_inside_tag());
+    assert_eq!(s.process("</tag>c"), "c");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_self_closing_tag() {
+    let mut s = StatefulTagStripper::new();
+    // Tags starting with underscore (_)
+    assert_eq!(s.process("<_tag>content"), "content");
+    assert!(!s.is_inside_tag());
+}
+
+#[test]
+fn test_stripper_empty_input() {
+    let mut s = StatefulTagStripper::new();
+    assert_eq!(s.process(""), "");
+    assert!(!s.is_inside_tag());
 }
 
 // ── render_full (same renderer, non-streaming alias) ──

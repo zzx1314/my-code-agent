@@ -141,6 +141,114 @@ impl Default for ReasoningTracker {
 /// - `<think>`, `</think>`, `<answer>`, `</answer>`, etc.
 ///
 /// It does NOT strip bare `<` that isn't part of a tag (e.g. `x < y`).
+/// Stateful HTML/XML tag stripper that handles cross-chunk tag boundaries.
+///
+/// When a tag like `<think>` is split across two streaming chunks
+/// (e.g. chunk 1: `"text<thi"`, chunk 2: `"nk>more text"`),
+/// this stripper remembers that we're inside an unclosed tag from the
+/// previous chunk and discards the remaining tag content before continuing
+/// with normal processing.
+///
+/// # Example
+///
+/// ```ignore
+/// let mut stripper = StatefulTagStripper::new();
+/// assert_eq!(stripper.process("text<thi"), "text");
+/// assert_eq!(stripper.process("nk>more text"), "more text");
+/// ```
+pub struct StatefulTagStripper {
+    /// True if the previous chunk ended inside an unclosed tag
+    inside_tag: bool,
+}
+
+impl StatefulTagStripper {
+    pub fn new() -> Self {
+        Self { inside_tag: false }
+    }
+
+    /// Process a chunk of text, stripping HTML/XML tags and handling
+    /// cross-chunk tag boundaries.
+    pub fn process(&mut self, text: &str) -> String {
+        if self.inside_tag {
+            // Previous chunk ended inside an unclosed tag.
+            // Look for the closing '>' to complete the tag.
+            if let Some(end) = text.find('>') {
+                self.inside_tag = false;
+                // Continue processing from after the '>'
+                return self.process(&text[end + 1..]);
+            } else {
+                // Still no closing '>' — this whole chunk is part of the tag
+                return String::new();
+            }
+        }
+
+        let mut result = String::with_capacity(text.len());
+        let mut remaining = text;
+
+        loop {
+            if let Some(start) = remaining.find('<') {
+                let after = &remaining[start..];
+                // A tag starts with < followed by /, _, or an ASCII letter
+                let is_tag = after.len() > 1
+                    && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z');
+                if is_tag {
+                    if let Some(end) = after.find('>') {
+                        // Valid tag — strip the entire <...>
+                        result.push_str(&remaining[..start]);
+                        remaining = &after[end + 1..];
+                    } else {
+                        // Unclosed tag — keep text before '<' and remember state
+                        result.push_str(&remaining[..start]);
+                        self.inside_tag = true;
+                        break;
+                    }
+                } else {
+                    // Not a tag (e.g. `x < y`) — keep the '<'
+                    result.push_str(&remaining[..start + 1]);
+                    remaining = &remaining[start + 1..];
+                }
+            } else {
+                result.push_str(remaining);
+                break;
+            }
+        }
+
+        result
+    }
+
+    /// Reset the stripper state (for use between independent streams).
+    pub fn reset(&mut self) {
+        self.inside_tag = false;
+    }
+
+    /// Check if we're currently inside an unclosed tag.
+    pub fn is_inside_tag(&self) -> bool {
+        self.inside_tag
+    }
+}
+
+impl Default for StatefulTagStripper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Strip HTML/XML-like tags (`<tag>`, `</tag>`) from text.
+///
+/// This is the **stateless** version — each call is independent and does not
+/// remember tags that were split across chunks. For streaming scenarios where
+/// tags may be split across chunks, use [`StatefulTagStripper`] instead.
+///
+/// # Examples
+///
+/// ```
+/// use my_code_agent::ui::render::strip_html_tags;
+///
+/// assert_eq!(strip_html_tags("hello <think>world</think>"), "hello world");
+/// assert_eq!(strip_html_tags("x < y"), "x < y");  // not a tag
+/// assert_eq!(strip_html_tags("<think"), "");  // unclosed, dropped
+/// assert_eq!(strip_html_tags("text"), "text");
+/// ```
 pub fn strip_html_tags(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut remaining = text;
@@ -156,8 +264,13 @@ pub fn strip_html_tags(text: &str) -> String {
                     result.push_str(&remaining[..start]);
                     remaining = &after[end + 1..];
                 } else {
-                    // Unclosed tag — keep the '<' and everything after as-is
-                    result.push_str(remaining);
+                    // Unclosed tag — keep text before '<' and stop.
+                    // Don't output the incomplete tag or anything after it.
+                    // This prevents cross-chunk tag fragment leaks:
+                    //   Chunk 1: "<think"  → output nothing (tag unclosed)
+                    //   Chunk 2: "some text</think>"  → "some text"
+                    // Without this, Chunk 1 would leak "<think" into the display.
+                    result.push_str(&remaining[..start]);
                     break;
                 }
             } else {

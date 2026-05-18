@@ -7,7 +7,7 @@ use crate::core::context::context_manager::ContextManager;
 use crate::core::context::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::tools::ToolRegistry;
 use crate::core::types::{FinishReason, Message, ToolCall};
-use crate::ui::render::{ReasoningTracker, strip_html_tags};
+use crate::ui::render::{ReasoningTracker, StatefulTagStripper};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tool call history — detects repeated identical calls to break loops
@@ -183,6 +183,7 @@ async fn process_sse_stream(
     let mut acc_tool_calls: Vec<AccumToolCall> = Vec::new();
     let mut usage: Option<crate::core::types::Usage> = None;
     let mut reasoning_active = false;
+    let mut tag_stripper = StatefulTagStripper::new();
 
     loop {
         let chunk = tokio::select! {
@@ -208,16 +209,22 @@ async fn process_sse_stream(
             if let Some(ref rt) = delta.reasoning_content {
                 if !rt.is_empty() && display_mode != "hidden" {
                     reasoning_active = true;
-                    reasoning.append(rt);
+                    // Strip tags (with cross-chunk state tracking) before sending
+                    // to both ReasoningTracker and UI.
+                    let cleaned = tag_stripper.process(rt);
+                    reasoning.append(&cleaned);
                     send_event(StreamEvent::ReasoningActive(true));
-                    send_event(StreamEvent::ReasoningDelta(rt.clone()));
+                    send_event(StreamEvent::ReasoningDelta(cleaned));
                 }
             } else if let Some(ref rt) = delta.reasoning {
                 if !rt.is_empty() && display_mode != "hidden" {
                     reasoning_active = true;
-                    reasoning.append(rt);
+                    // Strip tags (with cross-chunk state tracking) before sending
+                    // to both ReasoningTracker and UI.
+                    let cleaned = tag_stripper.process(rt);
+                    reasoning.append(&cleaned);
                     send_event(StreamEvent::ReasoningActive(true));
-                    send_event(StreamEvent::ReasoningDelta(rt.clone()));
+                    send_event(StreamEvent::ReasoningDelta(cleaned));
                 }
             }
 
@@ -228,7 +235,7 @@ async fn process_sse_stream(
                         reasoning.end_segment();
                         send_event(StreamEvent::ReasoningActive(false));
                     }
-                    let cleaned = strip_html_tags(text);
+                    let cleaned = tag_stripper.process(text);
                     send_event(StreamEvent::Text(cleaned.clone()));
                     response_text.push_str(&cleaned);
                     *running_approx += ContextManager::estimate_text_tokens(&cleaned);

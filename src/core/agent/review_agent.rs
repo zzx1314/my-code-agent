@@ -257,7 +257,8 @@ impl ReviewAgent {
         event_tx: &tokio::sync::mpsc::UnboundedSender<ReviewEvent>,
     ) -> Result<String> {
         use crate::core::types::Message;
-        use crate::ui::render::strip_html_tags;
+        use crate::ui::render::StatefulTagStripper;
+        let mut tag_stripper = StatefulTagStripper::new();
         let messages = vec![
             Message::system(self.system_prompt()),
             Message::user(user_message),
@@ -278,12 +279,11 @@ impl ReviewAgent {
 
                 // Process reasoning_content or reasoning field
                 let reasoning_text = delta.reasoning_content.as_ref()
-                    .or_else(|| delta.reasoning.as_ref());
-
-                if let Some(rt) = reasoning_text {
+                    .or_else(|| delta.reasoning.as_ref());                    if let Some(rt) = reasoning_text {
                     if !rt.is_empty() && self.thinking_display != "hidden" {
                         // Strip HTML/XML tags (e.g., <think>, </think>)
-                        let cleaned = strip_html_tags(rt);
+                        // with cross-chunk state tracking.
+                        let cleaned = tag_stripper.process(rt);
 
                         // Handle full vs incremental reasoning delta:
                         // If cleaned starts with what we already have, it's a
@@ -304,7 +304,7 @@ impl ReviewAgent {
 
                 if let Some(ref text) = delta.content {
                     if !text.is_empty() {
-                        let cleaned = strip_html_tags(text);
+                        let cleaned = tag_stripper.process(text);
                         full_content.push_str(&cleaned);
                     }
                 }
