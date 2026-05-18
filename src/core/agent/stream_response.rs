@@ -169,6 +169,27 @@ struct AccumToolCall {
     arguments: String,
 }
 
+/// Processes the SSE (Server-Sent Events) chat stream from the LLM.
+///
+/// Reads chunks from `chat_stream` in a loop, dispatching each chunk's delta
+/// content through `send_event` and accumulating the final response text and
+/// tool calls.  The loop is interruptible via `interrupt_rx`.
+///
+/// ### Delivery
+/// - **Reasoning content** (`reasoning_content` / `reasoning`): stripped of
+///   control tags by [`StatefulTagStripper`], forwarded as
+///   [`StreamEvent::ReasoningDelta`] and tracked in `reasoning`.
+/// - **Text content** (`content`): stripped of control tags, forwarded as
+///   [`StreamEvent::Text`] and appended to `response_text`.
+/// - **Tool calls** (`tool_calls`): accumulated in `acc_tool_calls` and
+///   forwarded as [`StreamEvent::ToolCall`].  When accumulated size is near
+///   the context window, compaction is flagged via `context_manager`.
+///
+/// ### Returns
+/// Returns [`ProcessResult::Complete`] on natural stop / tool-call /
+/// length-limit; [`ProcessResult::Interrupted`] when the user cancels; or
+/// [`ProcessResult::Error`] for transport or content-filter errors.
+///
 async fn process_sse_stream(
     chat_stream: &mut crate::core::agent::client::ChatStream,
     reasoning: &mut ReasoningTracker,

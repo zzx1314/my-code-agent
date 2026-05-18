@@ -41,7 +41,11 @@ impl Tool for FileUpdate {
                 Read the file first with file_read to see line numbers, then use file_update \
                 to replace lines at a specific position. \
                 Set delete_count=0 to insert new lines without deleting anything. \
-                Set new_content=\"\" to delete lines without inserting anything."
+                Set new_content=\"\" to delete lines without inserting anything. \
+                IMPORTANT: new_content must contain ONLY the lines being inserted — \
+                do NOT include the line immediately above start_line or the line \
+                immediately after the last deleted line; those lines already exist \
+                in the file and must not be repeated."
                 .to_string(),
             parameters: json!({
                 "type": "object",
@@ -60,7 +64,12 @@ impl Tool for FileUpdate {
                     },
                     "new_content": {
                         "type": "string",
-                        "description": "The content to insert at start_line, replacing any deleted lines. Use empty string to just delete."
+                        "description": "The lines to insert at start_line, replacing any deleted lines. \
+                            Include ONLY the new lines themselves. \
+                            Do NOT include the line immediately before start_line (line start_line-1) \
+                            or the line immediately after the deletion range (line start_line+delete_count); \
+                            those lines already exist in the file. \
+                            Use empty string to just delete."
                     }
                 },
                 "required": ["path", "start_line", "delete_count", "new_content"]
@@ -98,29 +107,13 @@ impl Tool for FileUpdate {
         // fences or trailing formatting. This matches the behavior of str::lines()
         // which doesn't return a trailing empty string.
         // Common causes:
-        //   - Leading \\n: LLM code block extraction (```\ncode)
-        //   - Trailing \\n: LLM code block formatting (code\n```)
+        //   - Leading \n: LLM code block extraction (```\ncode)
+        //   - Trailing \n: LLM code block formatting (code\n```)
         let new_content_trimmed = args.new_content.trim_matches('\n');
         let new_lines: Vec<&str> = if new_content_trimmed.is_empty() {
             vec![]
         } else {
             new_content_trimmed.split('\n').collect()
-        };
-        let new_lines = deduplicate_closing_brackets(new_lines, args.start_line, args.delete_count, &lines, total_lines);
-
-        // LLMs often include the preceding line in new_content (from code block
-        // extraction or surrounding context), producing duplicate lines above the
-        // edit point. Detect and remove the first line of new_content if it matches
-        // the line immediately before the edit point.
-        let new_lines = if args.start_line > 1 {
-            let prev_line = lines[args.start_line - 2];
-            if new_lines.first().map_or(false, |first| *first == prev_line) {
-                new_lines[1..].to_vec()
-            } else {
-                new_lines
-            }
-        } else {
-            new_lines
         };
 
         let mut result_lines: Vec<&str> = Vec::with_capacity(
@@ -158,48 +151,6 @@ impl Tool for FileUpdate {
         })
         .map_err(|e| e.to_string())
     }
-}
-
-/// Remove a trailing closing-bracket line from `new_lines` when it would duplicate
-/// the first preserved line after the deletion range. LLMs often include closing
-/// brackets that already exist in the original file, producing `}}` or `])`.
-///
-/// Only deduplicates when the bracket TYPE matches (e.g. `}` with `}` or `};`),
-/// NOT across different types (e.g. `}` with `)`) — that would cause bracket loss.
-fn deduplicate_closing_brackets<'a>(
-    mut new_lines: Vec<&'a str>,
-    start_line: usize,
-    delete_count: usize,
-    original_lines: &[&'a str],
-    total_lines: usize,
-) -> Vec<&'a str> {
-    let Some(last_new) = new_lines.last() else { return new_lines };
-    if last_new.trim().is_empty() {
-        return new_lines;
-    }
-    let preserved_start = start_line - 1 + delete_count;
-    if preserved_start >= total_lines {
-        return new_lines;
-    }
-    let first_preserved = original_lines[preserved_start];
-
-    // Extract the bracket character from a line if it's a closing bracket.
-    // Treats `}`, `},`, `};` all as `}`, etc.
-    let bracket_kind = |s: &str| -> Option<char> {
-        match s.trim() {
-            "}" | "}," | "};" => Some('}'),
-            ")" | ");" => Some(')'),
-            "]" | "]," => Some(']'),
-            _ => None,
-        }
-    };
-
-    if let (Some(b1), Some(b2)) = (bracket_kind(last_new), bracket_kind(first_preserved)) {
-        if b1 == b2 {
-            new_lines.pop();
-        }
-    }
-    new_lines
 }
 
 /// Build a human-readable diff showing what lines were removed and added.
