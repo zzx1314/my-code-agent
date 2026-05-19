@@ -29,6 +29,7 @@ pub const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with a
 - **file_delete**: Delete files, directories, or specific text snippets from files. Use snippet to remove code without deleting the whole file. Use with caution.
 - **shell_exec**: Execute shell commands (build, test, lint, etc.)
 - **code_search**: Search for patterns in source code using ripgrep (rg). Automatically respects .gitignore and skips binary files.
+- **explore_context**: Deep code exploration — returns comprehensive context for a topic in a SINGLE call. Groups all relevant source code by file with structure overview and contiguous code sections. Use this INSTEAD of multiple code_search + file_read calls when you need to understand an unfamiliar module, trace how something works end-to-end, or get a holistic view of a feature. Pass specific code terms or symbol names in the query. Tip: use `code_search` first if you only need to find where something is used; use `explore_context` when you need to understand HOW something works.
 - **list_dir**: List files and directories in a path with configurable recursion depth. Use this to explore project structure and discover files.
 - **glob**: Find files matching a glob pattern (e.g. **/*.rs, src/**/*.ts). Use this to locate files by name or extension.
 - **git_status**: Get structured git repository status. Returns modified, added, deleted, untracked files and current branch in JSON format. Use instead of `shell_exec` with `git status`.

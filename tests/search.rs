@@ -4,3 +4,5 @@ mod code_search;
 mod glob;
 #[path = "search/list_dir.rs"]
 mod list_dir;
+#[path = "search/explore_context.rs"]
+mod explore_context;

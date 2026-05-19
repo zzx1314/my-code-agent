@@ -130,6 +130,7 @@ impl ToolRegistry {
             Box::new(ShellExec::new(config.shell.default_timeout_secs, handle.clone())),
             Box::new(CodeSearch),
             Box::new(CodeReview),
+            Box::new(ExploreContext),
             Box::new(ListDir),
             Box::new(GlobSearch),
             Box::new(GitStatus),
