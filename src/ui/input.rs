@@ -21,7 +21,14 @@ const MAX_QUEUE_DISPLAY_LINES: usize = 4;
 /// frame is flushed — see `lifecycle.rs`.
 fn update_input_style(app: &mut App) {
     let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let (border_color, title_text, cursor_line_style) = if app.is_streaming {
+    let (border_color, title_text, cursor_line_style) = if app.translating {
+        let frame = spinner_frames[(app.marquee_frame as usize / 2) % spinner_frames.len()];
+        (
+            Color::Yellow,
+            format!(" {} 🌐 Translating... ", frame),
+            Style::default(), // dim cursor during translation
+        )
+    } else if app.is_streaming {
         let frame = spinner_frames[(app.marquee_frame as usize / 2) % spinner_frames.len()];
         (
             Color::DarkGray,

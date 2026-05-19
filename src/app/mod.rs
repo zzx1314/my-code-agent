@@ -247,6 +247,13 @@ pub struct App {
     /// Per-frame git diff cache keyed by file path.
     /// Avoids spawning git subprocess multiple times for the same file in one frame.
     pub git_diff_cache: HashMap<String, String>,
+    // === Translation state ===
+    /// Whether a Chinese→English translation is in progress.
+    pub translating: bool,
+    /// Receiver for the translation result (oneshot from spawned task).
+    pub translation_rx: Option<tokio::sync::oneshot::Receiver<anyhow::Result<String>>>,
+    /// Original Chinese text being translated.
+    pub translation_original: String,
 }
 
 impl App {
@@ -365,6 +372,9 @@ impl App {
             review_baseline: None,
             rendered_cache: HashMap::new(),
             git_diff_cache: HashMap::new(),
+            translating: false,
+            translation_rx: None,
+            translation_original: String::new(),
         }
     }
 }

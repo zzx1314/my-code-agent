@@ -89,6 +89,9 @@ pub struct Config {
     /// Code review settings.
     #[serde(default)]
     pub review: ReviewConfig,
+    /// Translation settings (Chinese→English auto-translation).
+    #[serde(default)]
+    pub translation: TranslationConfig,
 }
 
 /// Code review settings.
@@ -254,6 +257,54 @@ fn default_llm_timeout_secs() -> u64 {
 }
 fn default_reasoning_field() -> String {
     "reasoning_content".to_string()
+}
+
+/// Translation settings (Chinese→English auto-translation).
+///
+/// All fields are optional — when omitted, falls back to the main LLM provider
+/// with a fast non-reasoning model (`deepseek-v4-flash`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TranslationConfig {
+    /// Enable automatic Chinese→English translation. Default: `true`.
+    #[serde(default = "default_translation_enabled")]
+    pub enabled: bool,
+    /// Model name for translation (e.g. `"deepseek-v4-flash"`).
+    /// Default: `"deepseek-v4-flash"` (or `"deepseek/deepseek-v4-flash"` for OpenRouter).
+    #[serde(default = "default_translation_model")]
+    pub model: String,
+    /// Custom base URL for the translation provider.
+    /// Default: provider-specific (e.g. `"https://api.deepseek.com/v1"`).
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// Environment variable name for the translation API key.
+    /// Default: uses the main LLM provider's API key env var.
+    #[serde(default)]
+    pub api_key_env: String,
+    /// Request timeout in seconds for translation calls. Default: `15`.
+    #[serde(default = "default_translation_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_translation_enabled() -> bool {
+    true
+}
+fn default_translation_model() -> String {
+    "deepseek-v4-flash".to_string()
+}
+fn default_translation_timeout() -> u64 {
+    15
+}
+
+impl Default for TranslationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            model: default_translation_model(),
+            base_url: None,
+            api_key_env: String::new(),
+            timeout_secs: default_translation_timeout(),
+        }
+    }
 }
 
 /// MCP (Model Context Protocol) settings.

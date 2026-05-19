@@ -4,11 +4,23 @@ use crate::app::App;
 use crate::app::commands::handle_command;
 use crate::core::agent::stream::send_message_to_llm;
 use crate::core::context::context_manager::ContextManager;
+use crate::core::translate;
 
 /// Handle Enter key press (send message)
 pub fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
     let input_text = app.input.lines().join("\n").trim().to_string();
-    if !input_text.is_empty() && !app.is_streaming {
+    if input_text.is_empty() {
+        return;
+    }
+
+    // Don't start a new flow while translation is in progress
+    if app.translating {
+        app.message_queue.push(input_text);
+        reset_input(app);
+        return;
+    }
+
+    if !app.is_streaming {
         // Check if it's a command (starts with /)
         if input_text.starts_with('/') {
             // Handle commands locally without sending to LLM
@@ -25,6 +37,24 @@ pub fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
         let is_shell = app.shell_mode || input_text.starts_with('!');
         if is_shell {
             handle_shell_command(app, &input_text);
+            return;
+        }
+
+        // Chinese→English auto-translation (configurable via [translation] section)
+        if translate::is_enabled(&app.config) && translate::contains_chinese(&input_text) {
+            let config = app.config.clone();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            app.translation_rx = Some(rx);
+            app.translating = true;
+            app.translation_original = input_text.clone();
+            app.streaming_status = "🌐 Translating Chinese to English...".to_string();
+
+            reset_input(app);
+
+            tokio::spawn(async move {
+                let translated = translate::translate_chinese_to_english(&config, &input_text).await;
+                let _ = tx.send(Ok(translated));
+            });
             return;
         }
 

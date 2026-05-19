@@ -30,7 +30,14 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    if app.is_streaming {
+    if app.translating {
+        let dot_cycle = (app.marquee_frame / 4) % 4;
+        let dots = ".".repeat(dot_cycle as usize);
+        spans.push(Span::styled(
+            format!(" | 🌐 Translating{}", dots),
+            Style::default().fg(Color::Yellow),
+        ));
+    } else if app.is_streaming {
         let dot_cycle = (app.marquee_frame / 4) % 4;
         let dots = ".".repeat(dot_cycle as usize);
         spans.push(Span::styled(

@@ -138,6 +138,46 @@ pub async fn run_app(
 
         crate::core::agent::stream::process_message_queue(&mut app, &mut context_manager);
 
+        // Check for Chinese→English translation completion
+        if app.translating {
+            let result = app
+                .translation_rx
+                .as_mut()
+                .and_then(|rx| rx.try_recv().ok());
+            if let Some(translation_result) = result {
+                app.translating = false;
+                app.translation_rx = None;
+                app.streaming_status.clear();
+                let original = std::mem::take(&mut app.translation_original);
+                match translation_result {
+                    Ok(translated) => {
+                        if app.input_history.last().map(|s| s.as_str()) != Some(&original) {
+                            app.input_history.push(original.clone());
+                        }
+                        app.history_index = None;
+                        app.history_draft.clear();
+                        crate::core::agent::stream::send_message_to_llm(
+                            &mut app,
+                            &mut context_manager,
+                            translated,
+                        );
+                    }
+                    Err(_) => {
+                        if app.input_history.last().map(|s| s.as_str()) != Some(&original) {
+                            app.input_history.push(original.clone());
+                        }
+                        app.history_index = None;
+                        app.history_draft.clear();
+                        crate::core::agent::stream::send_message_to_llm(
+                            &mut app,
+                            &mut context_manager,
+                            original,
+                        );
+                    }
+                }
+            }
+        }
+
         // Check for confirmation requests from tools
         if app.pending_confirmation.is_none() {
             if let Some(rx) = &mut app.confirmation_rx {

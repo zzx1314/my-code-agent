@@ -16,3 +16,6 @@ pub mod session;
 
 // Core types
 pub mod types;
+
+// Chinese→English translation
+pub mod translate;
