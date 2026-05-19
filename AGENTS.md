@@ -20,11 +20,11 @@ When reading any source code file, you **MUST** follow this two-step workflow:
 ### Examples
 
 ✅ **Correct**:
-1. `file_outline("src/tools/file_read.rs")` → sees `fn execute()` at lines 45-120
-2. `file_read("src/tools/file_read.rs", offset=44, limit=76)` → reads only `execute()`
+1. `file_outline("src/tools/fs/file_read.rs")` → sees `fn execute()` at lines 45-120
+2. `file_read("src/tools/fs/file_read.rs", offset=44, limit=76)` → reads only `execute()`
 
 ❌ **Wrong**:
-- `file_read("src/tools/file_read.rs")` without calling `file_outline` first
+- `file_read("src/tools/fs/file_read.rs")` without calling `file_outline` first
 - Reading the entire 300-line file when you only need one function
 
 ### Exceptions
@@ -47,203 +47,213 @@ cargo test <test_name>
 
 ## Architecture
 
-- **Entry point**: `src/main.rs` - CLI entry point and interactive loop
-- **Library root**: `src/lib.rs` — exports `app`, `core`, `mcp`, `tools`, `ui` modules
+- **Entry point**: `src/main.rs` — delegates to `app::lifecycle::run_app`
+- **Library root**: `src/lib.rs` — exports `app`, `core`, `mcp`, `tools`, `ui`
+- **Runtime data dir**: `<cwd>/.mycode/` (or `MY_CODE_AGENT_HOME` if set) — config, logs, sessions, undo history, todos
 
 ### `src/app/` — Application Layer
 
-- `mod.rs` — App struct, InitResult, PendingConfirmation
-- `conversion.rs` — Data conversion utilities (rig ↔ app message types)
-- `lifecycle.rs` — Application lifecycle management
-- `event_handler/` — User input event handling, command dispatch
-  - `init.rs` — Event handler initialization
-  - `message.rs` — Message event processing
-  - `streaming.rs` — Streaming event handling
-  - `terminal.rs` — Terminal event handling
-  - `command/` — Slash command implementations (15 commands):
-    - `clear.rs`, `connect.rs`, `help.rs`, `init.rs`, `load.rs`, `model.rs`, `plan.rs`, `quit.rs`, `save.rs`, `shell.rs`, `status.rs`, `think.rs`, `tokens.rs`, `undo.rs`
-  - `key_event/` — Key event handling
-    - `completion.rs` — Tab completion logic
-    - `input/` — Input key event handlers (`enter.rs`, `shell.rs`)
-    - `picker/` — Picker widget handlers (`model.rs`, `provider.rs`, `session.rs`)
-- `ui/` — Application UI rendering
-  - `chat.rs` — Chat area rendering
-  - `input.rs` — Input area rendering
-  - `overlays.rs` — Overlay dialogs (picker, confirmation, etc.)
-  - `status.rs` — Status bar rendering
+- `mod.rs` — `App` struct, `ChatEntry`, `PendingConfirmation`, streaming UI state
+- `bootstrap/` — `init_app()`: load config, build `Agent`, MCP tools, session resume
+  - `knowledge.rs` — inject `knowledge.md` into system context
+- `lifecycle.rs` — ratatui event loop; drains `StreamEvent` each frame
+- `terminal.rs` — terminal setup/teardown
+- `commands/` — Slash commands (`/help`, `/clear`, `/compact`, `/plan`, `/review`, …)
+- `event_handler/` — keyboard, mouse, paste, picker widgets
+  - `key_event/` — input, completion (`@`, `/`), shell mode
+  - `picker.rs` — model / provider / session pickers
 
 ### `src/core/` — Core Functionality
 
-- `init.rs` — Core initialization
-- `config/` — Configuration management
-  - `mod.rs` — TOML config loader with defaults (Config, LLMConfig, FileConfig, ContextConfig, ShellConfig, AgentConfig, SessionConfig, McpConfig)
-- `agent/` — LLM agent management
-  - `connection.rs` — LLM connection management (ConnectionStatus, ConnectionState)
-  - `preamble.rs` — Agent builder, preamble template, provider setup
-  - `streaming.rs` — Streaming response handling (StreamResult, StreamEvent)
-- `context/` — Context management
-  - `file_ref.rs` — @filepath parsing and expansion (FileRef, ExpandResult)
-  - `context_cache.rs` — Context caching (preamble_cache, CacheMetrics, ContextCache)
-  - `context_manager.rs` — Context window management (ContextManager)
-  - `file_cache.rs` — File content caching (FileCache, FileCacheEntry)
-  - `token_usage.rs` — Token usage tracking (TokenUsage, ContextWarning)
-- `parser/` — Parsing utilities
-  - `mod.rs` — Structure info, smart read, parsed file (tree-sitter based, supports Rust)
-- `session/` — Session persistence
-  - `mod.rs` — Save/load/resume, SessionData, SessionInfo, search_sessions
-- `paths/` — Path utilities
-  - `mod.rs` — Path resolution helpers
+- `types/` — `Message`, `ToolCall`, `StreamChunk`, `ToolDefinition`, review types (no external agent framework)
+- `config/` — TOML loader (`Config`, `LLMConfig`, `ReviewConfig`, `TranslationConfig`, …)
+- `paths/` — `app_dir()` → `.mycode/` (or `MY_CODE_AGENT_HOME`)
+- `agent/` — LLM client and agent loop
+  - `client.rs` — `LlmClient`, `ChatStream` (SSE parse → `StreamChunk`)
+  - `stream_response.rs` — `stream_response()`, `process_sse_stream()`, `StreamEvent`, tool-turn loop
+  - `stream/` — `spawn_llm_stream`, `process_streaming_events`, `check_stream_result`, compact/review hooks
+  - `preamble.rs` — `Agent`, system prompt template, `build_client()`
+  - `orchestrator.rs` — main agent ↔ `ReviewAgent` coordination, auto-review
+  - `review_agent.rs` — phased code review pipeline
+  - `connection.rs` — `ConnectionState` for UI status
+- `context/` — `@filepath` expansion, `ContextManager`, caches, token usage, tool dedup
+- `parser/` — tree-sitter smart read / `file_outline` (Rust, JS/TS, Java, HTML, Vue, Python)
+- `session/` — save/load, `.sessions/` timestamped archives
+- `translate.rs` — optional Chinese→English input translation
 
-### `src/tools/` — Tool Implementations (18 tools)
+### `src/tools/` — Tool Implementations
 
-- `mod.rs` — Tool registry (`all_tools()`, `all_tools_with_handle()`, `create_mcp_tools()`)
-- `code_review.rs` — Code review tool
-- `code_search.rs` — Ripgrep-based code search
-- `confirmation.rs` — User confirmation prompts
-- `file_delete.rs` — File/directory deletion
-- `file_outline.rs` — File structure outline (tree-sitter based)
-- `file_read.rs` — File content reading
-- `file_undo.rs` — Undo file changes
-- `file_update.rs` — Targeted find & replace edits
-- `file_write.rs` — File creation/writing
-- `git_commit.rs` — Git commit creation
-- `git_diff.rs` — Git diff display
-- `git_log.rs` — Git log history
-- `git_status.rs` — Git status display
-- `glob.rs` — File pattern matching
-- `list_dir.rs` — Directory listing
-- `safety.rs` — Dangerous command/file checks
-- `shell_exec.rs` — Shell command execution
-- `undo_history.rs` — Undo history management (persistent .undo_history.json)
+Tools implement the local `Tool` trait (`name`, `definition`, `call`) and are registered in `ToolRegistry`.
+
+| Module | Tools |
+|--------|--------|
+| `fs/` | `file_read`, `file_outline`, `file_write`, `file_update`, `apply_patch`, `file_delete`, `propose_str_replace`, `list_dir`, `glob`, `file_undo` |
+| `exec/` | `shell_exec`, `spawn_agents`, `end_turn`, `confirmation`, `safety` |
+| `git/` | `git_status`, `git_diff`, `git_log`, `git_commit` |
+| `search/` | `code_search`, `code_review`, `explore_context`, `web_search`, `web_fetch` (MCP) |
+| `infra/` | `write_todos`, `undo_history` |
+
+- `mod.rs` — `Tool`, `ToolRegistry`, `from_config_and_handle()`, `create_mcp_tools()`
+- `spawn_agents` is registered at runtime in `stream/spawn.rs` (needs `LlmClient` clone)
 
 ### `src/ui/` — Terminal UI
 
-- `markdown.rs` — Custom markdown renderer (headings, code blocks, bold, lists, etc.)
-- `render.rs` — Markdown rendering integration
-- `terminal.rs` — Banner, help, startup text
+- `mod.rs` — root layout, dispatches chat / input / overlays / status
+- `chat.rs`, `input.rs`, `status.rs`, `overlays.rs` — widgets
+- `markdown.rs`, `render.rs` — markdown + reasoning display (`ReasoningTracker`, `StatefulTagStripper`)
+- `terminal.rs` — banner, help text
 
 ### `src/mcp/` — Model Context Protocol
 
-- `client.rs` — MCP client implementation
-- `types.rs` — MCP type definitions
-- `web_search_tool.rs` — Web search via Parallel Search MCP
+- `client.rs` — stdio JSON-RPC and HTTP transports
+- `types.rs` — MCP protocol types
+- Product integration today: Parallel Search HTTP (`web_search`, `web_fetch`) when `[mcp] enabled = true`
+
+## Streaming Pipeline
+
+1. **`LlmClient::stream_chat`** — OpenAI-compatible SSE from `reqwest` byte stream
+2. **`ChatStream::next`** — split on `\n\n`, extract `data:` lines, `serde` → `StreamChunk`
+3. **`process_sse_stream`** — map `delta.content` / `reasoning_content` / `tool_calls` → `StreamEvent` via unbounded channel
+4. **`process_streaming_events`** (UI loop) — update `App.streaming_text`, `current_tool_call`, reasoning state
+5. **`stream_response` tool loop** — on `finish_reason: tool_calls`, execute tools, append results, re-stream until stop or `max_turns`
 
 ## Key Dependencies
 
-- **rig-core 0.35** — AI agent framework (defines `ToolDyn`, `Message`, `CompletionClient`)
-- **tokio** — async runtime, signals
-- **ratatui** — Terminal UI rendering (with tui-textarea)
-- **crossterm** — Terminal features
-- **reqwest** — HTTP client for API requests
-- **serde/serde_json** — Serialization
-- **anyhow/thiserror** — Error handling
-- **dotenv** — `.env` loading
-- **futures** — Stream utilities
-- **glob** — File pattern matching
-- **toml** — TOML config parsing
-- **tree-sitter/tree-sitter-rust** — Source code parsing for file_outline
-- **async-process** — Process spawning for MCP servers
-- **async-trait** — Async trait support
-- **tracing/tracing-subscriber** — Application-level logging
-- **unicode-width** — Unicode character width calculation
+- **reqwest** — HTTP client; SSE streaming for chat completions
+- **tokio** — async runtime, signals, processes
+- **ratatui** + **tui-textarea-2** — terminal UI
+- **serde/serde_json** — config, messages, tool args
+- **anyhow/thiserror** — error handling
+- **dotenv** — `.env` in `app_dir()` or project root
+- **futures** — stream utilities
+- **toml** — configuration
+- **tree-sitter** (+ language grammars) — `file_outline` / smart read
+- **async-process**, **async-trait** — MCP / tool async
+- **tracing/tracing-subscriber** — logging to `.mycode/.my-code-agent.log`
+- **unicode-width** — terminal width for CJK / emoji
 
 ## Configuration
 
-`config.toml` (optional):
+`config.toml` is loaded from `app_dir()` (default: `.mycode/config.toml`). See `src/core/config/mod.rs` for all fields.
 
 ```toml
 [llm]
 provider = "deepseek"           # deepseek, openai, anthropic, cohere, openrouter, custom
-model = "deepseek-v4-pro"     # model name
+model = "deepseek-v4-pro"
 api_key_env = "DEEPSEEK_API_KEY"
-base_url = "http://localhost:8080/v1"  # custom endpoint (for "custom" provider)
-timeout_secs = 60               # LLM API request timeout (0 to disable)
+base_url = "http://localhost:8080/v1"  # for "custom" provider
+timeout_secs = 60               # 0 to disable
 
 [files]
-default_read_limit = 200        # max lines returned by file_read
-attach_max_lines = 500          # max lines per @filepath attachment
-attach_max_bytes = 51200        # max bytes (50 KB) per @filepath attachment
+default_read_limit = 200
+attach_max_lines = 500
+attach_max_bytes = 51200        # 50 KB
 
 [context]
 window_size = 1048576           # 1M tokens
 warn_threshold_percent = 75
 critical_threshold_percent = 90
+compact_retain_percent = 30     # /compact retention
 
 [shell]
 default_timeout_secs = 30
 
 [agent]
-max_turns = 100                 # max tool-call turns per response
+max_turns = 100
 thinking_display = "collapsed"  # "streaming" | "collapsed" | "hidden"
-think_command = true            # enable /think command
-thinking_display_height = 5     # terminal lines for reasoning display
+think_command = true
+thinking_display_height = 5
+show_tool_calls = false
+show_tool_details = true
 
 [session]
-enabled = false                 # set to true to enable session persistence
-save_file = ".session.json"     # default
-cleanup_undo_history = false    # clean up undo history entries on session exit
+enabled = false                 # auto-save/resume .session.json on exit/start
+save_file = ".session.json"     # relative to app_dir()
+cleanup_undo_history = false
 
 [mcp]
-enabled = false                 # enable MCP web search tools
-parallel_api_key = ""           # or set PARALLEL_API_KEY env var (optional, works without for free usage)
+enabled = false
+parallel_api_key = ""           # or PARALLEL_API_KEY env var
+
+[review]
+enabled = true
+auto_review = true
+threshold_lines = 5
+max_review_iterations = 3
+
+[translation]
+enabled = true                  # auto-translate Chinese input (if configured)
+model = ""                      # empty = provider default flash model
 ```
+
+**Environment**
+
+- `MY_CODE_AGENT_HOME` — override runtime directory (instead of `<cwd>/.mycode`)
 
 ## Important Patterns
 
 ### Adding a New Tool
 
-1. Create `src/tools/<tool_name>.rs` with struct implementing `Tool` trait from rig-core
-2. Export in `src/tools/mod.rs`
-3. Add to `all_tools()` in `tools/mod.rs`
-4. Add tests in `tests/<tool_name>.rs`
+1. Add implementation under the appropriate `src/tools/{fs,exec,git,search,infra}/` module
+2. Implement `Tool` in that file (`async_trait::async_trait` + `Tool` from `tools/mod.rs`)
+3. Register in `ToolRegistry::from_config_and_handle()` in `src/tools/mod.rs` (or register dynamically like `SpawnAgents`)
+4. Document the tool in `PREAMBLE_TEMPLATE` in `src/core/agent/preamble.rs`
+5. Add tests under `tests/` (e.g. `tests/tools/`, `tests/file_ops/`)
 
-### Adding a New Command
+### Adding a New Slash Command
 
-1. Create `src/app/event_handler/command/<command_name>.rs`
-2. Export in `src/app/event_handler/command/mod.rs`
-3. Wire up in event handler dispatch
+1. Create `src/app/commands/<name>.rs`
+2. Export in `src/app/commands/mod.rs` and add to `handle_command()` match
+3. Add to completion list in `src/app/event_handler/key_event/completion.rs` if needed
+4. Document in `src/app/commands/help.rs`
 
 ### Tool Safety
 
-`src/tools/safety.rs` provides:
-- `is_dangerous_deletion()` — checks risky paths (/, ~, etc.)
-- `is_dangerous_shell_command()` — blocks `rm -rf`, `> file`, etc.
+`src/tools/exec/safety.rs` provides:
+
+- `is_dangerous_deletion()` — risky paths (/, ~, etc.)
+- `is_dangerous_shell_command()` — blocks `rm -rf`, redirects, etc.
+- `is_dangerous_git_command()` — destructive git operations
 - `is_dangerous_snippet_deletion()` — blocks `/**/` or `#![deny(*)]`
 
-Review safety module before allowing destructive operations.
+Destructive ops may also require UI confirmation via `ConfirmationHandle` (`shell_exec`, `git_commit`, `file_delete`).
 
-### Session Persistence
+### Session & Undo Persistence
 
-- Auto-saves on quit to `.session.json` (gitignored)
-- `/save <name>` and `/load <name>` commands
-- Sessions stored in `.sessions/` directory as timestamped JSON files
+- **Session**: `.mycode/.session.json` when `[session] enabled = true`; named saves under `.mycode/.sessions/`
+- **Undo**: `.mycode/.undo_history.json` — `file_undo` / `/undo`; optional cleanup on exit via `cleanup_undo_history`
+- **Todos**: `.mycode/.todos.json` via `write_todos` tool
+
+### Code Review
+
+- **`/review`** — manual review via `ReviewAgent`
+- **Auto-review** — `AgentOrchestrator` after file-changing tools (`[review]` config)
+- Fix→review loop up to `max_review_iterations`
 
 ## Testing
 
 ```bash
-# All tests
 cargo test
-
-# Single test file
-cargo test --test file_read
-
-# With output
+cargo test --test agent
+cargo test --test file_ops
 cargo test -- --nocapture
 ```
 
+Test layout: `tests/agent/`, `tests/core/`, `tests/file_ops/`, `tests/tools/`, `tests/search/`, `tests/config_ctx/`.
+
 ## Gotchas
 
-- **Rust edition 2024** — requires recent nightly/beta: `rustup update`
-- **.env required** — API key in project root (gitignored)
-- **No clippy/rustfmt config** — defaults used
-- **rig-core version matters** — breaking changes possible between minor versions
-- **Tool naming**: Tools use snake_case (e.g., `file_read`, `shell_exec`)
-- **Context caching**: The system caches preamble content and file reads for performance
-- **Undo support**: `file_undo` tool can revert recent file operations; history persisted in `.undo_history.json`
+- **Rust edition 2024** — use a recent toolchain: `rustup update`
+- **API key** — `.env` in `app_dir()` or project root (gitignored)
+- **No rig / external agent SDK** — custom `LlmClient` + `Tool` trait; types in `src/core/types/`
+- **Tool naming**: snake_case (`file_read`, `shell_exec`)
+- **`/plan` is prompt-only** — does not disable tools at the registry level; model may still call tools unless you add mode gating
+- **Context**: preamble and file reads are cached; compaction triggers on window pressure or `/compact`
+- **MCP stdio client exists** but only Parallel Search HTTP tools are wired in `create_mcp_tools()` today
 
 ## File References (`@filepath`)
 
-- `@path` attaches file inline
-- `@path:N` starts at line N (0-indexed)
-- Truncates at 500 lines / 50 KB
-- Supports tab completion with `@` prefix
+- `@path` attaches file inline (expanded in `core/context/file_ref.rs`)
+- `@path:N` starts at line N (0-indexed) — user syntax only
+- Truncates at `attach_max_lines` / `attach_max_bytes` (defaults 500 lines / 50 KB)
+- Tab completion with `@` prefix in the input area
