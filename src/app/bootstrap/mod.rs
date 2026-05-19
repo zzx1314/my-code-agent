@@ -34,36 +34,93 @@ pub async fn init_app() -> Result<InitState> {
     }
 
     // ── 2. Logging ──────────────────────────────────────────────────────────
-    let log_path = crate::core::paths::app_file(".my-code-agent.log");
+    // Split logs into 3 files:
+    //   - app.log   : info+  — general application flow
+    //   - error.log : error  — errors only for quick debugging
+    //   - tools.log : all    — tool execution traces (target = tools::*)
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::Layer;
 
-    // Rotate log file if it exceeds 10 MB to prevent unbounded growth.
-    const MAX_LOG_SIZE: u64 = 10 * 1024 * 1024;
-    if let Ok(metadata) = std::fs::metadata(&log_path) {
-        if metadata.len() > MAX_LOG_SIZE {
-            let rotated = log_path.with_extension("log.old");
-            let _ = std::fs::rename(&log_path, &rotated);
+    let logs_dir = crate::core::paths::app_file("logs");
+    if let Err(e) = std::fs::create_dir_all(&logs_dir) {
+        eprintln!("[logging] Failed to create log directory {logs_dir:?}: {e}");
+    }
+
+    const MAX_LOG_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+
+    // Manual rotation: shift backups (.log.3 → deleted, .log.2 → .log.3, .log.1 → .log.2, .log → .log.1)
+    const MAX_BACKUPS: u32 = 3;
+    fn rotate_if_large(path: &std::path::Path, max_bytes: u64) {
+        if let Ok(meta) = std::fs::metadata(path) {
+            if meta.len() > max_bytes {
+                // Shift existing backups: .log.N → .log.(N+1), drop the oldest
+                for i in (1..MAX_BACKUPS).rev() {
+                    let current = path.with_extension(format!("log.{i}"));
+                    let next = path.with_extension(format!("log.{}", i + 1));
+                    if current.exists() {
+                        let _ = std::fs::rename(&current, &next);
+                    }
+                }
+                // Rotate current → .log.1 (unconditional — rename() is safe if file is missing)
+                let backup = path.with_extension("log.1");
+                let _ = std::fs::rename(path, backup);
+            }
         }
     }
 
-    let log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .unwrap_or_else(|_| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/tmp/my-code-agent.log")
-                .unwrap()
-        });
+    rotate_if_large(&logs_dir.join("app.log"), MAX_LOG_SIZE);
+    rotate_if_large(&logs_dir.join("error.log"), MAX_LOG_SIZE);
+    rotate_if_large(&logs_dir.join("tools.log"), MAX_LOG_SIZE);
 
-    tracing_subscriber::fmt()
-        .with_writer(log_file)
+    // Helper to open a log file with fallback to /tmp
+    fn open_log(logs_dir: &std::path::Path, name: &str) -> std::fs::File {
+        let primary_path = logs_dir.join(name);
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&primary_path)
+            .unwrap_or_else(|e| {
+                eprintln!("[logging] Failed to open {primary_path:?}: {e} — falling back to /tmp");
+                let fallback_dir = std::path::Path::new("/tmp/my-code-agent-logs");
+                if let Err(dir_err) = std::fs::create_dir_all(fallback_dir) {
+                    eprintln!("[logging] Failed to create fallback directory {fallback_dir:?}: {dir_err}");
+                }
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(fallback_dir.join(name))
+                    .unwrap()
+            })
+    }
+    // Layer 1: app.log — info and above (main application log)
+    let app_layer = tracing_subscriber::fmt::layer()
+        .with_writer(open_log(&logs_dir, "app.log"))
         .with_ansi(false)
-        .with_env_filter(
+        .with_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
+        );
+
+    // Layer 2: error.log — errors only
+    let error_layer = tracing_subscriber::fmt::layer()
+        .with_writer(open_log(&logs_dir, "error.log"))
+        .with_ansi(false)
+        .with_filter(tracing_subscriber::EnvFilter::new("error"));
+
+    // Layer 3: tools.log — all levels for tools::* modules
+    // Use the crate's full module path for precise filtering
+    let tools_layer = tracing_subscriber::fmt::layer()
+        .with_writer(open_log(&logs_dir, "tools.log"))
+        .with_ansi(false)
+        .with_filter(tracing_subscriber::filter::filter_fn(|meta| {
+            let target = meta.target();
+            target.starts_with("my_code_agent::tools") || target.contains("::tools::")
+        }));
+
+    tracing_subscriber::registry()
+        .with(app_layer)
+        .with(error_layer)
+        .with(tools_layer)
         .init();
 
     // ── 3. Config ───────────────────────────────────────────────────────────
