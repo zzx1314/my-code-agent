@@ -743,10 +743,11 @@ fn try_render_file_tool_result(
             "file" => "File Delete",
             "directory" => "Directory Delete",
             "snippet" => "Snippet Delete",
-            _ => "File Operation",
+            _ => return None,
         }
     } else {
-        "File Operation"
+        // Not a file modification (e.g. file_read) — don't render a header
+        return None;
     };
 
     // Header
