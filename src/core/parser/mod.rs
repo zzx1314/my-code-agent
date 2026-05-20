@@ -208,6 +208,44 @@ impl ParsedFile {
         self.language
     }
 
+    /// Get a formatted outline string of all structures in the file.
+    /// Suitable for attaching to LLM prompts for context.
+    pub fn get_outline_string(&self) -> String {
+        let structures = self.get_all_structures();
+        crate::core::parser::format_outline(&structures, self.source.lines().count())
+    }
+}
+
+/// Format a list of structures into a human-readable outline string.
+/// Shows each structure with its line range, name, and type.
+pub fn format_outline(structures: &[StructureInfo], total_lines: usize) -> String {
+    if structures.is_empty() {
+        return "(no structures found)".to_string();
+    }
+
+    let mut output = String::new();
+    for (i, s) in structures.iter().enumerate() {
+        let is_last = i == structures.len() - 1;
+        let prefix = if is_last { "└── " } else { "├── " };
+        let name = s.name.as_deref().unwrap_or("anonymous");
+        let lines = s.end_line - s.start_line + 1;
+
+        output.push_str(&format!(
+            "{}[{}-{}: {} lines] {} {}\n",
+            prefix,
+            s.start_line + 1,
+            s.end_line + 1,
+            lines,
+            s.kind,
+            name
+        ));
+    }
+
+    output.push_str(&format!("\nTotal: {} lines", total_lines));
+    output
+}
+
+impl ParsedFile {
     /// Map Rust AST node kinds to structure types
     fn rust_node_kind(node: Node) -> Option<&'static str> {
         match node.kind() {

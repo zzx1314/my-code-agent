@@ -173,7 +173,6 @@ pub struct ReviewSummary {
     pub medium_count: usize,
     pub low_count: usize,
     pub info_count: usize,
-    pub overall_score: f64,  // Score 0-100
     pub verdict: ReviewVerdict,
 }
 
@@ -182,7 +181,6 @@ pub struct ReviewSummary {
 pub enum ReviewVerdict {
     Approved,        // OK to merge
     NeedsRevision,   // Needs changes
-    Rejected,        // Should be rejected
 }
 
 impl ReviewVerdict {
@@ -190,7 +188,6 @@ impl ReviewVerdict {
         match self {
             ReviewVerdict::Approved => "✅",
             ReviewVerdict::NeedsRevision => "🔄",
-            ReviewVerdict::Rejected => "❌",
         }
     }
 
@@ -198,7 +195,6 @@ impl ReviewVerdict {
         match self {
             ReviewVerdict::Approved => "Approved",
             ReviewVerdict::NeedsRevision => "Needs Revision",
-            ReviewVerdict::Rejected => "Rejected",
         }
     }
 }
@@ -208,19 +204,17 @@ impl ReviewReport {
     pub fn natural_summary(&self) -> String {
         if self.issues.is_empty() {
             format!(
-                "✅ Review passed — no issues found across {} files (score: {:.0}/100).",
+                "✅ Review passed — no issues found across {} files.",
                 self.changed_files.len(),
-                self.summary.overall_score,
             )
         } else {
             let top_issues: Vec<&str> = self.issues.iter().take(3).map(|i| i.title.as_str()).collect();
             format!(
-                "⚠️ Found {} issues ({} critical, {} high) across {} files (score: {:.0}/100, verdict: {}). Key concerns: {}.",
+                "⚠️ Found {} issues ({} critical, {} high) across {} files. Verdict: {}. Key concerns: {}.",
                 self.summary.total_issues,
                 self.summary.critical_count,
                 self.summary.high_count,
                 self.changed_files.len(),
-                self.summary.overall_score,
                 self.summary.verdict.label(),
                 top_issues.join("; "),
             )

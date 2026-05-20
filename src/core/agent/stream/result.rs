@@ -335,9 +335,8 @@ pub fn trigger_auto_review(app: &mut App) {
 
                         let display_text = orchestrator.format_review_report(&report);
                         let report_summary = format!(
-                            "Verdict: {} | Score: {:.0}/100 | Issues: {} (Critical: {}, High: {}, Medium: {}, Low: {})",
+                            "Verdict: {} | Issues: {} (Critical: {}, High: {}, Medium: {}, Low: {})",
                             report.summary.verdict.label(),
-                            report.summary.overall_score,
                             report.summary.total_issues,
                             report.summary.critical_count,
                             report.summary.high_count,

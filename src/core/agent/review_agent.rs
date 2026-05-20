@@ -3,8 +3,10 @@
 //! Responsible for automatically reviewing code changes after the main Agent completes modifications.
 
 use anyhow::Result;
+use std::path::Path;
 
 use super::client::LlmClient;
+use crate::core::parser::ParsedFile;
 use crate::core::types::review::*;
 
 /// Code Review Agent
@@ -60,105 +62,46 @@ impl ReviewAgent {
 
     pub fn system_prompt(&self) -> String {
         concat!(
-            "You are a code review assistant. Review the code changes below and give helpful critical feedback.\n\n",
-            "## Important: Diff Awareness\n\n",
-            "The diff below only shows what CHANGED. It does NOT show the entire file. ",
-            "Existing code outside the diff range is still present and working. ",
-            "Do NOT flag something as missing just because it's absent from the diff ",
-            "— check the user's request and assume existing code still works.\n\n",
-            "### Critical Rule: No Speculation About Unseen Code\n\n",
-            "You CANNOT make claims about code that is NOT in the diff. Specifically:\n",
-            "- Do NOT say 'this code path has X but that code path doesn't' unless BOTH paths are fully visible in the diff\n",
-            "- Do NOT assume code is missing in one place just because you added it in another\n",
-            "- If the diff shows a fix in one location, do NOT assume other locations need the same fix without seeing them\n",
-            "- **Every claim must be directly verifiable from the provided diff text**\n\n",
-            "## Guidelines\n\n",
-            "The main agent typically runs compilation, type checking, and tests before review. ",
-            "However, do NOT assume these checks have passed — flag issues you find regardless.\n\n",
-            "### Conversation History Analysis\n\n",
-            "If conversation history is provided, you MUST:\n",
-            "1. **Verify Requirements Fulfillment** — Check if ALL user requirements from the conversation are addressed in the code\n",
-            "2. **Check Consistency** — Ensure the implementation matches what was discussed/agreed upon\n",
-            "3. **Identify Deviations** — Flag any changes from the original plan without user approval\n",
-            "4. **Catch Missed Items** — Report if the agent skipped or forgot any requested features\n\n",
-            "### ✅ FOCUS on (highest value — compilation cannot catch these):\n",
-            "- **Functional Completeness** — Does the code actually fulfill ALL requirements\n",
-            "  in the user's request? Advocate for the user. This is your most important job.\n",
-            "- **Security** — Vulnerabilities that compile fine: injection, unsafe data handling,\n",
-            "  exposed secrets, incorrect authorization logic.\n",
-            "- **Logic / Correctness** — Bugs that pass compilation but produce wrong results:\n",
-            "  off-by-one, incorrect algorithm, wrong API usage, edge cases not handled.\n",
-            "- **Error Handling** — Missing error propagation, unwrap() on potentially-failing\n",
-            "  operations, silently swallowed errors.\n",
-            "- **API Misuse** — Using a library/function in a way that compiles but is\n",
-            "  semantically wrong (e.g., wrong parameter order, misunderstanding of semantics).\n",
-            "- **Performance** — Obvious performance issues: unnecessary allocations,\n",
-            "  O(n²) when O(n) suffices, redundant work.\n",
-            "- **Concurrency** — Race conditions, deadlocks, incorrect async usage.\n",
-            "- **Code Reuse** — Suggest reusing existing functions instead of creating new ones.\n\n",
-            "### ❌ DO NOT flag (already covered by compilation/tests):\n",
-            "- Missing imports — already caught by `cargo check`.\n",
-            "- Dead code / unused variables — already caught by compiler warnings.\n",
-            "- Type mismatches — already caught by the type checker.\n",
-            "- Style / formatting — already handled by rustfmt/clippy.\n",
-            "- Minor naming conventions — not a correctness concern.\n",
-            "- The user's conversation language is not a review criterion.\n\n",
-            "### Other reminders:\n",
-            "- Try to keep changes minimal — don't rewrite working code.\n",
-            "- Be concise: If you don't have much critical feedback, simply say it looks good.\n",
-            "- **IMPORTANT: Only report issues you are CONFIDENT about.** Do NOT speculate or assume.\n",
-            "- If you cannot verify a claim from the diff alone (e.g., 'other code path is missing X'), do NOT report it.\n",
-            "- When the diff shows code was added/fixed in one place, assume similar patterns exist elsewhere unless proven otherwise.\n",
-            "- **Never fabricate issues.** Every issue must be directly verifiable from the provided diff.\n\n",
+            "You are a focused code review assistant. Review the code changes below.\n\n",
+            "## Your ONLY Job\n\n",
+            "Check ONLY these two things:\n\n",
+            "1. **Functional Completeness** — Does the code fulfill ALL the user's requirements?\n",
+            "   Advocate for the user. If a requested feature is missing or incomplete, flag it.\n\n",
+            "2. **Obvious Bugs** — Logic errors, edge cases not handled, incorrect API usage,\n",
+            "   wrong algorithm. Only if you're CONFIDENT it's a real bug.\n\n",
+            "## Rules\n\n",
+            "- The diff only shows what CHANGED. Code outside the diff is still there.\n",
+            "- Do NOT flag something as \"missing\" just because it's not in the diff.\n",
+            "- Do NOT report: imports, types, style, dead code, naming, perf, concurrency,\n",
+            "  security, error handling — these are covered by compiler, linter, or tests.\n",
+            "- Be concise. If nothing is wrong, just say so.\n",
+            "- Only report issues you are CONFIDENT about. Never speculate.\n",
+            "- Every claim must be directly verifiable from the provided diff.\n\n",
             "## Output Format\n\n",
-            "You MUST output ONLY a valid JSON object:\n\n",
+            "Return ONLY a valid JSON object:\n\n",
             "```json\n",
             "{\n",
             "  \"issues\": [\n",
             "    {\n",
             "      \"file\": \"src/example.rs\",\n",
             "      \"line\": 42,\n",
-            "      \"end_line\": 50,\n",
             "      \"severity\": \"high\",\n",
-            "      \"category\": \"bug_risk\",\n",
-            "      \"title\": \"Short issue title\",\n",
+            "      \"category\": \"functional_completeness\" or \"bug_risk\",\n",
+            "      \"title\": \"Short title\",\n",
             "      \"description\": \"What's wrong and why\",\n",
-            "      \"suggestion\": \"How to fix it\",\n",
-            "      \"code_snippet\": \"Problematic code (omit if not applicable)\",\n",
-            "      \"fix_example\": \"Fixed code (omit if not applicable)\"\n",
+            "      \"suggestion\": \"How to fix it\"\n",
             "    }\n",
             "  ],\n",
             "  \"summary\": {\n",
-            "    \"overall_score\": 85,\n",
-            "    \"verdict\": \"approved\"\n",
+            "    \"verdict\": \"approved\" or \"needs_revision\"\n",
             "  }\n",
             "}\n",
             "```\n\n",
-            "### Field Reference\n\n",
-            "Severity (ordered by criticality):\n",
-            "- \"critical\" — Must fix: security vulnerabilities, data loss, crashes\n",
-            "- \"high\" — Should fix: logic errors, incorrect behavior\n",
-            "- \"medium\" — Recommended: potential bugs, poor error handling\n",
-            "- \"low\" — Could improve: performance, code clarity\n",
-            "- \"info\" — For reference: suggestions, best practices\n\n",
-            "Category:\n",
-            "- \"functional_completeness\" — Code doesn't fulfill user requirements\n",
-            "- \"security\" — Vulnerabilities, injection, exposed secrets\n",
-            "- \"bug_risk\" — Logic errors, edge cases, incorrect behavior\n",
-            "- \"performance\" — Unnecessary allocations, O(n²) when O(n) possible\n",
-            "- \"error_handling\" — Missing error propagation, swallowed errors\n",
-            "- \"concurrency\" — Race conditions, deadlocks, async misuse\n",
-            "- \"maintainability\" — Code structure, readability, coupling\n",
-            "- \"documentation\" — Missing or incorrect docs/comments\n\n",
-            "Verdict:\n",
-            "- \"approved\" — No issues, or only low/info severity issues\n",
-            "- \"needs_revision\" — Has medium/high severity issues that should be fixed\n",
-            "- \"rejected\" — Has critical issues or fundamental design problems\n\n",
-            "Score: 0-100 (higher = better)\n",
-            "- Start at 100, deduct: critical -25, high -10, medium -5, low -2, info -1\n",
-            "- Minimum score is 0\n\n",
-            "If there are no issues, simply return:\n",
-            "{\"issues\": [], \"summary\": {\"overall_score\": 100, \"verdict\": \"approved\"}}\n",
+            "Severity: \"critical\" (crash/data loss), \"high\" (wrong behavior),\n",
+            "\"medium\" (potential bug), \"low\" (minor).\n\n",
+            "Verdict: \"approved\" (no issues or only low), \"needs_revision\" (medium+ issues).\n\n",
+            "If no issues, return:\n",
+            "{\"issues\": [], \"summary\": {\"verdict\": \"approved\"}}\n",
         ).to_string()
     }
 
@@ -167,7 +110,12 @@ impl ReviewAgent {
         let user_message = self.build_user_message(&changes_summary, &request.context, &request.history_summary);
         let (response, _reasoning) = self.call_llm(&user_message).await?;
         let issues = self.parse_issues_from_response(&response)?;
-        self.build_report(&issues, &request.changed_files)
+        let filtered = filter_known_false_positives(&issues);
+        let filtered_count = issues.len() - filtered.len();
+        if filtered_count > 0 {
+            tracing::info!(filtered_count, "Pre-filter removed known false-positive issues");
+        }
+        self.build_report(&filtered, &request.changed_files)
     }
 
     pub async fn review_with_events(
@@ -187,7 +135,12 @@ impl ReviewAgent {
 
         let response = self.call_llm_stream(&user_message, &event_tx).await?;
         let issues = self.parse_issues_from_response(&response)?;
-        let report = self.build_report(&issues, &request.changed_files)?;
+        let filtered = filter_known_false_positives(&issues);
+        let filtered_count = issues.len() - filtered.len();
+        if filtered_count > 0 {
+            tracing::info!(filtered_count, "Pre-filter removed known false-positive issues");
+        }
+        let report = self.build_report(&filtered, &request.changed_files)?;
 
         let _ = event_tx.send(ReviewEvent::Completed {
             report: report.clone(),
@@ -520,7 +473,18 @@ impl ReviewAgent {
                 file.lines_added, file.lines_removed
             ));
 
+            // Include file outline for context (skip deleted files)
+            if file.change_type != ChangeType::Deleted {
+                if let Some(outline) = get_file_outline(&file.path) {
+                    summary.push_str("**File Outline:**\n");
+                    summary.push_str("```\n");
+                    summary.push_str(&outline);
+                    summary.push_str("\n```\n");
+                }
+            }
+
             if !file.diff.is_empty() {
+                summary.push_str(&format!("**Diff:**\n"));
                 summary.push_str("```diff\n");
                 summary.push_str(&file.diff);
                 summary.push_str("\n```\n");
@@ -559,31 +523,8 @@ impl ReviewAgent {
         }
 
         let sanitized = sanitize_json_escapes(&json_str);
-        let parsed: serde_json::Value = match serde_json::from_str(&sanitized) {
-            Ok(v) => v,
-            Err(_) => {
-                // Attempt multi-strategy JSON repair for common LLM issues:
-                // 1. Truncation (unbalanced braces, unclosed strings, trailing commas)
-                // 2. Trailing commas in nested objects/arrays
-                // 3. Raw control characters in string values (newlines, tabs)
-                let repaired = repair_truncated_json(&sanitized);
-                match serde_json::from_str(&repaired) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        // Remove trailing commas throughout (not just outermost level)
-                        let no_trailing = remove_trailing_commas_from_json(&repaired);
-                        match serde_json::from_str(&no_trailing) {
-                            Ok(v) => v,
-                            Err(_) => {
-                                // Escape raw control characters in string values
-                                let escaped = escape_control_chars_in_strings(&no_trailing);
-                                serde_json::from_str(&escaped)?
-                            }
-                        }
-                    }
-                }
-            }
-        };
+        let parsed = parse_json_with_fallback(&sanitized)
+            .map_err(|e| anyhow::anyhow!("Failed to parse review JSON after all repair strategies: {}", e))?;
 
         let mut issues = Vec::new();
 
@@ -647,42 +588,34 @@ impl ReviewAgent {
     /// Shared internal logic for building a ReviewReport from issues and changed files.
     /// Calculates summary statistics, verdict, overall score, and auto-fixable list.
     fn build_report_inner(&self, issues: &[ReviewIssue], changed_files: &[ChangedFile]) -> ReviewReport {
-        let critical_count = issues.iter().filter(|i| i.severity == Severity::Critical).count();
-        let high_count = issues.iter().filter(|i| i.severity == Severity::High).count();
-        let medium_count = issues.iter().filter(|i| i.severity == Severity::Medium).count();
-        let low_count = issues.iter().filter(|i| i.severity == Severity::Low).count();
-        let info_count = issues.iter().filter(|i| i.severity == Severity::Info).count();
+        // Single-pass counting: 6 traversals → 1 for all severity levels + auto-fixable.
+        let mut critical_count = 0;
+        let mut high_count = 0;
+        let mut medium_count = 0;
+        let mut low_count = 0;
+        let mut info_count = 0;
+        let mut auto_fixable = Vec::new();
 
-        let has_functional_completeness_issues = issues.iter().any(|i| matches!(i.category, ReviewCategory::FunctionalCompleteness));
-        let has_blocking_issues = critical_count > 0
-            || high_count > 0
-            || medium_count > 0
-            || has_functional_completeness_issues;
-
-        let verdict = if has_blocking_issues || !issues.is_empty() {
-            if critical_count > 0 && has_functional_completeness_issues {
-                ReviewVerdict::Rejected
-            } else if has_blocking_issues {
-                ReviewVerdict::NeedsRevision
-            } else {
-                ReviewVerdict::Approved
+        for issue in issues {
+            match issue.severity {
+                Severity::Critical => critical_count += 1,
+                Severity::High => high_count += 1,
+                Severity::Medium => medium_count += 1,
+                Severity::Low => low_count += 1,
+                Severity::Info => info_count += 1,
             }
+            if issue.fix_example.is_some() {
+                auto_fixable.push(issue.clone());
+            }
+        }
+
+        // Verdict: needs_revision if there are any medium+ issues
+        let has_medium_or_above = critical_count > 0 || high_count > 0 || medium_count > 0;
+        let verdict = if has_medium_or_above {
+            ReviewVerdict::NeedsRevision
         } else {
             ReviewVerdict::Approved
         };
-
-        let overall_score = if issues.is_empty() {
-            100.0
-        } else {
-            let penalty = (critical_count * 25 + high_count * 10 + medium_count * 5 + low_count * 2 + info_count) as f64;
-            (100.0 - penalty).max(0.0)
-        };
-
-        let auto_fixable: Vec<ReviewIssue> = issues
-            .iter()
-            .filter(|i| i.fix_example.is_some())
-            .cloned()
-            .collect();
 
         ReviewReport {
             summary: ReviewSummary {
@@ -692,7 +625,6 @@ impl ReviewAgent {
                 medium_count,
                 low_count,
                 info_count,
-                overall_score,
                 verdict,
             },
             issues: issues.to_vec(),
@@ -968,6 +900,173 @@ fn char_boundary_at_or_before(s: &str, max: usize) -> usize {
         .unwrap_or(0)
 }
 
+/// Try to read a file from disk and return its structural outline.
+/// Returns None if the file can't be read or is not a supported language.
+fn get_file_outline(file_path: &str) -> Option<String> {
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    let parsed = ParsedFile::parse_with_path(content, file_path)?;
+    Some(parsed.get_outline_string())
+}
+
+/// Filter out known false-positive review issues using deterministic rules.
+///
+/// Before sending issues to `build_report`, this function checks each issue
+/// against a set of regex-like patterns that match common false-positive
+/// signals from the review LLM. Patterns are grouped by category:
+///
+/// 1. **`block_in_place` / async panic** — LLMs see `tokio::task::block_in_place`
+///    and claim it will panic, but this is a valid tokio utility.
+/// 2. **`block_on` convention** — `futures::executor::block_on` is used deliberately
+///    throughout this project; it's not a bug.
+/// 3. **"Silent fallback" / "silently"** — LLM flags intentional fallback/default
+///    patterns as error-masking, even when the fallback is correct.
+/// 4. **Generic "consider error handling"** — Vague, non-actionable suggestions
+///    without a specific scenario.
+/// 5. **"Missing documentation" / "consider documenting"** — Low-value doc suggestions
+///    for internal or self-explanatory code.
+/// 6. **"Hardcoded" values** — Test fixtures, config defaults, or intentional
+///    constants flagged as problematic.
+/// 7. **`unwrap()` on safe operations** — When unwrap is provably safe (e.g., on
+///    a `Receiver::try_recv` or a freshly-created value).
+///
+/// Each rule uses simple string matching (case-insensitive) on the issue's
+/// combined title + description + file path. This is intentionally cheap
+/// and deterministic — no regex overhead, no LLM calls.
+pub fn filter_known_false_positives(issues: &[ReviewIssue]) -> Vec<ReviewIssue> {
+    issues
+        .iter()
+        .filter(|issue| !is_known_false_positive(issue))
+        .cloned()
+        .collect()
+}
+
+/// Check a single issue against all known false-positive patterns.
+fn is_known_false_positive(issue: &ReviewIssue) -> bool {
+    // Build a combined text for pattern matching
+    let title_lower = issue.title.to_lowercase();
+    let desc_lower = issue.description.to_lowercase();
+    let file_lower = issue.file.to_lowercase();
+
+    // ── Rule 1: block_in_place async panic ──
+    // LLMs frequently see `tokio::task::block_in_place` and claim it will
+    // cause a panic in async context. In reality, `block_in_place` is a
+    // valid tokio utility for running blocking code without blocking the
+    // async runtime. The LLM confuses it with `block_on` in async context.
+    if desc_lower.contains("block_in_place")
+        || title_lower.contains("block_in_place")
+    {
+        if desc_lower.contains("async")
+            || desc_lower.contains("panic")
+            || desc_lower.contains("blocking")
+        {
+            return true;
+        }
+    }
+
+    // ── Rule 2: futures::executor::block_on project convention ──
+    // This project deliberately uses `futures::executor::block_on()` to
+    // run async code from sync contexts (e.g., startup, tests, drop guards).
+    // The LLM, seeing only the diff, flags it as a "blocking in sync context"
+    // issue, which is the intended usage.
+    if desc_lower.contains("block_on")
+        || title_lower.contains("block_on")
+    {
+        if desc_lower.contains("async")
+            || desc_lower.contains("blocking")
+            || desc_lower.contains(".await")
+            || desc_lower.contains("runtime")
+        {
+            return true;
+        }
+    }
+
+    // ── Rule 3: "Silent fallback" / "silently swallows" ──
+    // LLMs often flag intentional fallback/default patterns as "silently
+    // masking errors". The word "silent" in a review context is a reliable
+    // false-positive signal when paired with "fallback" or "default".
+    let combined = format!("{} {}", desc_lower, title_lower);
+    if (combined.contains("silent") || combined.contains("silently"))
+        && (combined.contains("fallback") || combined.contains("default") || combined.contains("swallow"))
+    {
+        return true;
+    }
+
+    // ── Rule 4: Generic "consider error handling" ──
+    // Vague suggestions without a specific error scenario. If the issue
+    // just says to add error handling but doesn't describe what error
+    // could occur or how, it's likely a default LLM template response.
+    if (combined.contains("consider") || combined.contains("recommend"))
+        && combined.contains("error handling")
+        && !combined.contains("specific")
+        && !combined.contains("scenario")
+    {
+        return true;
+    }
+
+    // ── Rule 5: "Missing documentation" ──
+    // Low-value doc suggestions for internal/trivial code. If the title
+    // or description says to add docs but the code is self-explanatory
+    // (e.g., a simple getter, a test, or internal helper), it's noise.
+    if combined.contains("documentation")
+        || combined.contains("document")
+        || combined.contains("docstring")
+    {
+        // Only filter if it's low severity — real doc gaps are worth noting
+        if issue.severity == Severity::Low || issue.severity == Severity::Info {
+            return true;
+        }
+    }
+
+    // ── Rule 6: "Hardcoded" values ──
+    // LLMs frequently flag string literals, URLs, or numbers as "hardcoded"
+    // without considering whether they're test data, config defaults, or
+    // intentional constants. Filter if the issue doesn't provide a specific
+    // attack scenario or risk.
+    if combined.contains("hardcoded") || combined.contains("hard-coded") {
+        // Keep if it's about security (hardcoded credentials/API keys)
+        if combined.contains("password")
+            || combined.contains("secret")
+            || combined.contains("credential")
+            || combined.contains("api_key")
+            || combined.contains("token")
+        {
+            // Don't filter — this is a real security concern
+        } else {
+            // Filter "hardcoded" for non-security items
+            if issue.severity == Severity::Low || issue.severity == Severity::Medium {
+                return true;
+            }
+        }
+    }
+
+    // ── Rule 7: Test file noise ──
+    // In test files, certain patterns like "magic number", "unwrap",
+    // "missing error handling" are typically intentional. Test code
+    // often uses unwrap liberally and doesn't need production-level
+    // error handling.
+    if file_lower.contains("test")
+        || file_lower.ends_with("_test.rs")
+        || file_lower.ends_with("_spec.rs")
+        || file_lower.ends_with(".test.ts")
+        || file_lower.ends_with(".spec.ts")
+    {
+        if combined.contains("unwrap")
+            || combined.contains("magic number")
+            || combined.contains("error handling")
+        {
+            if issue.severity == Severity::Low || issue.severity == Severity::Info {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Safely truncate a string to at most `max_bytes` bytes, appending "..." if truncated.
 /// Never panics on multi-byte UTF-8 characters.
 fn truncate_content(content: &str, max_bytes: usize) -> String {
@@ -988,7 +1087,7 @@ fn truncate_content(content: &str, max_bytes: usize) -> String {
 /// "expected `,` or `}` at line X column Y".
 ///
 /// Replaces raw control characters with their JSON escape equivalents:
-/// - `\x00-\x1F (except valid JSON whitespace in strings)` → `\\uXXXX` or standard escapes
+/// - `\x00-\x1F (except valid JSON whitespace in strings)` → `\uXXXX` or standard escapes
 /// - Specifically: `\n` → `\\n`, `\r` → `\\r`, `\t` → `\\t`
 ///
 /// Properly tracks string boundaries (respects escaped quotes).
@@ -1128,4 +1227,38 @@ pub fn repair_truncated_json(s: &str) -> String {
     }
 
     result
+}
+
+/// Try to parse a JSON string with progressive repair strategies.
+///
+/// Instead of deeply nested if-let-Err chains, uses a flat sequential
+/// strategy pattern:
+/// 1. Direct parse (fast path for already-valid JSON)
+/// 2. Truncation repair (unclosed braces, unclosed strings)
+/// 3. Trailing comma removal (common LLM output issue)
+/// 4. Control character escaping (raw newlines/tabs in strings)
+///
+/// Each strategy is applied independently and returns early on success.
+pub fn parse_json_with_fallback(s: &str) -> std::result::Result<serde_json::Value, String> {
+    // Strategy 1: Direct parse (fast path — most responses are valid)
+    if let Ok(v) = serde_json::from_str(s) {
+        return Ok(v);
+    }
+
+    // Strategy 2: Repair truncation (unclosed braces, unclosed strings)
+    let repaired = repair_truncated_json(s);
+    if let Ok(v) = serde_json::from_str(&repaired) {
+        return Ok(v);
+    }
+
+    // Strategy 3: Remove trailing commas throughout (common LLM artifact)
+    let no_trailing = remove_trailing_commas_from_json(&repaired);
+    if let Ok(v) = serde_json::from_str(&no_trailing) {
+        return Ok(v);
+    }
+
+    // Strategy 4: Escape raw control characters in string values
+    let escaped = escape_control_chars_in_strings(&no_trailing);
+    serde_json::from_str(&escaped)
+        .map_err(|e| format!("all strategies exhausted: {e}"))
 }

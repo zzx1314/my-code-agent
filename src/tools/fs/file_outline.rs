@@ -72,8 +72,7 @@ impl Tool for FileOutline {
         let total_lines = content.lines().count();
 
         let outline = if let Some(parsed) = ParsedFile::parse_with_path(content, &args.path) {
-            let structures = parsed.get_all_structures();
-            format_outline(&structures, total_lines)
+            parsed.get_outline_string()
         } else {
             format!("(unable to parse file - not a supported language)")
         };
@@ -94,29 +93,4 @@ impl Tool for FileOutline {
     }
 }
 
-fn format_outline(structures: &[crate::core::parser::StructureInfo], total_lines: usize) -> String {
-    if structures.is_empty() {
-        return "(no structures found)".to_string();
-    }
 
-    let mut output = String::new();
-    for (i, s) in structures.iter().enumerate() {
-        let is_last = i == structures.len() - 1;
-        let prefix = if is_last { "└── " } else { "├── " };
-        let name = s.name.as_deref().unwrap_or("anonymous");
-        let lines = s.end_line - s.start_line + 1;
-
-        output.push_str(&format!(
-            "{}[{}-{}: {} lines] {} {}\n",
-            prefix,
-            s.start_line + 1,
-            s.end_line + 1,
-            lines,
-            s.kind,
-            name
-        ));
-    }
-
-    output.push_str(&format!("\nTotal: {} lines", total_lines));
-    output
-}

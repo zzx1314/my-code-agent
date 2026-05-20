@@ -363,10 +363,9 @@ impl AgentOrchestrator {
         // Summary
         let verdict_icon = report.summary.verdict.icon();
         output.push_str(&format!(
-            "{} **Verdict**: {} | **Score**: {:.0}/100\n\n",
+            "{} **Verdict**: {}\n\n",
             verdict_icon,
             report.summary.verdict.label(),
-            report.summary.overall_score,
         ));
 
         // Inject review coverage summary
@@ -483,9 +482,8 @@ impl AgentOrchestrator {
 
         prompt.push_str("The code review has identified issues that need to be fixed. ");
         prompt.push_str(&format!(
-            "Verdict: {} (Score: {:.0}/100)\n\n",
+            "Verdict: {}\n\n",
             report.summary.verdict.label(),
-            report.summary.overall_score,
         ));
 
         // Inject review coverage summary — shows what was checked and what was found

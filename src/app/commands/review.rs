@@ -179,9 +179,8 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                 let display_text = orchestrator.format_review_report(&report);
                 let verdict = report.summary.verdict.clone();
                 let report_summary = format!(
-                    "Verdict: {} | Score: {:.0}/100 | Issues: {}",
+                    "Verdict: {} | Issues: {}",
                     verdict.label(),
-                    report.summary.overall_score,
                     report.summary.total_issues,
                 );
                 let _ = result_tx.send(crate::core::types::review::ReviewOutcome {

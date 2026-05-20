@@ -58,7 +58,6 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
                 .map(|v| match v {
                     crate::core::types::review::ReviewVerdict::Approved => Color::Green,
                     crate::core::types::review::ReviewVerdict::NeedsRevision => Color::Yellow,
-                    crate::core::types::review::ReviewVerdict::Rejected => Color::Red,
                 })
                 .unwrap_or(Color::Green);
             spans.push(Span::styled(

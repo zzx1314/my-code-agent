@@ -44,7 +44,6 @@ fn test_review_verdict() {
     assert_eq!(ReviewVerdict::Approved.icon(), "✅");
     assert_eq!(ReviewVerdict::Approved.label(), "Approved");
     assert_eq!(ReviewVerdict::NeedsRevision.icon(), "🔄");
-    assert_eq!(ReviewVerdict::Rejected.icon(), "❌");
 }
 
 /// 测试 ReviewReport 的构建
@@ -58,7 +57,6 @@ fn test_review_report_creation() {
             medium_count: 0,
             low_count: 0,
             info_count: 0,
-            overall_score: 65.0,
             verdict: ReviewVerdict::NeedsRevision,
         },
         issues: vec![
@@ -176,11 +174,9 @@ fn test_review_summary_defaults() {
         medium_count: 0,
         low_count: 0,
         info_count: 0,
-        overall_score: 100.0,
         verdict: ReviewVerdict::Approved,
     };
 
-    assert_eq!(summary.overall_score, 100.0);
     assert_eq!(summary.total_issues, 0);
     assert_eq!(summary.verdict, ReviewVerdict::Approved);
 }
@@ -224,7 +220,7 @@ use my_code_agent::core::context::token_usage::TokenUsage;
 use my_code_agent::core::agent::review_agent::{extract_json_from_response, repair_truncated_json, sanitize_json_escapes, escape_control_chars_in_strings, remove_trailing_commas_from_json};
 use my_code_agent::core::agent::stream::{check_review_result, process_review_events};
 
-const VALID_JSON: &str = r#"{"issues":[],"summary":{"overall_score":100,"verdict":"approved"}}"#;
+const VALID_JSON: &str = r#"{"issues":[],"summary":{"verdict":"approved"}}"#;
 
 /// Test extracting JSON from a ```json code block (most common LLM output)
 #[test]
@@ -253,7 +249,7 @@ fn test_extract_json_raw_with_surrounding_text() {
 /// Test extracting JSON with nested braces
 #[test]
 fn test_extract_json_nested_braces() {
-    let json = r#"{"issues":[{"file":"test.rs","line":5,"description":"nested { brace here"}],"summary":{"overall_score":85,"verdict":"approved"}}"#;
+    let json = r#"{"issues":[{"file":"test.rs","line":5,"description":"nested { brace here"}],"summary":{"verdict":"approved"}}"#;
     let response = format!("Result: {}", json);
     let result = extract_json_from_response(&response).unwrap();
     assert_eq!(result, json);
@@ -281,7 +277,6 @@ fn test_extract_json_multiline_code_block() {
     }
   ],
   "summary": {
-    "overall_score": 70,
     "verdict": "needs_revision"
   }
 }"#;
@@ -321,7 +316,7 @@ fn test_extract_json_single_object_with_nested_text() {
 /// Chinese characters before { in bare JSON — was broken before the fix.
 #[test]
 fn test_extract_json_chinese_before_brace() {
-    let response = "审查结果如下：{\"issues\":[],\"summary\":{\"overall_score\":100,\"verdict\":\"approved\"}}";
+    let response = "审查结果如下：{\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["summary"]["verdict"], "approved");
@@ -330,7 +325,7 @@ fn test_extract_json_chinese_before_brace() {
 /// Emoji before { in bare JSON — multi-byte chars (4-byte UTF-8).
 #[test]
 fn test_extract_json_emoji_before_brace() {
-    let response = "✅✅✅{\"issues\":[],\"summary\":{\"overall_score\":100,\"verdict\":\"approved\"}}";
+    let response = "✅✅✅{\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["summary"]["verdict"], "approved");
@@ -339,7 +334,7 @@ fn test_extract_json_emoji_before_brace() {
 /// Mixed CJK, emoji, and Latin characters before { in bare JSON.
 #[test]
 fn test_extract_json_mixed_multibyte_before_brace() {
-    let response = "代码审查🎯完成! Result:{\"issues\":[],\"summary\":{\"overall_score\":100,\"verdict\":\"approved\"}}";
+    let response = "代码审查🎯完成! Result:{\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["summary"]["verdict"], "approved");
@@ -348,7 +343,7 @@ fn test_extract_json_mixed_multibyte_before_brace() {
 /// CJK text inside a ```json code block (most common LLM output with Chinese).
 #[test]
 fn test_extract_json_chinese_in_code_block() {
-    let response = "审查结果：\n\n```json\n{\"issues\":[{\"file\":\"src/main.rs\",\"line\":42,\"severity\":\"high\",\"title\":\"安全问题\",\"description\":\"发现SQL注入风险\"}],\"summary\":{\"overall_score\":70,\"verdict\":\"needs_revision\"}}\n```";
+    let response = "审查结果：\n\n```json\n{\"issues\":[{\"file\":\"src/main.rs\",\"line\":42,\"severity\":\"high\",\"title\":\"安全问题\",\"description\":\"发现SQL注入风险\"}],\"summary\":{\"verdict\":\"needs_revision\"}}\n```";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["issues"][0]["title"], "安全问题");
@@ -358,7 +353,7 @@ fn test_extract_json_chinese_in_code_block() {
 /// CJK text inside a plain ``` code block (without json specifier).
 #[test]
 fn test_extract_json_chinese_in_plain_code_block() {
-    let response = "分析完毕:\n\n```\n{\"issues\":[{\"title\":\"需要改进\"}],\"summary\":{\"overall_score\":80,\"verdict\":\"approved\"}}\n```";
+    let response = "分析完毕:\n\n```\n{\"issues\":[{\"title\":\"需要改进\"}],\"summary\":{\"verdict\":\"approved\"}}\n```";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["issues"][0]["title"], "需要改进");
@@ -409,7 +404,7 @@ fn test_extract_json_chinese_in_json_values() {
 /// This simulates what actually caused the "expected value at line 1 column 1" error.
 #[test]
 fn test_extract_json_auto_review_chinese_response() {
-    let response = "✅ 代码审查完成\n\n分析结果：审查了所有变更文件，以下是审查报告：\n\n{\"issues\":[{\"file\":\"README.md\",\"line\":1,\"severity\":\"low\",\"category\":\"style\",\"title\":\"格式建议\",\"description\":\"可以考虑改进文档结构\"}],\"summary\":{\"overall_score\":85,\"verdict\":\"approved\"}}";
+    let response = "✅ 代码审查完成\n\n分析结果：审查了所有变更文件，以下是审查报告：\n\n{\"issues\":[{\"file\":\"README.md\",\"line\":1,\"severity\":\"low\",\"category\":\"style\",\"title\":\"格式建议\",\"description\":\"可以考虑改进文档结构\"}],\"summary\":{\"verdict\":\"approved\"}}";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["summary"]["verdict"], "approved");
@@ -637,7 +632,6 @@ fn test_remove_trailing_commas_realistic_review() {
     }
   ],
   "summary": {
-    "overall_score": 80,
     "verdict": "approved",
   }
 }"#;
@@ -665,7 +659,6 @@ multi-line description",
     }
   ],
   "summary": {
-    "overall_score": 70,
     "verdict": "needs_revision",
   }
 }"#;
@@ -730,22 +723,6 @@ fn test_review_outcome_manual_no_trigger() {
     // Even with NeedsRevision, auto_trigger=false = should NOT trigger fix loop
     let should_fix = outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved;
     assert!(!should_fix, "Manual review should not trigger fix loop");
-}
-
-/// Test ReviewOutcome with Rejected verdict (should trigger fix loop)
-#[test]
-fn test_review_outcome_rejected() {
-    let outcome = ReviewOutcome {
-        display_text: "❌ Code rejected".to_string(),
-        verdict: ReviewVerdict::Rejected,
-        report_summary: "Score: 30/100, 5 critical issues".to_string(),
-        report: None,
-        auto_trigger: true,
-        review_baseline: None,
-    };
-    // Rejected + auto_trigger = SHOULD trigger fix loop (code needs serious fixes)
-    let should_fix = outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved;
-    assert!(should_fix, "Rejected should trigger fix loop");
 }
 
 /// Test iteration counter logic: iteration < max_iterations allows fix
@@ -1252,7 +1229,6 @@ fn test_verdict_with_functional_completeness_issue_is_needs_revision() {
             medium_count: 0,
             low_count: 0,
             info_count: 0,
-            overall_score: 70.0,
             verdict: ReviewVerdict::NeedsRevision,
         },
         issues: vec![
@@ -1310,7 +1286,7 @@ fn test_verdict_downgrade_from_approved_when_issues_exist() {
             ReviewVerdict::Approved
         }
     } else {
-        ReviewVerdict::Rejected
+        ReviewVerdict::NeedsRevision
     };
 
     assert_eq!(actual_verdict, ReviewVerdict::NeedsRevision,
@@ -1419,7 +1395,6 @@ fn test_review_coverage_table_format() {
             medium_count: 1,
             low_count: 0,
             info_count: 0,
-            overall_score: 55.0,
             verdict: ReviewVerdict::NeedsRevision,
         },
         issues: vec![
@@ -1517,7 +1492,6 @@ fn test_fix_prompt_contains_coverage_section() {
             medium_count: 0,
             low_count: 0,
             info_count: 0,
-            overall_score: 100.0,
             verdict: ReviewVerdict::Approved,
         },
         issues: vec![],
@@ -1564,7 +1538,6 @@ fn test_review_coverage_empty_report() {
             medium_count: 0,
             low_count: 0,
             info_count: 0,
-            overall_score: 100.0,
             verdict: ReviewVerdict::Approved,
         },
         issues: vec![],
