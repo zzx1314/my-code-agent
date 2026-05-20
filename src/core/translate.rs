@@ -10,6 +10,7 @@ fn provider_default_url(provider: &str) -> &'static str {
     match provider {
         "deepseek" => "https://api.deepseek.com/v1",
         "openrouter" => "https://openrouter.ai/api/v1",
+        "ollama" => "http://localhost:11434/v1",
         _ => "https://api.deepseek.com/v1",
     }
 }
@@ -20,6 +21,7 @@ fn provider_default_api_key_env(provider: &str) -> &'static str {
         "deepseek" => "DEEPSEEK_API_KEY",
         "openrouter" => "OPENROUTER_API_KEY",
         "custom" => "OPENAI_API_KEY",
+        "ollama" => "OLLAMA_API_KEY",
         _ => "DEEPSEEK_API_KEY",
     }
 }
@@ -110,7 +112,21 @@ pub fn is_enabled(config: &Config) -> bool {
 pub fn build_client(config: &Config) -> LlmClient {
     let base_url = resolve_base_url(config);
     let model = resolve_model(config);
-    let api_key = resolve_api_key(config);
+
+    // For local Ollama, skip API key auth entirely.
+    // Check the resolved base_url directly — this covers both:
+    // - Main provider is Ollama triggering localhost default
+    // - Translation explicitly configured to use local Ollama (regardless of main provider)
+    let is_local_ollama = base_url.starts_with("http://localhost:11434")
+        || base_url.starts_with("http://127.0.0.1:11434");
+
+    let api_key = if is_local_ollama {
+        tracing::info!("Translation: local Ollama — skipping API key auth");
+        String::new()
+    } else {
+        resolve_api_key(config)
+    };
+
     let timeout = resolve_timeout(config);
     LlmClient::new(&base_url, &api_key, &model).with_timeout(timeout)
 }

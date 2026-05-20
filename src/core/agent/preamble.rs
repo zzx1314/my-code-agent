@@ -171,6 +171,7 @@ pub enum Provider {
     Cohere,
     OpenRouter,
     Custom,
+    Ollama,
 }
 
 impl Provider {
@@ -182,6 +183,7 @@ impl Provider {
             "cohere" => Some(Provider::Cohere),
             "openrouter" => Some(Provider::OpenRouter),
             "custom" => Some(Provider::Custom),
+            "ollama" => Some(Provider::Ollama),
             _ => None,
         }
     }
@@ -194,6 +196,7 @@ impl Provider {
             Provider::Cohere => "command-r-plus",
             Provider::OpenRouter => "openrouter/owl-alpha",
             Provider::Custom => "gpt-4o",
+            Provider::Ollama => "llama3.2",
         }
     }
 
@@ -205,6 +208,7 @@ impl Provider {
             Provider::Cohere => "COHERE_API_KEY",
             Provider::OpenRouter => "OPENROUTER_API_KEY",
             Provider::Custom => "OPENAI_API_KEY",
+            Provider::Ollama => "OLLAMA_API_KEY",
         }
     }
 
@@ -216,6 +220,7 @@ impl Provider {
             Provider::Cohere => "Cohere",
             Provider::OpenRouter => "OpenRouter",
             Provider::Custom => "Custom",
+            Provider::Ollama => "Ollama",
         }
     }
 }
@@ -230,18 +235,17 @@ pub fn build_client(config: &Config) -> LlmClient {
         .as_deref()
         .unwrap_or(provider.default_model())
         .to_string();
-    let api_key_env = if config.llm.api_key_env.is_empty() {
-        provider.default_api_key_env()
-    } else {
-        &config.llm.api_key_env
-    };
 
-    check_api_key(provider.display_name(), api_key_env);
-    let api_key = std::env::var(api_key_env).unwrap_or_default();
-
+    // Compute base_url first — the API key logic below depends on it to
+    // distinguish local Ollama (no auth) from remote Ollama (may need auth).
     let base_url = match provider {
         Provider::DeepSeek => "https://api.deepseek.com/v1",
         Provider::OpenRouter => "https://openrouter.ai/api/v1",
+        Provider::Ollama => config
+            .llm
+            .base_url
+            .as_deref()
+            .unwrap_or("http://localhost:11434/v1"),
         Provider::Custom => config
             .llm
             .base_url
@@ -254,6 +258,37 @@ pub fn build_client(config: &Config) -> LlmClient {
             tracing::warn!(provider = %provider.display_name(), "Provider not fully implemented, using DeepSeek endpoint");
             "https://api.deepseek.com/v1"
         }
+    };
+
+    let api_key_env = if config.llm.api_key_env.is_empty() {
+        provider.default_api_key_env()
+    } else {
+        &config.llm.api_key_env
+    };
+
+    // ── API key ───────────────────────────────────────────────────────────
+    // For local Ollama (default localhost URL), force an empty API key so no
+    // Authorization header is sent — avoids 401 when OLLAMA_API_KEY happens to
+    // be set in the environment from other tools.
+    // For remote Ollama (custom base_url) or other providers, read from env.
+    let is_local_ollama = provider == Provider::Ollama
+        && (base_url.starts_with("http://localhost:11434")
+            || base_url.starts_with("http://127.0.0.1:11434"));
+
+    let api_key = if is_local_ollama {
+        tracing::info!(
+            "Local Ollama detected — skipping API key auth; set a custom base_url in config.toml for remote Ollama with auth"
+        );
+        String::new()
+    } else {
+        if provider == Provider::Ollama {
+            tracing::info!(
+                "Remote Ollama base_url detected — reading OLLAMA_API_KEY from environment"
+            );
+        } else {
+            check_api_key(provider.display_name(), api_key_env);
+        }
+        std::env::var(api_key_env).unwrap_or_default()
     };
 
     let mut client = LlmClient::new(base_url, &api_key, &model);

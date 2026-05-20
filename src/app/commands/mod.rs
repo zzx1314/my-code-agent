@@ -35,7 +35,7 @@ pub fn handle_command(
         "/load" => load::handle(app),
         "/status" => status::handle(app),
         "/tokens" => tokens::handle(app),
-        "/connect" => connect::handle(app),
+        cmd if cmd.starts_with("/connect") => connect::handle(app, input),
         "/think" => think::handle(app),
         "/model" => model::handle(app),
         "/init" => init::handle(app),

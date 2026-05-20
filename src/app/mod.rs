@@ -5,6 +5,7 @@ use crate::core::context::token_usage::TokenUsage;
 use crate::tools::exec::confirmation::ConfirmationRequest;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Instant;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
@@ -333,12 +334,13 @@ impl App {
             model_selected: 0,
             // Provider picker initialization
             show_provider_picker: false,
-            provider_options: vec!["deepseek".to_string(), "openrouter".to_string(), "custom".to_string()],
+            provider_options: vec!["deepseek".to_string(), "openrouter".to_string(), "ollama".to_string(), "custom".to_string()],
             provider_selected: {
                 let p = config.llm.provider.as_str();
                 match p {
                     "openrouter" => 1,
-                    "custom" => 2,
+                    "ollama" => 2,
+                    "custom" => 3,
                     _ => 0,
                 }
             },
@@ -379,7 +381,11 @@ impl App {
     }
 }
 
-/// Return the list of model options for the given provider
+/// Return the list of model options for the given provider.
+///
+/// For Ollama, this fetches the locally available models from the Ollama API
+/// (`GET /api/tags`). If the request fails (e.g. Ollama is not running),
+/// falls back to a small set of common model names.
 pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
     match provider {
         "deepseek" => vec!["deepseek-v4-flash".to_string(), "deepseek-v4-pro".to_string()],
@@ -388,7 +394,102 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
             "deepseek/deepseek-v4-flash".to_string(),
             "deepseek/deepseek-v4-pro".to_string(),
         ],
+        "ollama" => fetch_ollama_models(),
         "custom" => vec!["custom-model".to_string()],
         _ => vec!["deepseek-v4-flash".to_string(), "deepseek-v4-pro".to_string()],
     }
+}
+/// Apply provider configuration (API key env var, model options, model).
+/// Shared by the provider picker and `/connect <provider>` command.
+pub fn apply_provider_config(app: &mut App, provider_name: &str) {
+    app.config.llm.provider = provider_name.to_string();
+    if provider_name != "custom" {
+        app.config.llm.api_key_env = match provider_name {
+            "deepseek" => "DEEPSEEK_API_KEY".to_string(),
+            "openrouter" => "OPENROUTER_API_KEY".to_string(),
+            "ollama" => "OLLAMA_API_KEY".to_string(),
+            _ => String::new(),
+        };
+        // Clear base_url for non-custom providers — each has a known default
+        // URL (e.g. localhost:11434 for Ollama, api.deepseek.com for DeepSeek).
+        // Keeping a stale base_url from a previous custom provider would cause
+        // requests to go to the wrong endpoint and potentially send wrong auth.
+        app.config.llm.base_url = None;
+        app.model_options = get_model_options_for_provider(provider_name);
+        app.config.llm.model = app.model_options.first().cloned();
+        app.model_selected = 0;
+    } else {
+        // Custom provider: preserve config.toml values (model, api_key_env, base_url)
+        let current_model = app.config.llm.model.clone().unwrap_or_default();
+        app.model_options = vec![current_model];
+        app.model_selected = 0;
+    }
+}
+/** Global singleton for the async HTTP client used to fetch Ollama models.
+ *
+ * We intentionally use the async `reqwest::Client` (not the blocking variant)
+ * to avoid creating any nested tokio runtimes. Since `fetch_ollama_models()`
+ * is called from synchronous code that runs inside a tokio runtime, we use
+ * `tokio::task::block_in_place` + `Handle::current().block_on()` to bridge
+ * the sync→async boundary safely.
+ */
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+/// Fetch the list of locally available models from the Ollama API.
+///
+/// Queries `GET http://localhost:11434/api/tags` with a short timeout.
+/// Returns model names on success, or a fallback list on failure.
+fn fetch_ollama_models() -> Vec<String> {
+    let fallback = vec!["llama3.2".to_string(), "llama3.1".to_string(), "codellama".to_string()];
+
+    let client = HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .expect("Failed to build reqwest Client")
+    });
+
+    // Bridge sync→async safely: block_in_place yields the current async task,
+    // allowing us to use Handle::current().block_on() without panicking.
+    tokio::task::block_in_place(|| {
+        let handle = tokio::runtime::Handle::current();
+
+        let resp = match handle.block_on(client.get("http://localhost:11434/api/tags").send()) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::debug!(error = %e, "Failed to fetch Ollama models, using fallback");
+                return fallback;
+            }
+        };
+
+        if !resp.status().is_success() {
+            tracing::debug!(status = %resp.status(), "Ollama /api/tags returned non-success, using fallback");
+            return fallback;
+        }
+
+        let json: serde_json::Value = match handle.block_on(resp.json()) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::debug!(error = %e, "Failed to parse Ollama /api/tags response, using fallback");
+                return fallback;
+            }
+        };
+
+        let models = json["models"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        if models.is_empty() {
+            tracing::debug!("Ollama returned empty model list, using fallback");
+            fallback
+        } else {
+            tracing::info!(count = models.len(), "Fetched Ollama models");
+            models
+        }
+    })
 }

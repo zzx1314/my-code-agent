@@ -51,10 +51,15 @@ impl LlmClient {
     fn headers(&self) -> Result<HeaderMap> {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        let auth_value = HeaderValue::from_str(&format!("Bearer {}", self.api_key))
-            .context("Invalid API key format")?;
-        headers.insert(AUTHORIZATION, auth_value);
-        // Optional headers for OpenRouter — other providers silently ignore them.
+        // Only send Authorization header if an API key is configured.
+        // Providers without auth (e.g. local Ollama) skip the header entirely,
+        // avoiding 401 errors from empty/tokenless Bearer headers.
+        if !self.api_key.is_empty() {
+            let auth_value = HeaderValue::from_str(&format!("Bearer {}", self.api_key))
+                .context("Invalid API key format")?;
+            headers.insert(AUTHORIZATION, auth_value);
+        }
+
         headers.insert("HTTP-Referer", HeaderValue::from_static("https://github.com/my-code-agent"));
         headers.insert("X-OpenRouter-Title", HeaderValue::from_static("My Code Agent"));
         Ok(headers)
