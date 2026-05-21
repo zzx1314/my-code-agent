@@ -560,14 +560,17 @@ fn render_reasoning_inline(
 
     if total > COLLAPSE_THRESHOLD {
         if collapsed {
-            for line in styled.iter().take(COLLAPSE_THRESHOLD) {
+            // Show the LAST COLLAPSE_THRESHOLD lines (newest content visible by default).
+            let start = total.saturating_sub(COLLAPSE_THRESHOLD);
+            for line in styled.iter().skip(start) {
                 vis_pos += visual_lines(line, area_width);
                 lines.push(line.clone());
             }
+            let hidden_count = total - COLLAPSE_THRESHOLD;
             app.collapsed_toggles
                 .push((vis_pos, section_id.clone(), total));
             lines.push(Line::from(vec![Span::styled(
-                format!("    [+ {} more reasoning lines - click to expand]", total - COLLAPSE_THRESHOLD),
+                format!("    [+ {} older reasoning lines hidden - click to expand]", hidden_count),
                 Style::default()
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::BOLD),
@@ -629,12 +632,15 @@ fn render_streaming_reasoning_inline(lines: &mut Vec<ratatui::text::Line<'static
 
         if total > COLLAPSE_THRESHOLD {
             if collapsed {
-                for line in styled.iter().take(COLLAPSE_THRESHOLD) {
+                // Show the LAST COLLAPSE_THRESHOLD lines (newest content visible by default).
+                let start = total.saturating_sub(COLLAPSE_THRESHOLD);
+                for line in styled.iter().skip(start) {
                     lines.push(line.clone());
                 }
+                let hidden_count = total - COLLAPSE_THRESHOLD;
                 app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
                 lines.push(Line::from(vec![Span::styled(
-                    format!("    [+ {} more reasoning lines - click to expand]", total - COLLAPSE_THRESHOLD),
+                    format!("    [+ {} older reasoning lines hidden - click to expand]", hidden_count),
                     Style::default()
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::BOLD),
