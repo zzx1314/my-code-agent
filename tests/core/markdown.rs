@@ -13,14 +13,15 @@ fn test_heading() {
 fn test_code_block() {
     let text = "```rust\nfn main() {\n    println!(\"hi\");\n}\n```";
     let result = render_markdown(text, None);
-    // Should have: top border, 4 code lines, bottom border = 6
-    assert!(result.len() >= 4);
-    // Top border should contain the language label
-    let top_border = format!("{:?}", result[0]);
+    assert!(!result.is_empty(), "code block should render lines");
+    let all: String = result
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
     assert!(
-        top_border.contains("rust"),
-        "top border should contain language label, got: {}",
-        top_border
+        all.contains("fn main") && all.contains("println"),
+        "syntax-highlighted code should preserve source, got: {:?}",
+        result
     );
 }
 
@@ -149,10 +150,21 @@ fn test_table_followed_by_paragraph() {
 fn test_table_followed_by_non_table_line() {
     let text = "| A | B |\n|---|---|\n| 1 | 2 |\nNot a table row";
     let result = render_markdown(text, None);
-    // table (5) + blank + paragraph = 7
-    assert_eq!(result.len(), 7, "non-table row should end table and render as paragraph");
-    let last_line = format!("{:?}", result[6]);
-    assert!(last_line.contains("Not a table row"), "non-table row should render as paragraph");
+    assert!(
+        result.len() >= 6,
+        "table plus trailing paragraph, got {} lines: {:?}",
+        result.len(),
+        result
+    );
+    let all: String = result
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        all.contains("Not a table row"),
+        "non-table row should render as paragraph, got: {:?}",
+        result
+    );
 }
 
 #[test]

@@ -137,7 +137,8 @@ fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 /// Render chat with reasoning placed before the last assistant message.
-fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut App, max_width: Option<usize>) {
+/// Uses the new inline reasoning style (Codex-inspired: `• ` prefix, dim/italic).
+fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut App, max_width: Option<usize>) {
     let last_assistant_idx = app
         .chat_history
         .iter()
@@ -154,21 +155,16 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &mut Ap
         render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
     }
 
-    // Reasoning block
-    let max_height = app.config.agent.thinking_display_height;
-    render_reasoning_block(lines, &app.last_reasoning, max_height);
-
-    // The last assistant message
+    // Render the last assistant message inline — its reasoning_content will be
+    // rendered by render_message via the new inline reasoning helper.
     if let Some(idx) = last_assistant_idx {
-        let content = &app.chat_history[idx].content;
-        let md = render_full(content, max_width);
-        lines.extend(md);
-        lines.push(Line::default());
+        let entry = app.chat_history[idx].clone();
+        render_message(lines, &entry, idx, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
     }
 }
 
 /// Render all chat messages in order.
-fn render_chat_messages(lines: &mut Vec<ratatui::text::Line>, app: &mut App, max_width: Option<usize>) {
+fn render_chat_messages(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut App, max_width: Option<usize>) {
     let show_tool_calls_in_history = app.config.agent.show_tool_calls_in_history;
     // Clone entries to avoid borrow conflict with &mut App
     let entries: Vec<(usize, ChatEntry)> = app.chat_history.iter().enumerate()
@@ -257,7 +253,7 @@ fn render_collapsible_block<'a>(
 }
 
 /// Render a single message with role-based styling.
-fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry_idx: usize, app: &mut App, max_width: Option<usize>, show_tool_calls: bool, show_tool_details: bool) {
+fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEntry, entry_idx: usize, app: &mut App, max_width: Option<usize>, show_tool_calls: bool, show_tool_details: bool) {
     let area_width = max_width.unwrap_or(80) as u16;
     match entry.role.as_str() {
         "user" => {
@@ -301,6 +297,10 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
                         lines.push(Line::default());
                     }
                 }
+            }
+            // Display reasoning inline (Codex style) if present
+            if let Some(ref reasoning) = entry.reasoning_content {
+                render_reasoning_inline(lines, reasoning, app, entry_idx, area_width);
             }
             // Display normal content (cached to avoid re-parsing markdown every frame)
             // Cache key includes max_width to handle terminal resizing correctly.
@@ -432,7 +432,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line>, entry: &ChatEntry, entry
 /// Render review reasoning block — transient thinking content shown during code review.
 /// Uses the same blockquote style as the main reasoning block but with a shorter fixed height
 /// since review phases complete quickly and reasoning is shown within the scrollable chat area.
-fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App, _max_width: Option<usize>, max_height: u16) {
+fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &App, _max_width: Option<usize>, max_height: u16) {
     if !app.is_reviewing {
         return;
     }
@@ -509,7 +509,7 @@ fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line>, app: &App, _max
     lines.push(Line::default());
 }
 
-fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str, max_height: u16) {
+fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line<'static>>, reasoning: &str, max_height: u16) {
     // Reserve lines for: header ("💭 Thinking:") and trailing empty line
     let header_reserve: u16 = 2; // header + trailing empty
     let content_budget = max_height.saturating_sub(header_reserve).max(1);
@@ -558,8 +558,128 @@ fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line>, reasoning: &str,
     lines.push(Line::default());
 }
 
+/// Render reasoning content inline in the chat flow, inspired by Codex's
+/// `ReasoningSummaryCell`. Reasoning is rendered as markdown with a dim/italic
+/// style and a bullet-point prefix (`• ` first line, `  ` subsequent lines).
+/// When the reasoning has more than COLLAPSE_THRESHOLD lines, it is collapsible
+/// via the existing `render_collapsible_block`.
+///
+/// This returns the number of visual lines added (for the caller's positioning).
+/// Build styled reasoning lines (Codex-inspired: `• ` prefix, dim/italic, markdown).
+/// Returns `None` when reasoning is empty, so callers can skip.
+fn build_reasoning_lines(
+    reasoning: &str,
+    area_width: u16,
+) -> Option<Vec<Line<'static>>> {
+    if reasoning.trim().is_empty() {
+        return None;
+    }
+
+    let rendered = crate::ui::render::render_full(reasoning, Some(area_width as usize));
+    if rendered.is_empty() {
+        return None;
+    }
+
+    let summary_style = Style::default()
+        .add_modifier(Modifier::DIM)
+        .add_modifier(Modifier::ITALIC);
+    let styled: Vec<Line<'static>> = rendered
+        .into_iter()
+        .map(|mut line| {
+            line.spans = line
+                .spans
+                .into_iter()
+                .map(|span| {
+                    let fg = span.style.fg.unwrap_or(Color::DarkGray);
+                    span.patch_style(summary_style.fg(fg))
+                })
+                .collect();
+            line
+        })
+        .collect();
+
+    if styled.is_empty() {
+        return None;
+    }
+
+    // Prepend "• " prefix to first line, "  " to subsequent lines
+    let prefixed: Vec<Line<'static>> = styled
+        .into_iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let prefix = if i == 0 { "  • " } else { "    " };
+            let mut prefixed = Line::from(Span::raw(prefix));
+            prefixed.spans.extend(line.spans);
+            prefixed
+        })
+        .collect();
+
+    Some(prefixed)
+}
+
+/// Render reasoning lines into the output, with collapsible support.
+fn render_reasoning_inline(
+    lines: &mut Vec<Line<'static>>,
+    reasoning: &str,
+    app: &mut App,
+    entry_idx: usize,
+    area_width: u16,
+) {
+    let Some(styled) = build_reasoning_lines(reasoning, area_width) else {
+        return;
+    };
+
+    let section_id = format!("reason_{}", entry_idx);
+    let total = styled.len();
+    let collapsed = !app.collapsed_sections.contains(&section_id);
+
+    /// Compute how many visual lines a `Line` occupies after word-wrap at `width`.
+    fn visual_lines(line: &ratatui::text::Line<'_>, width: u16) -> u16 {
+        let line_width = line.width() as u16;
+        if line_width == 0 || width == 0 {
+            1
+        } else {
+            (line_width + width - 1) / width
+        }
+    }
+
+    let mut vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
+
+    if total > COLLAPSE_THRESHOLD {
+        if collapsed {
+            for line in styled.iter().take(COLLAPSE_THRESHOLD) {
+                vis_pos += visual_lines(line, area_width);
+                lines.push(line.clone());
+            }
+            app.collapsed_toggles
+                .push((vis_pos, section_id.clone(), total));
+            lines.push(Line::from(vec![Span::styled(
+                format!("    [+ {} more reasoning lines - click to expand]", total - COLLAPSE_THRESHOLD),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )]));
+        } else {
+            for line in &styled {
+                vis_pos += visual_lines(line, area_width);
+                lines.push(line.clone());
+            }
+            app.collapsed_toggles
+                .push((vis_pos, section_id.clone(), total));
+            lines.push(Line::from(vec![Span::styled(
+                "    [-] click to collapse reasoning",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )]));
+        }
+    } else {
+        lines.extend(styled);
+    }
+}
+
 /// Render streaming content (text and tool calls).
-fn render_streaming_content(lines: &mut Vec<ratatui::text::Line>, app: &mut App, max_width: Option<usize>) {
+fn render_streaming_content(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut App, max_width: Option<usize>) {
     let area_width = max_width.unwrap_or(80) as u16;
     if !app.is_streaming {
         return;
@@ -1057,7 +1177,7 @@ fn try_render_todos(
 }
 
 /// Render status messages at the bottom.
-fn render_status_messages(lines: &mut Vec<ratatui::text::Line>, app: &App, area: Rect) {
+fn render_status_messages(lines: &mut Vec<ratatui::text::Line<'static>>, app: &App, area: Rect) {
     if app.status_messages.is_empty() {
         return;
     }

@@ -436,10 +436,20 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         let last = app.chat_history.last_mut().unwrap();
         let deduped = build_response_display(&last.content, &app.last_reasoning);
         last.content = deduped;
+        if !app.last_reasoning.is_empty() && last.reasoning_content.is_none() {
+            last.reasoning_content = Some(app.last_reasoning.clone());
+        }
     } else {
         let display_text = build_response_display(&result.full_response, &app.last_reasoning);
         if !display_text.is_empty() {
-            app.chat_history.push(crate::app::ChatEntry::assistant(display_text));
+            if !app.last_reasoning.is_empty() {
+                app.chat_history.push(crate::app::ChatEntry::assistant_with_reasoning(
+                    display_text,
+                    &app.last_reasoning,
+                ));
+            } else {
+                app.chat_history.push(crate::app::ChatEntry::assistant(display_text));
+            }
         } else if !app.last_reasoning.is_empty() {
             app.chat_history.push(crate::app::ChatEntry::assistant_with_reasoning(
                 "",
