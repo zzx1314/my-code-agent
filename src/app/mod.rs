@@ -443,12 +443,13 @@ static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 /// Returns model names on success, or a fallback list on failure.
 /// Compute the user message background color (Codex-style: terminal bg + 12% white overlay).
 /// Assumes a dark terminal background (pure black) — the most common case.
-/// Produces ~Rgb(30, 30, 30) which matches Codex's `user_message_bg(0,0,0)`.
+/// Produces ~Rgb(32, 32, 36) — very subtle, just enough to visually distinguish user messages.
 fn compute_user_message_bg() -> ratatui::style::Color {
-    // For a dark terminal with bg ~ (0,0,0), blend white at 12%:
-    // (255*0.12 + 0*0.88, 255*0.12 + 0*0.88, 255*0.12 + 0*0.88) ≈ (30, 30, 30)
-    // This matches what Codex's `user_message_bg(dark_bg)` produces.
-    ratatui::style::Color::Rgb(30, 30, 30)
+    // Very subtle gray for user messages in chat history — barely visible,
+    // just enough to visually distinguish user messages from terminal bg.
+    // Input area uses terminal default (transparent), so this bg only
+    // affects chat messages.
+    ratatui::style::Color::Rgb(32, 32, 36)
 }
 
 fn fetch_ollama_models() -> Vec<String> {
