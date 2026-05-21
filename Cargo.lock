@@ -1382,6 +1382,7 @@ dependencies = [
  "dotenv",
  "futures",
  "glob",
+ "libc",
  "pulldown-cmark",
  "ratatui",
  "regex-lite",

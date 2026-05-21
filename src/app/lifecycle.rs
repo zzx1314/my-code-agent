@@ -77,6 +77,12 @@ pub async fn run_app(
     >,
     mut context_manager: ContextManager,
 ) -> Result<()> {
+    // ── Query terminal background for frosted‑glass input ───────────────
+    // Must happen BEFORE enter_terminal() (raw mode) so we can safely read
+    // the OSC 11 response via libc::poll on the raw stdin fd.
+    let terminal_bg = app::terminal::query_terminal_bg_color();
+    let input_bg = crate::app::compute_frosted_glass_color(terminal_bg);
+
     let mut terminal = app::terminal::enter_terminal()?;
 
     // Build the App
@@ -90,6 +96,7 @@ pub async fn run_app(
     );
     app.confirmation_rx = confirmation_rx;
     app.orchestrator = Some(orchestrator);
+    app.input_bg_color = input_bg;
 
     // ── Event loop ──────────────────────────────────────────────────────────
     loop {

@@ -5,11 +5,6 @@ use ratatui::{
 
 use crate::app::App;
 
-/// Subtle gray background for the input area — enough to distinguish it from the
-/// terminal background, but transparent-looking enough to avoid CJK color issues
-/// when combined with an explicit cursor_line_style.
-const INPUT_BG_COLOR: Color = Color::Rgb(48, 48, 52);
-
 /// Minimum input area height (1 content line + 1 top pad + 1 bottom pad).
 const MIN_INPUT_HEIGHT: u16 = 3;
 /// Maximum input area height.
@@ -23,15 +18,16 @@ const MAX_QUEUE_DISPLAY_LINES: usize = 4;
 /// The cursor line style always includes the input background color so that
 /// `cell.set_style()` in the textarea renderer preserves the background.
 fn update_input_style(app: &mut App) {
+    let bg = app.input_bg_color;
+
     let cursor_line_style = if app.is_streaming {
-        Style::default().bg(INPUT_BG_COLOR) // match input bg while streaming
+        Style::default().bg(bg)
     } else if app.shell_mode {
-        Style::default().bg(Color::Rgb(40, 0, 60)) // purple tint for shell mode
+        Style::default().bg(Color::Rgb(40, 0, 60))
     } else {
-        Style::default().bg(INPUT_BG_COLOR) // match input bg in normal mode
+        Style::default().bg(bg)
     };
 
-    // No block/borders — Codex-style input is clean.
     app.input.set_cursor_line_style(cursor_line_style);
     app.input.set_cursor_style(Style::default());
 }
@@ -171,21 +167,16 @@ pub fn render_queue_display(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-/// Render the input textarea widget, background, and position the native terminal cursor.
-///
-/// Codex-style: clean background fill with no borders or footer hints.
+/// Render the input textarea with a frosted‑glass background and position
+/// the native terminal cursor.
 pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     update_input_style(app);
 
-    // Fill the entire input area with a subtle gray background.
-    // The cursor_line_style (set above) includes the same bg color, so
-    // `cell.set_style()` in the textarea renderer won't clear it — this
-    // avoids the CJK color inconsistency problem.
+    let bg = app.input_bg_color;
     let bg_paragraph = Paragraph::new("")
-        .style(Style::default().bg(INPUT_BG_COLOR));
+        .style(Style::default().bg(bg));
     f.render_widget(bg_paragraph, area);
 
-    // Render the textarea over the background (full area — no footer row).
     f.render_widget(&app.input, area);
 
     // Render the prompt prefix (›) on the first text line (Codex-style).

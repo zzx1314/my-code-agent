@@ -259,6 +259,10 @@ pub struct App {
     pub translation_original: String,
     /// Computed user message background color (Codex-style: terminal bg + 12% white overlay).
     pub user_message_bg: ratatui::style::Color,
+    /// Frosted glass background color for the input area.
+    /// Dynamically computed from the terminal's actual background color at startup.
+    /// Falls back to `Rgb(48, 48, 52)` when the terminal doesn't support OSC 11.
+    pub input_bg_color: ratatui::style::Color,
 }
 
 impl App {
@@ -379,6 +383,7 @@ impl App {
             translation_rx: None,
             translation_original: String::new(),
             user_message_bg: compute_user_message_bg(),
+            input_bg_color: ratatui::style::Color::Rgb(48, 48, 52),
         }
     }
 }
@@ -444,6 +449,25 @@ static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 /// Compute the user message background color (Codex-style: terminal bg + 12% white overlay).
 /// Assumes a dark terminal background (pure black) — the most common case.
 /// Produces ~Rgb(32, 32, 36) — very subtle, just enough to visually distinguish user messages.
+/// Blend the terminal's background color with a white overlay for a
+/// frosted‑glass look.
+///
+/// Formula: `0.85 × bg + 0.15 × white`, plus a +4 blue cast on B for a
+/// cool glass tint.  Falls back to `Rgb(48, 48, 52)` when `os_11_bg` is
+/// `None` (terminal doesn't support OSC 11).
+pub fn compute_frosted_glass_color(os_11_bg: Option<(u8, u8, u8)>) -> ratatui::style::Color {
+    let (r, g, b) = match os_11_bg {
+        Some(bg) => bg,
+        None => return ratatui::style::Color::Rgb(48, 48, 52),
+    };
+
+    let fr = (r as f32 * 0.85 + 38.0).round().clamp(0.0, 255.0) as u8;
+    let fg = (g as f32 * 0.85 + 38.0).round().clamp(0.0, 255.0) as u8;
+    let fb = (b as f32 * 0.85 + 42.0).round().clamp(0.0, 255.0) as u8;
+
+    ratatui::style::Color::Rgb(fr, fg, fb)
+}
+
 fn compute_user_message_bg() -> ratatui::style::Color {
     // Very subtle gray for user messages in chat history — barely visible,
     // just enough to visually distinguish user messages from terminal bg.
