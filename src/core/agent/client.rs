@@ -18,6 +18,8 @@ pub struct LlmClient {
     pub model: String,
     pub max_tokens: Option<u64>,
     pub timeout_secs: u64,
+    /// When true, adds `"reasoning": false` to the request body.
+    reasoning_disabled: bool,
 }
 
 impl LlmClient {
@@ -29,7 +31,13 @@ impl LlmClient {
             model: model.to_string(),
             max_tokens: None,
             timeout_secs: 0,
+            reasoning_disabled: false,
         }
+    }
+
+    pub fn with_reasoning_disabled(mut self, disabled: bool) -> Self {
+        self.reasoning_disabled = disabled;
+        self
     }
 
     pub fn with_timeout(mut self, secs: u64) -> Self {
@@ -108,6 +116,12 @@ impl LlmClient {
 
         if stream {
             body["stream_options"] = serde_json::json!({"include_usage": true});
+        }
+
+        // Disable model reasoning when requested (e.g. for translation calls
+        // where thinking output is unnecessary and wastes tokens).
+        if self.reasoning_disabled {
+            body["reasoning"] = serde_json::json!({"enabled": false});
         }
 
         // Transform reasoning_content field name if needed

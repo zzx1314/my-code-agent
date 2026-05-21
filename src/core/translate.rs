@@ -128,7 +128,9 @@ pub fn build_client(config: &Config) -> LlmClient {
     };
 
     let timeout = resolve_timeout(config);
-    LlmClient::new(&base_url, &api_key, &model).with_timeout(timeout)
+    LlmClient::new(&base_url, &api_key, &model)
+        .with_timeout(timeout)
+        .with_reasoning_disabled(config.translation.disable_reasoning)
 }
 
 /// Translate Chinese text to English using a dedicated lightweight LLM client.

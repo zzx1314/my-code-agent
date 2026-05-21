@@ -283,6 +283,12 @@ pub struct TranslationConfig {
     /// Request timeout in seconds for translation calls. Default: `15`.
     #[serde(default = "default_translation_timeout")]
     pub timeout_secs: u64,
+    /// Whether to disable model reasoning for translation requests.
+    /// When `true`, adds `"reasoning": false` to the API request body,
+    /// preventing the model from producing reasoning/thinking output.
+    /// Default: `true` (reasoning is disabled for translation).
+    #[serde(default = "default_true")]
+    pub disable_reasoning: bool,
 }
 
 fn default_translation_enabled() -> bool {
@@ -303,6 +309,7 @@ impl Default for TranslationConfig {
             base_url: None,
             api_key_env: String::new(),
             timeout_secs: default_translation_timeout(),
+            disable_reasoning: true,
         }
     }
 }
