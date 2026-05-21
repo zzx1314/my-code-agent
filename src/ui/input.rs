@@ -40,14 +40,16 @@ pub fn apply_input_wrap(_app: &mut App, _text_width: usize) {
 
 /// Calculate the dynamic height for the input area based on content and available width.
 ///
-/// Returns a value clamped between `MIN_INPUT_HEIGHT` (2) and `MAX_INPUT_HEIGHT` (12).
+/// Returns a value clamped between `MIN_INPUT_HEIGHT` (3) and `MAX_INPUT_HEIGHT` (12).
 /// An empty input returns the minimum height; wrapped multi-line content grows the area.
-/// The result includes 1 row reserved for the footer hint line.
+/// The input area has `top_pad=1` + `bot_pad=1`, so we add 2 to the wrapped line count
+/// so that all content lines are visible without internal scrolling.
 pub fn calculate_input_height(app: &App, area_width: u16) -> u16 {
     if app.input.is_empty() {
         return MIN_INPUT_HEIGHT;
     }
-    let height = app.input.desired_height(area_width);
+    let content_lines = app.input.desired_height(area_width);
+    let height = content_lines + 2; // +2 for top_pad(1) + bot_pad(1)
     height.min(MAX_INPUT_HEIGHT).max(MIN_INPUT_HEIGHT)
 }
 
