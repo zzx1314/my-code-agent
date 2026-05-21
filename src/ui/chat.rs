@@ -622,38 +622,65 @@ fn render_reasoning_inline(
         }
     }
 
-    let mut vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
+    let vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
 
     if total > COLLAPSE_THRESHOLD {
+        // Build clickable header line
+        let hidden_count = total - COLLAPSE_THRESHOLD;
+        let header = if collapsed {
+            Line::from(vec![
+                Span::styled(
+                    "  ▶ ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "💭 Thinking... ",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                ),
+                Span::styled(
+                    format!("({} lines hidden)", hidden_count),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::DIM),
+                ),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled(
+                    "  ▼ ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "💭 Thinking...",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                ),
+            ])
+        };
+
+        app.collapsed_toggles
+            .push((vis_pos, section_id.clone(), total));
+
+        lines.push(header);
+
         if collapsed {
             // Show the LAST COLLAPSE_THRESHOLD lines (newest content visible by default).
             let start = total.saturating_sub(COLLAPSE_THRESHOLD);
             for line in styled.iter().skip(start) {
-                vis_pos += visual_lines(line, area_width);
                 lines.push(line.clone());
             }
-            let hidden_count = total - COLLAPSE_THRESHOLD;
-            app.collapsed_toggles
-                .push((vis_pos, section_id.clone(), total));
-            lines.push(Line::from(vec![Span::styled(
-                format!("    [+ {} older reasoning lines hidden - click to expand]", hidden_count),
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::BOLD),
-            )]));
         } else {
+            // Show all lines when expanded
             for line in &styled {
-                vis_pos += visual_lines(line, area_width);
                 lines.push(line.clone());
             }
-            app.collapsed_toggles
-                .push((vis_pos, section_id.clone(), total));
-            lines.push(Line::from(vec![Span::styled(
-                "    [-] click to collapse reasoning",
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::BOLD),
-            )]));
         }
     } else {
         lines.extend(styled);
@@ -697,31 +724,61 @@ fn render_streaming_reasoning_inline(lines: &mut Vec<ratatui::text::Line<'static
         let vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
 
         if total > COLLAPSE_THRESHOLD {
+            // Build clickable header line
+            let hidden_count = total - COLLAPSE_THRESHOLD;
+            let header = if collapsed {
+                Line::from(vec![
+                    Span::styled(
+                        "  ▶ ",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "💭 Thinking... ",
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                    Span::styled(
+                        format!("({} lines hidden)", hidden_count),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::DIM),
+                    ),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled(
+                        "  ▼ ",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "💭 Thinking...",
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                ])
+            };
+
+            app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
+
+            lines.push(header);
+
             if collapsed {
                 // Show the LAST COLLAPSE_THRESHOLD lines (newest content visible by default).
                 let start = total.saturating_sub(COLLAPSE_THRESHOLD);
                 for line in styled.iter().skip(start) {
                     lines.push(line.clone());
                 }
-                let hidden_count = total - COLLAPSE_THRESHOLD;
-                app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
-                lines.push(Line::from(vec![Span::styled(
-                    format!("    [+ {} older reasoning lines hidden - click to expand]", hidden_count),
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::BOLD),
-                )]));
             } else {
+                // Show all lines when expanded
                 for line in &styled {
                     lines.push(line.clone());
                 }
-                app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
-                lines.push(Line::from(vec![Span::styled(
-                    "    [-] click to collapse reasoning",
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::BOLD),
-                )]));
             }
         } else {
             lines.extend(styled);
