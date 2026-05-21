@@ -217,18 +217,37 @@ fn render_collapsible_block<'a>(
 /// Render a single message with role-based styling.
 fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEntry, entry_idx: usize, app: &mut App, max_width: Option<usize>, show_tool_calls: bool, show_tool_details: bool) {
     let area_width = max_width.unwrap_or(80) as u16;
-    match entry.role.as_str() {
-        "user" => {
-            lines.push(Line::from(vec![
-                Span::styled(
-                    "You: ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(entry.content.to_string()),
-            ]));
-            lines.push(Line::default());
+    match entry.role.as_str() {            "user" => {
+            // Codex-style user message display:
+            // - Empty line before the message
+            // - Subtle background highlight (Codex blends white at 12% over terminal bg)
+            // - "› " prefix (bold, dim) on first line
+            // - "  " continuation indent on wrapped/subsequent lines
+            // - Empty line after
+            let area_width = max_width.unwrap_or(80) as u16;
+            let user_bg = Color::Rgb(32, 37, 45); // subtle highlight ≈ Codex's 12% white overlay on dark bg
+            let line_style = Style::default().bg(user_bg);
+            let body_style = Style::default()
+                .fg(Color::Rgb(220, 220, 240))
+                .bg(user_bg);
+            let prefix_style = Style::default()
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::DIM)
+                .bg(user_bg);
+            lines.push(Line::from(vec![Span::styled("", Style::default().bg(user_bg))]).style(line_style));
+            if !entry.content.is_empty() {
+                let wrap_width = area_width.saturating_sub(3).max(8) as usize;
+                let message = entry.content.trim_end_matches(['\r', '\n']);
+                let wrapped = word_wrap_text(message, wrap_width);
+                for (i, line_text) in wrapped.iter().enumerate() {
+                    let prefix = if i == 0 { "› " } else { "  " };
+                    lines.push(Line::from(vec![
+                        Span::styled(prefix.to_string(), prefix_style),
+                        Span::styled(line_text.to_string(), body_style),
+                    ]));
+                }
+            }
+            lines.push(Line::from(vec![Span::styled("", Style::default().bg(user_bg))]).style(line_style));
         }
         "assistant" => {
             // Display tool calls (e.g. shell_exec) if present and config allows
@@ -792,6 +811,35 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line<'static>>, app: 
 
 /// and render it with a collapsible git diff display.
 /// Returns Some(()) if the content contained a git_diff field.
+/// Word-wrap text to fit within `max_width` characters, splitting at word boundaries.
+/// Preserves explicit newlines. Returns a flat list of wrapped lines.
+fn word_wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    let mut result = Vec::new();
+    for source_line in text.split('\n') {
+        if source_line.is_empty() {
+            result.push(String::new());
+            continue;
+        }
+        // Wrap the line
+        let mut remaining = source_line;
+        while !remaining.is_empty() {
+            if remaining.len() <= max_width {
+                result.push(remaining.to_string());
+                break;
+            }
+            // Find the last space within max_width to break at
+            let mut break_at = remaining[..max_width].rfind(' ').unwrap_or(max_width);
+            // If break_at is 0, force-break at max_width to avoid infinite loop
+            if break_at == 0 {
+                break_at = max_width;
+            }
+            result.push(remaining[..break_at].to_string());
+            remaining = remaining[break_at..].trim_start();
+        }
+    }
+    result
+}
+
 fn try_render_file_tool_result(
     lines: &mut Vec<ratatui::text::Line>,
     content: &str,
