@@ -38,12 +38,45 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(Color::Yellow),
         ));
     } else if app.is_streaming {
-        let dot_cycle = (app.marquee_frame / 4) % 4;
-        let dots = ".".repeat(dot_cycle as usize);
-        spans.push(Span::styled(
-            format!(" | Streaming{}", dots),
-            Style::default().fg(Color::Yellow),
-        ));
+        // Show reasoning header (Codex-style) when model is thinking/reasoning
+        if app.is_reasoning_active && !app.streaming_text.is_empty() {
+            // Show reasoning header as status when text is also streaming
+            if let Some(ref header) = app.streaming_reasoning_header {
+                spans.push(Span::styled(
+                    format!(" | 💭 {}", header),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                let dot_cycle = (app.marquee_frame / 4) % 4;
+                let dots = ".".repeat(dot_cycle as usize);
+                spans.push(Span::styled(
+                    format!(" | Streaming{}", dots),
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+        } else if app.is_reasoning_active || (!app.streaming_reasoning.is_empty() && app.streaming_text.is_empty()) {
+            // Model is thinking/reasoning — show the extracted header or a fallback
+            if let Some(ref header) = app.streaming_reasoning_header {
+                spans.push(Span::styled(
+                    format!(" | 💭 {}", header),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                let dot_cycle = (app.marquee_frame / 4) % 4;
+                let dots = ".".repeat(dot_cycle as usize);
+                spans.push(Span::styled(
+                    format!(" | Thinking{}", dots),
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+        } else {
+            let dot_cycle = (app.marquee_frame / 4) % 4;
+            let dots = ".".repeat(dot_cycle as usize);
+            spans.push(Span::styled(
+                format!(" | Streaming{}", dots),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
     } else if app.is_reviewing {
         let dot_cycle = (app.marquee_frame / 4) % 4;
         let dots = ".".repeat(dot_cycle as usize);

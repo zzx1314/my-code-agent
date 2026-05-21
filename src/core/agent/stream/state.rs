@@ -14,6 +14,7 @@ pub fn reset_streaming_state(app: &mut App) {
     app.current_response.clear();
     app.streaming_status.clear();
     app.streaming_todos = None;
+    app.streaming_reasoning_header = None;
     app.status_messages.clear();
     app.turn_usage_line = None;
 
@@ -33,5 +34,6 @@ pub fn cleanup_stream_state(app: &mut App) {
     app.streaming_events_rx = None;
     app.streaming_status.clear();
     app.streaming_todos = None;
+    app.streaming_reasoning_header = None;
     app.auto_scroll = true;
 }

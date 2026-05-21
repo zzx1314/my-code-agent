@@ -122,6 +122,8 @@ pub struct App {
     pub streaming_tool_result: Option<(String, String)>,
     /// Status message for inter-turn waiting periods (e.g. "⏳ Waiting for model...")
     pub streaming_status: String,
+    /// Extracted first bold header from streaming reasoning (Codex-style)
+    pub streaming_reasoning_header: Option<String>,
     /// Persistent todos display during streaming (survives single-frame `.take()` on tool result)
     pub streaming_todos: Option<String>,
     pub status_messages: Vec<String>,
@@ -282,6 +284,7 @@ impl App {
             current_response: String::new(),
             streaming_tool_result: None,
             streaming_status: String::new(),
+            streaming_reasoning_header: None,
             streaming_todos: None,
             input: input_area,
             scroll: 0,

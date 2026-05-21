@@ -2,6 +2,37 @@ use tokio::sync::mpsc;
 
 use crate::app::App;
 
+/// Extract the first bold (Markdown) element in the form **...** from `s`.
+/// Returns the inner text if found; otherwise `None`.
+/// Matches Codex's `extract_first_bold` behavior exactly.
+fn extract_first_bold(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'*' && bytes[i + 1] == b'*' {
+            let start = i + 2;
+            let mut j = start;
+            while j + 1 < bytes.len() {
+                if bytes[j] == b'*' && bytes[j + 1] == b'*' {
+                    // Found closing **
+                    let inner = &s[start..j];
+                    let trimmed = inner.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    } else {
+                        return None;
+                    }
+                }
+                j += 1;
+            }
+            // No closing; stop searching (wait for more deltas)
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Process streaming events (text deltas, tool calls, reasoning)
 pub fn process_streaming_events(app: &mut App) {
     if let Some(ref mut rx) = app.streaming_events_rx {
@@ -65,6 +96,10 @@ pub fn process_streaming_events(app: &mut App) {
                         app.streaming_reasoning = delta;
                     } else {
                         app.streaming_reasoning.push_str(&delta);
+                    }
+                    // Extract the first bold (**...**) header for status bar display (Codex-style).
+                    if let Some(header) = extract_first_bold(&app.streaming_reasoning) {
+                        app.streaming_reasoning_header = Some(header);
                     }
                     // NOTE: Do NOT clear current_tool_call here.
                     // Reasoning deltas from a new SSE turn (after tool execution) would

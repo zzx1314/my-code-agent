@@ -11,6 +11,11 @@ use crate::ui::terminal;
 const COLLAPSE_THRESHOLD: usize = 8;
 
 /// Render the chat history area including streaming content and reasoning.
+///
+/// Codex-style: reasoning is shown inline with dim/italic style and `• ` prefix,
+/// NOT as a fixed bottom block. During streaming, the reasoning content is shown
+/// inline in the scrollable chat area. The status bar shows the extracted bold
+/// header from reasoning for a compact status display.
 pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     // Clear per-frame caches at the start of each render pass
     app.git_diff_cache.clear();
@@ -19,76 +24,33 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    let has_reasoning = app.config.agent.thinking_display != "hidden"
-        && (app.is_reasoning_active || !app.last_reasoning.is_empty());
-
     let width = Some(area.width as usize);
 
-    // ── Review reasoning is rendered in ALL branches ────────────────────
-    // Review reasoning (`app.review_reasoning`) is transient thinking content
-    // from the review agent's LLM calls. It must be visible regardless of the
-    // main agent's reasoning state, so we always call `render_review_reasoning`.
+    let mut lines: Vec<ratatui::text::Line> = Vec::new();
 
-    if !app.is_streaming && has_reasoning && app.show_inline_reasoning {
-        let mut lines: Vec<ratatui::text::Line> = Vec::new();
+    let has_inline_reasoning = !app.is_streaming && app.show_inline_reasoning && !app.last_reasoning.is_empty();
+
+    if has_inline_reasoning {
+        // Render history with reasoning placed before the last assistant message (Codex-style inline)
         render_chat_with_reasoning(&mut lines, app, width);
-        render_review_reasoning(&mut lines, app, width, 8);
-        render_status_messages(&mut lines, app, area);
-        render_paragraph_with_scroll(f, app, lines, area);
-    } else if has_reasoning {
-        // Split layout: scrolling content on top, fixed reasoning block at bottom
-        let max_height = app.config.agent.thinking_display_height;
-        let total_reserve = max_height + 2; // header + content + trailing empty
-        let (content_area, reasoning_area) = if area.height > total_reserve {
-            let areas = ratatui::layout::Layout::default()
-                .direction(ratatui::layout::Direction::Vertical)
-                .constraints([
-                    ratatui::layout::Constraint::Min(1),
-                    ratatui::layout::Constraint::Length(total_reserve),
-                ])
-                .split(area);
-            (areas[0], areas[1])
-        } else {
-            // Not enough space, use full area for reasoning
-            let areas = ratatui::layout::Layout::default()
-                .direction(ratatui::layout::Direction::Vertical)
-                .constraints([
-                    ratatui::layout::Constraint::Length(0),
-                    ratatui::layout::Constraint::Min(1),
-                ])
-                .split(area);
-            (areas[0], areas[1])
-        };
-
-        // Top: history + streaming content + review reasoning
-        let mut content_lines: Vec<ratatui::text::Line> = Vec::new();
-        render_chat_messages(&mut content_lines, app, width);
-        render_review_reasoning(&mut content_lines, app, width, 8);
-        render_streaming_content(&mut content_lines, app, width);
-        render_status_messages(&mut content_lines, app, area);
-        render_paragraph_with_scroll(f, app, content_lines, content_area);
-
-        // Bottom: fixed reasoning block
-        let mut reasoning_lines: Vec<ratatui::text::Line> = Vec::new();
-        let reasoning_text = if !app.streaming_reasoning.is_empty() {
-            &app.streaming_reasoning
-        } else {
-            &app.last_reasoning
-        };
-        render_reasoning_block(&mut reasoning_lines, reasoning_text, max_height);
-        let paragraph = Paragraph::new(reasoning_lines)
-            .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::NONE));
-        f.render_widget(paragraph, reasoning_area);
     } else {
-        let mut lines: Vec<ratatui::text::Line> = Vec::new();
         render_chat_messages(&mut lines, app, width);
-        // Render review reasoning (transient — not added to chat history)
-        render_review_reasoning(&mut lines, app, width, 8);
-        render_streaming_content(&mut lines, app, width);
-        render_status_messages(&mut lines, app, area);
-        render_paragraph_with_scroll(f, app, lines, area);
     }
+
+    // Render streaming reasoning inline (Codex-style: dim/italic with `• ` prefix)
+    // during streaming when reasoning is active but no text output yet.
+    render_streaming_reasoning_inline(&mut lines, app, width);
+
+    // Render review reasoning (transient — not added to chat history)
+    render_review_reasoning(&mut lines, app, width, 8);
+
+    // Render streaming content (text, tool calls)
+    render_streaming_content(&mut lines, app, width);
+
+    // Render status messages at the bottom
+    render_status_messages(&mut lines, app, area);
+
+    render_paragraph_with_scroll(f, app, lines, area);
 }
 
 fn render_paragraph_with_scroll(f: &mut Frame, app: &mut App, lines: Vec<ratatui::text::Line>, area: Rect) {
@@ -509,55 +471,6 @@ fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &
     lines.push(Line::default());
 }
 
-fn render_reasoning_block(lines: &mut Vec<ratatui::text::Line<'static>>, reasoning: &str, max_height: u16) {
-    // Reserve lines for: header ("💭 Thinking:") and trailing empty line
-    let header_reserve: u16 = 2; // header + trailing empty
-    let content_budget = max_height.saturating_sub(header_reserve).max(1);
-    lines.push(Line::from(Span::styled(
-        "💭 Thinking:",
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD),
-    )));
-    let reasoning_lines: Vec<&str> = reasoning.lines().collect();
-    let total = reasoning_lines.len();
-    let max_display = content_budget as usize;
-
-    if total > max_display {
-        let skipped = total - max_display;
-        // "hidden" message line also counts toward the budget
-        let effective_display = max_display.saturating_sub(1);
-        lines.push(Line::from(Span::styled(
-            format!("│ … {} lines hidden (showing last {}) …", skipped, effective_display),
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-        )));
-        for line in &reasoning_lines[total - effective_display..] {
-            lines.push(Line::from(vec![
-                Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
-                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
-            ]));
-        }
-    } else {
-        let mut content_lines_added: u16 = 0;
-        for line in reasoning_lines {
-            lines.push(Line::from(vec![
-                Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
-                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
-            ]));
-            content_lines_added += 1;
-        }
-        // Pad with empty placeholder lines to keep a fixed height
-        while content_lines_added < content_budget {
-            lines.push(Line::from(Span::styled(
-                "│",
-                Style::default().fg(Color::DarkGray),
-            )));
-            content_lines_added += 1;
-        }
-    }
-    lines.push(Line::default());
-}
-
 /// Render reasoning content inline in the chat flow, inspired by Codex's
 /// `ReasoningSummaryCell`. Reasoning is rendered as markdown with a dim/italic
 /// style and a bullet-point prefix (`• ` first line, `  ` subsequent lines).
@@ -678,6 +591,72 @@ fn render_reasoning_inline(
     }
 }
 
+/// Render streaming reasoning inline (Codex-style) during streaming.
+/// Shows the reasoning content with dim/italic style and `• ` prefix,
+/// matching the inline reasoning display used for completed messages.
+/// Reasoning persists for the entire streaming duration — even after text
+/// starts arriving — so the user can always see what the model is thinking.
+fn render_streaming_reasoning_inline(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut App, max_width: Option<usize>) {
+    if !app.is_streaming {
+        return;
+    }
+    if app.config.agent.thinking_display == "hidden" {
+        return;
+    }
+
+    // Use streaming_reasoning if available; fall back to last_reasoning
+    // (which is set when reasoning ends but streaming is still active).
+    let reasoning = if !app.streaming_reasoning.is_empty() {
+        &app.streaming_reasoning
+    } else if !app.last_reasoning.is_empty() {
+        &app.last_reasoning
+    } else {
+        return;
+    };
+
+    let area_width = max_width.unwrap_or(80) as u16;
+    if let Some(styled) = build_reasoning_lines(reasoning, area_width) {
+        let section_id = "stream_reasoning";
+        let collapsed = !app.collapsed_sections.contains(section_id);
+        let total = styled.len();
+
+        // Compute current visual line position for toggle placement
+        fn visual_lines(line: &ratatui::text::Line<'_>, width: u16) -> u16 {
+            let line_width = line.width() as u16;
+            if line_width == 0 || width == 0 { 1 } else { (line_width + width - 1) / width }
+        }
+        let vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
+
+        if total > COLLAPSE_THRESHOLD {
+            if collapsed {
+                for line in styled.iter().take(COLLAPSE_THRESHOLD) {
+                    lines.push(line.clone());
+                }
+                app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
+                lines.push(Line::from(vec![Span::styled(
+                    format!("    [+ {} more reasoning lines - click to expand]", total - COLLAPSE_THRESHOLD),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                )]));
+            } else {
+                for line in &styled {
+                    lines.push(line.clone());
+                }
+                app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
+                lines.push(Line::from(vec![Span::styled(
+                    "    [-] click to collapse reasoning",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                )]));
+            }
+        } else {
+            lines.extend(styled);
+        }
+    }
+}
+
 /// Render streaming content (text and tool calls).
 fn render_streaming_content(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut App, max_width: Option<usize>) {
     let area_width = max_width.unwrap_or(80) as u16;
@@ -794,15 +773,12 @@ fn render_streaming_content(lines: &mut Vec<ratatui::text::Line<'static>>, app: 
             app.streaming_status.clone(),
             Style::default().fg(Color::Yellow),
         )));
-    } else if app.streaming_reasoning.is_empty() {
+    } else if !app.streaming_reasoning.is_empty() || !app.last_reasoning.is_empty() {
+        // Reasoning is already shown inline by render_streaming_reasoning_inline —
+        // no need for a redundant "💭 Thinking..." placeholder.
+    } else {
         lines.push(Line::from(Span::styled(
             "⏳ Generating response...",
-            Style::default().fg(Color::Yellow),
-        )));
-    } else {
-        // Reasoning is active but no text/tool call yet — avoid blank content area
-        lines.push(Line::from(Span::styled(
-            "💭 Thinking...",
             Style::default().fg(Color::Yellow),
         )));
     }
