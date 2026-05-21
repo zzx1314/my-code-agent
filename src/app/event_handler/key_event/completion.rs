@@ -1,6 +1,7 @@
 use glob::glob;
 
 use crate::app::App;
+use crate::ui::textarea::TextArea;
 
 /// Trigger the completion menu
 pub fn trigger_completion(app: &mut App, trigger_char: char) {
@@ -52,7 +53,7 @@ pub fn apply_completion(app: &mut App) {
     };
 
     // Get the current input text
-    let mut lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
+    let mut lines: Vec<String> = app.input.lines();
     let cursor = app.input.cursor();
 
     let mut added_trailing_space = false;
@@ -75,12 +76,7 @@ pub fn apply_completion(app: &mut App) {
     }
 
     let new_text = lines.join("\n");
-    let mut new_input = tui_textarea::TextArea::from(new_text.lines());
-    new_input.set_block(
-        ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::ALL)
-            .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "),
-    );
+    let mut new_input = TextArea::from(new_text.as_str());
     new_input.set_cursor_line_style(ratatui::style::Style::default());
     app.input = new_input;
 
@@ -88,10 +84,7 @@ pub fn apply_completion(app: &mut App) {
     let completion_len = selected.len();
     let cursor = app.input.cursor();
     let new_cursor_col = app.completion_trigger_pos + completion_len + if added_trailing_space { 1 } else { 0 };
-    app.input.move_cursor(tui_textarea::CursorMove::Jump(
-        cursor.0 as u16,
-        new_cursor_col as u16,
-    ));
+    app.input.move_cursor(cursor.0 as u16, new_cursor_col as u16);
 
     hide_completion(app);
 }
@@ -105,7 +98,7 @@ pub fn update_completion_query(app: &mut App) {
     }
 
     // Get text from trigger position to cursor position as the query string
-    let lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
+    let lines: Vec<String> = app.input.lines();
     let cursor = app.input.cursor();
 
     if cursor.0 < lines.len() {

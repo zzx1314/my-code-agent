@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Instant;
 use tokio::sync::mpsc;
-use tui_textarea::TextArea;
+use crate::ui::textarea::TextArea;
 
 // App initialization & project knowledge (/init command)
 pub mod bootstrap;
@@ -100,7 +100,7 @@ impl ChatEntry {
 pub struct App {
     pub chat_history: Vec<ChatEntry>,
     pub current_response: String,
-    pub input: TextArea<'static>,
+    pub input: TextArea,
     pub scroll: u16,
     pub total_lines: u16,
     pub token_usage: TokenUsage,
@@ -257,6 +257,8 @@ pub struct App {
     pub translation_rx: Option<tokio::sync::oneshot::Receiver<anyhow::Result<String>>>,
     /// Original Chinese text being translated.
     pub translation_original: String,
+    /// Computed user message background color (Codex-style: terminal bg + 12% white overlay).
+    pub user_message_bg: ratatui::style::Color,
 }
 
 impl App {
@@ -271,13 +273,9 @@ impl App {
     ) -> Self {
         let show_banner = chat_history.is_empty();
         let mut input_area = TextArea::default();
-        // Initial block is a placeholder; update_input_style() in ui() sets the real style.
-        input_area.set_block(
-            ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Double),
-        );
+        // Codex-style: no block/borders — update_input_style() in ui() sets cursor line style.
         input_area.set_cursor_line_style(ratatui::style::Style::default());
+        input_area.set_cursor(0);
 
         App {
             chat_history,
@@ -380,6 +378,7 @@ impl App {
             translating: false,
             translation_rx: None,
             translation_original: String::new(),
+            user_message_bg: compute_user_message_bg(),
         }
     }
 }
@@ -442,6 +441,16 @@ static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 ///
 /// Queries `GET http://localhost:11434/api/tags` with a short timeout.
 /// Returns model names on success, or a fallback list on failure.
+/// Compute the user message background color (Codex-style: terminal bg + 12% white overlay).
+/// Assumes a dark terminal background (pure black) — the most common case.
+/// Produces ~Rgb(30, 30, 30) which matches Codex's `user_message_bg(0,0,0)`.
+fn compute_user_message_bg() -> ratatui::style::Color {
+    // For a dark terminal with bg ~ (0,0,0), blend white at 12%:
+    // (255*0.12 + 0*0.88, 255*0.12 + 0*0.88, 255*0.12 + 0*0.88) ≈ (30, 30, 30)
+    // This matches what Codex's `user_message_bg(dark_bg)` produces.
+    ratatui::style::Color::Rgb(30, 30, 30)
+}
+
 fn fetch_ollama_models() -> Vec<String> {
     let fallback = vec!["llama3.2".to_string(), "llama3.1".to_string(), "codellama".to_string()];
 

@@ -1,209 +1,52 @@
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph},
 };
-use tui_textarea::TextArea;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
 
-const MIN_INPUT_HEIGHT: u16 = 4;
-const MAX_INPUT_HEIGHT: u16 = 14;
+/// Minimum input area height (1 content line + 1 top pad + 1 bottom pad).
+const MIN_INPUT_HEIGHT: u16 = 3;
+/// Maximum input area height.
+const MAX_INPUT_HEIGHT: u16 = 12;
 const MAX_QUEUE_DISPLAY_LINES: usize = 4;
+
 
 /// Update the input textarea's visual style based on the current app state.
 ///
-/// - **Idle**: cyan borders, subtle cursor line highlight
-/// - **Streaming**: dark gray (dimmed) borders, no highlight
-/// - **Shell mode**: magenta borders, purple cursor line highlight
-///
-/// The native terminal cursor (blinking bar) is styled separately after the
-/// frame is flushed — see `lifecycle.rs`.
+/// Codex-style: no borders, just a subtle cursor-line highlight.
 fn update_input_style(app: &mut App) {
-    let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let (border_color, title_text, cursor_line_style) = if app.translating {
-        let frame = spinner_frames[(app.marquee_frame as usize / 2) % spinner_frames.len()];
-        (
-            Color::Yellow,
-            format!(" {} 🌐 Translating... ", frame),
-            Style::default(), // dim cursor during translation
-        )
+    let cursor_line_style = if app.translating {
+        Style::default().bg(Color::Rgb(40, 35, 20)) // yellow tint during translation
     } else if app.is_streaming {
-        let frame = spinner_frames[(app.marquee_frame as usize / 2) % spinner_frames.len()];
-        (
-            Color::DarkGray,
-            format!(" {} Processing... ", frame),
-            Style::default(), // no cursor line highlight
-        )
+        Style::default() // no highlight while streaming
     } else if app.shell_mode {
-        (
-            Color::Magenta,
-            " ⚡ Shell Mode ".to_string(),
-            Style::default().bg(Color::Rgb(40, 0, 60)),
-        )
+        Style::default().bg(Color::Rgb(40, 0, 60)) // purple tint for shell mode
     } else {
-        (
-            Color::Cyan,
-            " ✎  Input (Enter: send, Alt+Enter: ↵, Esc: interrupt) ".to_string(),
-            Style::default().bg(Color::Rgb(20, 40, 50)),
-        )
+        Style::default().bg(Color::Rgb(30, 40, 52)) // subtle blue-gray highlight
     };
 
-    app.input.set_block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color))
-            .title(Span::styled(
-                title_text,
-                Style::default()
-                    .fg(border_color)
-                    .add_modifier(Modifier::BOLD),
-            ))
-            .border_type(ratatui::widgets::BorderType::Double),
-    );
+    // No block/borders — Codex-style input is clean.
     app.input.set_cursor_line_style(cursor_line_style);
-    // cursor_style intentionally NOT set — the native terminal cursor
-    // (blinking bar) is the sole cursor indicator, avoiding a wide block
-    // cursor from tui-textarea's cell background styling.
     app.input.set_cursor_style(Style::default());
 }
 
-/// Wrap a single line of text to fit within `text_width`, tracking cursor position.
-///
-/// Returns a tuple of `(wrapped_lines, cursor_row, cursor_col)` where `cursor_row`
-/// and `cursor_col` are the mapped position of the original cursor within the wrapped output.
-/// Pass `cursor_char_idx = usize::MAX` to skip cursor tracking for non-target lines.
-fn wrap_line(line: &str, text_width: usize, cursor_char_idx: usize) -> (Vec<String>, usize, usize) {
-    let mut result: Vec<String> = Vec::new();
-    let mut curr = String::new();
-    let mut width: usize = 0;
-    let mut char_idx: usize = 0;
-    let mut out_row: usize = 0;
-    let mut out_col: usize = 0;
-
-    for (_, ch) in line.char_indices() {
-        let cw = ch.width().unwrap_or(1);
-        if width + cw > text_width && !curr.is_empty() {
-            result.push(curr);
-            curr = String::new();
-            width = 0;
-            char_idx = 0;
-            out_row += 1;
-        }
-        curr.push(ch);
-        width += cw;
-        if char_idx == cursor_char_idx {
-            out_row = result.len();
-            out_col = curr.chars().count() - 1;
-        }
-        char_idx += 1;
-    }
-    if !curr.is_empty() {
-        result.push(curr);
-    }
-    if cursor_char_idx == line.chars().count() {
-        out_row = result.len() - 1;
-        out_col = result.last().map(|s| s.chars().count()).unwrap_or(0);
-    }
-    (result, out_row, out_col)
-}
-
-/// Apply word-wrap to all lines in the input buffer to fit within `text_width`.
-///
-/// Rebuilds the `TextArea` with wrapped lines and adjusts the cursor position
-/// to match the original location in the wrapped layout. Skips if no line exceeds
-/// the text width.
-pub fn apply_input_wrap(app: &mut App, text_width: usize) {
-    if text_width == 0 {
-        return;
-    }
-    let (cursor_row, cursor_char_idx) = app.input.cursor();
-    let original_lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
-
-    let mut needs_wrap = false;
-    for line in &original_lines {
-        if line.width() > text_width {
-            needs_wrap = true;
-            break;
-        }
-    }
-    if !needs_wrap {
-        return;
-    }
-
-    let mut new_lines: Vec<String> = Vec::new();
-    let mut row_offset: usize = 0;
-    let mut new_cursor_row: usize = 0;
-    let mut new_cursor_col: usize = 0;
-
-    for (line_idx, line) in original_lines.iter().enumerate() {
-        if line.is_empty() {
-            new_lines.push(String::new());
-            if line_idx == cursor_row {
-                new_cursor_row = row_offset;
-                new_cursor_col = 0;
-            }
-            row_offset += 1;
-            continue;
-        }
-
-        let (wrapped, wr, wc) = wrap_line(
-            line,
-            text_width,
-            if line_idx == cursor_row {
-                cursor_char_idx
-            } else {
-                usize::MAX
-            },
-        );
-        if line_idx == cursor_row && wr != usize::MAX {
-            new_cursor_row = row_offset + wr;
-            new_cursor_col = wc;
-        }
-        for wl in &wrapped {
-            new_lines.push(wl.clone());
-        }
-        row_offset += wrapped.len();
-
-        if line_idx == cursor_row && cursor_char_idx == line.chars().count() {
-            new_cursor_row = row_offset - 1;
-            new_cursor_col = wrapped.last().map(|s| s.chars().count()).unwrap_or(0);
-        }
-    }
-
-    let mut new_ta = TextArea::from(new_lines.iter().map(|s| s.as_str()));
-    new_ta.set_block(
-        ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::ALL)
-            .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "),
-    );
-    new_ta.set_cursor_line_style(ratatui::style::Style::default());
-    new_ta.move_cursor(tui_textarea::CursorMove::Jump(
-        new_cursor_row as u16,
-        new_cursor_col as u16,
-    ));
-    app.input = new_ta;
+/// Wrapping is now handled natively by `TextArea`'s display logic.
+/// This function is a no‑op — kept for compatibility.
+pub fn apply_input_wrap(_app: &mut App, _text_width: usize) {
+    // TextArea wraps internally during rendering; no manual wrap needed.
 }
 
 /// Calculate the dynamic height for the input area based on content and available width.
 ///
-/// Returns a value clamped between `MIN_INPUT_HEIGHT` (4) and `MAX_INPUT_HEIGHT` (14).
+/// Returns a value clamped between `MIN_INPUT_HEIGHT` (2) and `MAX_INPUT_HEIGHT` (12).
 /// An empty input returns the minimum height; wrapped multi-line content grows the area.
+/// The result includes 1 row reserved for the footer hint line.
 pub fn calculate_input_height(app: &App, area_width: u16) -> u16 {
-    let lines: Vec<&str> = app.input.lines().iter().map(|s| s.as_str()).collect();
-    let is_empty = lines.is_empty() || (lines.len() == 1 && lines[0].is_empty());
-    if is_empty {
+    if app.input.is_empty() {
         return MIN_INPUT_HEIGHT;
     }
-    let text_width = area_width.saturating_sub(2);
-    if text_width == 0 {
-        return MIN_INPUT_HEIGHT;
-    }
-    let text = lines.join("\n");
-    let visual_lines = Paragraph::new(text.as_str())
-        .wrap(Wrap { trim: false })
-        .line_count(text_width) as u16;
-    let height = visual_lines + 2;
+    let height = app.input.desired_height(area_width);
     height.min(MAX_INPUT_HEIGHT).max(MIN_INPUT_HEIGHT)
 }
 
@@ -323,36 +166,26 @@ pub fn render_queue_display(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-
-/// Render the input textarea widget and position the native terminal cursor.
+/// Render the input textarea widget, background, and position the native terminal cursor.
 ///
-/// CJK wide characters are handled by converting char index to display width.
-///
-/// The cursor visual style (color, blinking bar shape, visibility) is applied
-/// **after** the ratatui frame flush in the main loop (`lifecycle.rs`) to
-/// prevent any interference from the terminal backend's own cursor sequences.
+/// Codex-style: clean background fill with no borders or footer hints.
 pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     update_input_style(app);
 
+    // Fill the entire input area with the background color before rendering text.
+    let bg_paragraph = Paragraph::new(Line::from(Span::raw("")))
+        .style(Style::default().bg(app.user_message_bg));
+    f.render_widget(bg_paragraph, area);
+
+    // Render the textarea over the background (full area — no footer row).
     f.render_widget(&app.input, area);
 
-    // Position the native cursor at the textarea's cursor position
-    // +1 for border offset on each axis
-    let (cursor_row, cursor_col) = app.input.cursor();
-    // Convert character index to display width (CJK chars are 2 columns wide)
-    let display_col: usize = app
-        .input
-        .lines()
-        .get(cursor_row)
-        .map(|line| line.chars().take(cursor_col).map(|c| c.width().unwrap_or(0)).sum())
-        .unwrap_or(cursor_col);
-    let cursor_x = area.x + 1 + display_col as u16;
-    let cursor_y = area.y + 1 + cursor_row as u16;
-
-    // Clamp to area bounds (inside borders)
-    let max_x = area.x + area.width.saturating_sub(2);
-    let max_y = area.y + area.height.saturating_sub(2);
-    if cursor_x <= max_x && cursor_y <= max_y {
-        f.set_cursor_position((cursor_x, cursor_y));
+    // Position the native terminal cursor.
+    if let Some((x, y)) = app.input.cursor_pos(area) {
+        let max_x = area.x + area.width.saturating_sub(1);
+        let max_y = area.y + area.height.saturating_sub(1);
+        if x <= max_x && y <= max_y {
+            f.set_cursor_position((x, y));
+        }
     }
 }

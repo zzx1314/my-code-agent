@@ -1403,8 +1403,8 @@ dependencies = [
  "tree-sitter-python",
  "tree-sitter-rust",
  "tree-sitter-typescript",
- "tui-textarea-2",
  "two-face",
+ "unicode-segmentation",
  "unicode-width 0.1.14",
  "url",
  "urlencoding",
@@ -2947,20 +2947,6 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
-
-[[package]]
-name = "tui-textarea-2"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74a31ca0965e3ff6a7ac5ecb02b20a88b4f68ebf138d8ae438e8510b27a1f00f"
-dependencies = [
- "crossterm",
- "portable-atomic",
- "ratatui-core",
- "ratatui-widgets",
- "unicode-segmentation",
- "unicode-width 0.2.2",
-]
 
 [[package]]
 name = "two-face"

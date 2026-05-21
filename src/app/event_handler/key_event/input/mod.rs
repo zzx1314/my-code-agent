@@ -3,47 +3,22 @@ pub mod shell;
 
 pub use enter::handle_enter_key;
 
-use tui_textarea::TextArea;
-
 use crate::app::App;
+use crate::ui::textarea::TextArea;
 
-/// Reset the input textarea to default state
+
+/// Reset the input textarea to default state (Codex-style: no block/borders).
 pub fn reset_input(app: &mut App) {
-    let title = if app.shell_mode {
-        " Input 🐚 Shell Mode (Enter to exec, !exit to leave, /shell to toggle) "
-    } else {
-        " Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "
-    };
-    app.input = {
-        let mut ta = TextArea::default();
-        ta.set_block(
-            ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .title(title),
-        );
-        ta.set_cursor_line_style(ratatui::style::Style::default());
-        ta
-    };
+    let mut ta = TextArea::default();
+    ta.set_cursor_line_style(ratatui::style::Style::default());
+    app.input = ta;
     app.show_banner = false;
     app.auto_scroll = true;
 }
 
-/// Set the input textarea content to a given string, preserving the block style.
+/// Set the input textarea content to a given string (Codex-style: no block/borders).
 fn set_input_text(app: &mut App, text: &str) {
-    let title = if app.shell_mode {
-        " Input 🐚 Shell Mode (Enter to exec, !exit to leave, /shell to toggle) "
-    } else {
-        " Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "
-    };
-    let mut ta = TextArea::default();
-    if !text.is_empty() {
-        ta.insert_str(text);
-    }
-    ta.set_block(
-        ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::ALL)
-            .title(title),
-    );
+    let mut ta = TextArea::from(text);
     ta.set_cursor_line_style(ratatui::style::Style::default());
     app.input = ta;
 }

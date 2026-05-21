@@ -18,7 +18,7 @@ futures = "0.3"
 glob = "0.3.3"
 toml = "1.1.2"
 ratatui = { version = "0.30.0", features = ["unstable-rendered-line-info"] }
-tui-textarea = { package = "tui-textarea-2", version = "0.10" }
+unicode-segmentation = "1.10"
 tracing = "0.1"
 unicode-width = "0.1"
 pulldown-cmark = "0.10"

@@ -1,17 +1,16 @@
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
 use crate::app::App;
 
 pub fn handle_paste_event(text: &str, app: &mut App) {
     for ch in text.chars() {
         if ch == '\n' || ch == '\r' {
-            let key = ratatui::crossterm::event::KeyEvent::new(
-                ratatui::crossterm::event::KeyCode::Enter,
-                ratatui::crossterm::event::KeyModifiers::ALT,
-            );
-            app.input.input(key);
+            // Insert newline directly via the textarea rather than faking a key event.
+            app.input.insert_str("\n");
         } else {
-            let key = ratatui::crossterm::event::KeyEvent::new(
-                ratatui::crossterm::event::KeyCode::Char(ch),
-                ratatui::crossterm::event::KeyModifiers::NONE,
+            let key = KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::NONE,
             );
             app.input.input(key);
         }

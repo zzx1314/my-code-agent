@@ -225,7 +225,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
             // - "  " continuation indent on wrapped/subsequent lines
             // - Empty line after
             let area_width = max_width.unwrap_or(80) as u16;
-            let user_bg = Color::Rgb(32, 37, 45); // subtle highlight ≈ Codex's 12% white overlay on dark bg
+            let user_bg = app.user_message_bg;
             let line_style = Style::default().bg(user_bg);
             let body_style = Style::default()
                 .fg(Color::Rgb(220, 220, 240))

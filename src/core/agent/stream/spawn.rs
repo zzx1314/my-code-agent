@@ -13,7 +13,7 @@ pub fn send_message_to_llm(
     context_manager: &mut ContextManager,
     input_text: String,
 ) {
-    use tui_textarea::TextArea;
+    use crate::ui::textarea::TextArea;
 
     app.show_banner = false; // Hide startup banner
     let display_text = if is_auto_fix_prompt(&input_text) {
@@ -29,11 +29,6 @@ pub fn send_message_to_llm(
     app.chat_history.push(crate::app::ChatEntry::user(display_text));
     app.input = {
         let mut ta = TextArea::default();
-        ta.set_block(
-            ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .title(" Input (Enter to send, Alt+Enter for newline, Esc: interrupt/exit) "),
-        );
         ta.set_cursor_line_style(ratatui::style::Style::default());
         ta
     };
