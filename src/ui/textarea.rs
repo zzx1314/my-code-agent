@@ -79,7 +79,7 @@ struct WrapCache {
 /// columns).  Wraps at word boundaries (spaces) and force‑breaks at the width
 /// limit when a single word is wider than the area.  Explicit `\n` always
 /// starts a new line.
-fn compute_wrapped_ranges(text: &str, max_width: usize) -> Vec<Range<usize>> {
+pub(crate) fn compute_wrapped_ranges(text: &str, max_width: usize) -> Vec<Range<usize>> {
     if max_width == 0 {
         return vec![0..text.len()];
     }
@@ -238,6 +238,11 @@ impl TextArea {
         let last_newline = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
         let char_col = before[last_newline..].chars().count();
         (line_num, char_col)
+    }
+
+    /// Return the byte offset of the cursor.
+    pub fn cursor_byte_pos(&self) -> usize {
+        self.cursor_pos
     }
 
     /// Set cursor by byte position.
@@ -786,6 +791,7 @@ impl TextArea {
     }
 }
 
+
 // ===== From impls =====
 
 impl From<&str> for TextArea {
@@ -904,73 +910,14 @@ impl Widget for &TextArea {
     }
 }
 
-// ===== Tests =====
+// ===== Tests (private-internals only) =====
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::style::Color;
 
     fn ta(text: &str) -> TextArea {
         TextArea::from(text)
-    }
-
-    #[test]
-    fn new_is_empty() {
-        let t = TextArea::new();
-        assert!(t.is_empty());
-        assert_eq!(t.text(), "");
-        assert_eq!(t.cursor(), (0, 0));
-    }
-
-    #[test]
-    fn from_str_sets_text() {
-        let t = ta("hello");
-        assert_eq!(t.text(), "hello");
-        assert_eq!(t.cursor(), (0, 5));
-    }
-
-    #[test]
-    fn insert_str_adds_at_cursor() {
-        let mut t = ta("helo");
-        t.set_cursor(2);
-        t.insert_str("ll");
-        assert_eq!(t.text(), "helllo");
-    }
-
-    #[test]
-    fn insert_str_at_position() {
-        let mut t = ta("ab");
-        t.insert_str_at(1, "XY");
-        assert_eq!(t.text(), "aXYb");
-    }
-
-    #[test]
-    fn lines_splits_by_newline() {
-        let t = ta("abc\ndef\nghi");
-        let lines = t.lines();
-        assert_eq!(lines, vec!["abc", "def", "ghi"]);
-    }
-
-    #[test]
-    fn cursor_conversion() {
-        let mut t = ta("hello\nworld");
-        // Cursor at byte 0 → (0, 0)
-        t.set_cursor(0);
-        assert_eq!(t.cursor(), (0, 0));
-        // Byte 6 = first char of second line = 'w'
-        t.set_cursor(6);
-        assert_eq!(t.cursor(), (1, 0));
-        // Byte 7 = 'o' on second line
-        t.set_cursor(7);
-        assert_eq!(t.cursor(), (1, 1));
-    }
-
-    #[test]
-    fn move_cursor_jump() {
-        let mut t = ta("hello\nworld");
-        t.move_cursor(1, 2); // row 1, col 2 → "rl"
-        assert_eq!(t.text[t.cursor_pos..].chars().next(), Some('r'));
     }
 
     #[test]
@@ -993,7 +940,6 @@ mod tests {
     fn wrapped_lines_produces_ranges() {
         let t = ta("hello world here");
         let ranges = compute_wrapped_ranges("hello world here", 6);
-        // "hello " wraps → "hello", then "world " → "world", then "here"
         assert!(ranges.len() >= 2);
         assert!(ranges.iter().all(|r| r.start <= r.end));
     }
@@ -1021,45 +967,6 @@ mod tests {
     }
 
     #[test]
-    fn cursor_movement_by_keys() {
-        let mut t = ta("ab");
-        t.set_cursor(0);
-        let event = |code| KeyEvent::new(code, KeyModifiers::NONE);
-
-        t.input(event(KeyCode::Right));
-        assert_eq!(t.cursor(), (0, 1));
-        t.input(event(KeyCode::Right));
-        assert_eq!(t.cursor(), (0, 2));
-        t.input(event(KeyCode::Left));
-        assert_eq!(t.cursor(), (0, 1));
-    }
-
-    #[test]
-    fn typing_characters() {
-        let mut t = TextArea::new();
-        t.input(KeyEvent::new(
-            KeyCode::Char('a'),
-            KeyModifiers::NONE,
-        ));
-        assert_eq!(t.text(), "a");
-        t.input(KeyEvent::new(
-            KeyCode::Char('b'),
-            KeyModifiers::NONE,
-        ));
-        assert_eq!(t.text(), "ab");
-    }
-
-    #[test]
-    fn newline_insertion() {
-        let mut t = ta("abc");
-        t.set_cursor(1);
-        t.insert_str("\n");
-        assert_eq!(t.text(), "a\nbc");
-        let lines = t.lines();
-        assert_eq!(lines, vec!["a", "bc"]);
-    }
-
-    #[test]
     fn empty_text_renders_one_line() {
         let t = TextArea::new();
         let ranges = compute_wrapped_ranges("", 10);
@@ -1067,32 +974,10 @@ mod tests {
     }
 
     #[test]
-    fn set_block_and_style() {
-        let mut t = TextArea::new();
-        let block = Block::default()
-            .title(" Test ")
-            .borders(ratatui::widgets::Borders::ALL);
-        t.set_block(block);
-        t.set_cursor_line_style(Style::default().bg(Color::Rgb(20, 40, 50)));
-        // Just verify no panic
-        assert_eq!(t.text(), "");
-    }
-
-    #[test]
-    fn desired_height_grows_with_content() {
-        let mut t = ta("hello\nworld\nfoo\nbar\nbaz");
-        let h = t.desired_height(100);
-        assert_eq!(h, 5); // 4 newlines = 5 logical lines
-        let h_narrow = t.desired_height(3);
-        assert!(h_narrow > h);
-    }
-
-    #[test]
     fn cjk_text() {
         let mut t = ta("你好世界");
         let ranges = compute_wrapped_ranges("你好世界", 4);
-        // Each CJK char = 2 columns, so width 4 fits 2 chars per line
-        assert_eq!(ranges.len(), 2); // "你好", "世界"
+        assert_eq!(ranges.len(), 2);
         assert_eq!(&t.text()[ranges[0].start..ranges[0].end], "你好");
         assert_eq!(&t.text()[ranges[1].start..ranges[1].end], "世界");
     }
@@ -1102,12 +987,14 @@ mod tests {
         let mut t = ta("你好世界");
         t.set_cursor(0);
         t.move_cursor_right();
-        assert_eq!(t.cursor_pos, 3); // 你好 → 你(3 bytes), cursor at 好
+        assert_eq!(t.cursor_byte_pos(), 3, "你好 → 你(3 bytes), cursor at 好");
 
         t.move_cursor_left();
-        assert_eq!(t.cursor_pos, 0);
+        assert_eq!(t.cursor_byte_pos(), 0);
 
         t.move_cursor_to_end_of_line(false);
-        assert!(t.text()[t.cursor_pos..].is_empty());
+        assert!(t.text()[t.cursor_byte_pos()..].is_empty());
     }
 }
+
+
