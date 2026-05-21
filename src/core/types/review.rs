@@ -35,31 +35,40 @@ impl Severity {
 }
 
 /// Review issue category
+///
+/// The review agent's system prompt limits LLM output to `FunctionalCompleteness`
+/// and `BugRisk`. Other variants exist for configuration, display, and extensibility.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ReviewCategory {
-    Security,              // Security vulnerability
-    Performance,           // Performance issue
-    BugRisk,               // Potential bug
-    Style,                 // Code style
-    Maintainability,       // Maintainability
-    Documentation,         // Documentation issue
-    ErrorHandling,         // Error handling
-    Concurrency,           // Concurrency issue
-    FunctionalCompleteness, // Code does NOT fulfill the user's requirements
+    /// Code does NOT fulfill the user's requirements
+    FunctionalCompleteness,
+    /// Potential bug
+    BugRisk,
+    /// Maintainability / code health (used as default fallback)
+    Maintainability,
+    /// Security vulnerability
+    Security,
+    /// Performance issue
+    Performance,
+    /// Code style
+    Style,
+    /// Error handling
+    ErrorHandling,
+    /// Concurrency issue
+    Concurrency,
 }
 
 impl ReviewCategory {
     pub fn icon(&self) -> &str {
         match self {
+            ReviewCategory::FunctionalCompleteness => "🎯",
+            ReviewCategory::BugRisk => "🐛",
+            ReviewCategory::Maintainability => "🔧",
             ReviewCategory::Security => "🔒",
             ReviewCategory::Performance => "⚡",
-            ReviewCategory::BugRisk => "🐛",
             ReviewCategory::Style => "✨",
-            ReviewCategory::Maintainability => "🔧",
-            ReviewCategory::Documentation => "📝",
             ReviewCategory::ErrorHandling => "⚠️",
             ReviewCategory::Concurrency => "🔄",
-            ReviewCategory::FunctionalCompleteness => "🎯",
         }
     }
 }
@@ -258,14 +267,12 @@ impl ReviewConfig {
             enabled: app_config.enabled,
             auto_review: app_config.auto_review,
             severity_threshold,
+            // The review agent's system prompt limits LLM output to
+            // FunctionalCompleteness and BugRisk. Other categories in
+            // the enum exist for extensibility.
             categories: vec![
-                ReviewCategory::Security,
                 ReviewCategory::FunctionalCompleteness,
                 ReviewCategory::BugRisk,
-                ReviewCategory::Performance,
-                ReviewCategory::ErrorHandling,
-                ReviewCategory::Maintainability,
-                ReviewCategory::Concurrency,
             ],
             max_issues: app_config.max_issues,
             include_suggestions: true,

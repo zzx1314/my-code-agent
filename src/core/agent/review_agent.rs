@@ -540,13 +540,11 @@ impl ReviewAgent {
 
                 let category = match issue.get("category").and_then(|v| v.as_str()) {
                     Some("functional_completeness") => ReviewCategory::FunctionalCompleteness,
-                    Some("security") => ReviewCategory::Security,
-                    Some("performance") => ReviewCategory::Performance,
                     Some("bug_risk") => ReviewCategory::BugRisk,
-                    Some("style") => ReviewCategory::Style,
-                    Some("maintainability") => ReviewCategory::Maintainability,
-                    Some("error_handling") => ReviewCategory::ErrorHandling,
-                    Some("concurrency") => ReviewCategory::Concurrency,
+                    // The review agent's system prompt limits LLM output to the two
+                    // categories above. Other categories (security, performance, etc.)
+                    // are supported in the enum for display/config but not produced
+                    // by the current review pipeline.
                     _ => ReviewCategory::Maintainability,
                 };
 

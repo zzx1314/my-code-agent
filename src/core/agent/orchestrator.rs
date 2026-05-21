@@ -313,16 +313,12 @@ impl AgentOrchestrator {
     /// Format a review coverage summary list showing what categories were checked
     /// and how many issues were found in each.
     pub fn format_review_coverage(&self, report: &ReviewReport) -> String {
+        // Only the categories the review agent actually checks.
+        // Other ReviewCategory variants exist for config/extensibility
+        // but are not produced by the current review pipeline.
         let all_categories: Vec<(ReviewCategory, &str)> = vec![
             (ReviewCategory::FunctionalCompleteness, "Functional Completeness"),
-            (ReviewCategory::Security, "Security"),
             (ReviewCategory::BugRisk, "Bug Risk"),
-            (ReviewCategory::Performance, "Performance"),
-            (ReviewCategory::ErrorHandling, "Error Handling"),
-            (ReviewCategory::Maintainability, "Maintainability"),
-            (ReviewCategory::Style, "Style"),
-            (ReviewCategory::Documentation, "Documentation"),
-            (ReviewCategory::Concurrency, "Concurrency"),
         ];
 
         let mut output = String::new();

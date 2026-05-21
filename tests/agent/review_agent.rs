@@ -1459,7 +1459,6 @@ fn test_review_coverage_table_format() {
     let err_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::ErrorHandling)).count();
     let maint_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::Maintainability)).count();
     let style_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::Style)).count();
-    let doc_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::Documentation)).count();
     let conc_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::Concurrency)).count();
 
     assert_eq!(func_count, 2, "Functional Completeness should have 2 issues");
@@ -1469,7 +1468,6 @@ fn test_review_coverage_table_format() {
     assert_eq!(err_count, 0, "ErrorHandling should have 0 issues");
     assert_eq!(maint_count, 0, "Maintainability should have 0 issues");
     assert_eq!(style_count, 0, "Style should have 0 issues");
-    assert_eq!(doc_count, 0, "Documentation should have 0 issues");
     assert_eq!(conc_count, 0, "Concurrency should have 0 issues");
 
     // Categories with issues should show warning, clean ones show passed
@@ -1509,7 +1507,7 @@ fn test_fix_prompt_contains_coverage_section() {
     let coverage_header = "### 🔍 Review Coverage";
     assert!(coverage_header.contains("Review Coverage"));
 
-    // Verify all 9 categories appear in the coverage table format
+    // Verify all categories appear in the coverage table format
     let all_categories = vec![
         ReviewCategory::FunctionalCompleteness,
         ReviewCategory::Security,
@@ -1518,7 +1516,6 @@ fn test_fix_prompt_contains_coverage_section() {
         ReviewCategory::ErrorHandling,
         ReviewCategory::Maintainability,
         ReviewCategory::Style,
-        ReviewCategory::Documentation,
         ReviewCategory::Concurrency,
     ];
     for cat in &all_categories {
@@ -1560,7 +1557,6 @@ fn test_review_coverage_empty_report() {
         ReviewCategory::ErrorHandling,
         ReviewCategory::Maintainability,
         ReviewCategory::Style,
-        ReviewCategory::Documentation,
         ReviewCategory::Concurrency,
     ] {
         let count = report.issues.iter().filter(|i| i.category == *category).count();
