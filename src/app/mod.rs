@@ -383,7 +383,7 @@ impl App {
             translation_rx: None,
             translation_original: String::new(),
             user_message_bg: compute_user_message_bg(),
-            input_bg_color: ratatui::style::Color::Rgb(48, 48, 52),
+            input_bg_color: ratatui::style::Color::Reset,
         }
     }
 }
@@ -453,12 +453,13 @@ static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 /// frosted‑glass look.
 ///
 /// Formula: `0.85 × bg + 0.15 × white`, plus a +4 blue cast on B for a
-/// cool glass tint.  Falls back to `Rgb(48, 48, 52)` when `os_11_bg` is
-/// `None` (terminal doesn't support OSC 11).
+/// cool glass tint.  Falls back to `Color::Reset` (terminal default, i.e.
+/// transparent) when `os_11_bg` is `None` — the input area will simply
+/// show the terminal's own background.
 pub fn compute_frosted_glass_color(os_11_bg: Option<(u8, u8, u8)>) -> ratatui::style::Color {
     let (r, g, b) = match os_11_bg {
         Some(bg) => bg,
-        None => return ratatui::style::Color::Rgb(48, 48, 52),
+        None => return ratatui::style::Color::Reset,
     };
 
     let fr = (r as f32 * 0.85 + 38.0).round().clamp(0.0, 255.0) as u8;

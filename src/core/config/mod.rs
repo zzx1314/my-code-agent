@@ -92,6 +92,9 @@ pub struct Config {
     /// Translation settings (Chinese→English auto-translation).
     #[serde(default)]
     pub translation: TranslationConfig,
+    /// UI appearance settings.
+    #[serde(default)]
+    pub ui: UiConfig,
 }
 
 /// Code review settings.
@@ -439,6 +442,22 @@ impl Default for LLMConfig {
             timeout_secs: default_llm_timeout_secs(),
             reasoning_field: default_reasoning_field(),
         }
+    }
+}
+
+/// UI appearance settings.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UiConfig {
+    /// Override input background color as `"R,G,B"` (e.g. `"70,40,61"`).
+    /// When set, this bypasses the OSC 11 terminal query and uses this color
+    /// directly.  Leave empty / omit to use the dynamic detection.
+    #[serde(default)]
+    pub input_bg: Option<String>,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self { input_bg: None }
     }
 }
 

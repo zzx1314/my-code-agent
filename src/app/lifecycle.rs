@@ -77,13 +77,30 @@ pub async fn run_app(
     >,
     mut context_manager: ContextManager,
 ) -> Result<()> {
-    // ── Query terminal background for frosted‑glass input ───────────────
-    // Must happen BEFORE enter_terminal() (raw mode) so we can safely read
-    // the OSC 11 response via libc::poll on the raw stdin fd.
-    let terminal_bg = app::terminal::query_terminal_bg_color();
-    let input_bg = crate::app::compute_frosted_glass_color(terminal_bg);
-
     let mut terminal = app::terminal::enter_terminal()?;
+
+    // ── Resolve input background color ──────────────────────────────────
+    // Priority: 1) config [ui] input_bg override → 2) OSC 11 query → 3) Reset
+    // Must run AFTER enter_terminal() — raw mode disables ICANON so OSC 11
+    // responses (which end with ST, not a newline) are immediately readable.
+    let input_bg = if let Some(ref bg_str) = config.ui.input_bg {
+        let parts: Vec<&str> = bg_str.split(',').collect();
+        if parts.len() == 3 {
+            let r = parts[0].trim().parse().ok();
+            let g = parts[1].trim().parse().ok();
+            let b = parts[2].trim().parse().ok();
+            if let (Some(r), Some(g), Some(b)) = (r, g, b) {
+                ratatui::style::Color::Rgb(r, g, b)
+            } else {
+                ratatui::style::Color::Reset
+            }
+        } else {
+            ratatui::style::Color::Reset
+        }
+    } else {
+        let terminal_bg = app::terminal::query_terminal_bg_color();
+        crate::app::compute_frosted_glass_color(terminal_bg)
+    };
 
     // Build the App
     let mut app = App::new(

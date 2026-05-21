@@ -1,5 +1,3 @@
-use std::mem::MaybeUninit;
-
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -38,90 +36,104 @@ pub fn enter_terminal() -> anyhow::Result<Terminal<CrosstermBackend<std::io::Std
 
 /// Query the terminal's default background color via OSC 11.
 ///
-/// Cooked mode buffers tty input until a newline — OSC 11 responses end with
-/// `ST` (`\x1b\\`), so they'd never reach our `read()`.  We temporarily
-/// switch stdin to raw mode, poll for up to ~500 ms, read the response (if
-/// any), then restore the original termios.  Any leftover bytes are flushed
-/// with a final drain so they won't leak into the TUI later.
+/// **Must be called after crossterm raw mode is enabled** (i.e. after
+/// [`enter_terminal`]).  Raw mode disables `ICANON` so the OSC 11 response
+/// (which ends with `ST` `\x1b\\`, not a newline) is immediately readable.
+///
+/// Uses `dup()` + `O_NONBLOCK` on a cloned stdin fd — the original fd 0 is
+/// never touched, so crossterm's event stream is not affected.  No termios
+/// manipulation: raw mode is already active from [`enter_terminal`].
 pub fn query_terminal_bg_color() -> Option<(u8, u8, u8)> {
-    use std::io::Write;
-    use std::os::unix::io::AsRawFd;
+    use std::os::unix::io::{AsRawFd, FromRawFd};
     use std::time::{Duration, Instant};
 
-    let fd = std::io::stdin().as_raw_fd();
-
-    // ── Save termios & set raw mode ────────────────────────────────────
-    let mut orig_termios = MaybeUninit::<libc::termios>::uninit();
-    // SAFETY: tcgetattr is safe; we check the return value.
-    if unsafe { libc::tcgetattr(fd, orig_termios.as_mut_ptr()) } != 0 {
+    // ── Clone stdin so we can set non-blocking without affecting fd 0 ──
+    let stdin_fd = std::io::stdin().as_raw_fd();
+    let dup_fd = unsafe { libc::dup(stdin_fd) };
+    if dup_fd == -1 {
         return None;
     }
-    let orig_termios = unsafe { orig_termios.assume_init() };
+    let _reader = unsafe { std::fs::File::from_raw_fd(dup_fd) };
 
-    let mut raw = orig_termios;
-    // cfmakeraw sets: ~ECHO | ~ICANON | ~ISIG | ~IEXTEN on c_lflag,
-    // ~OPOST on c_oflag, and a few iflag/cflag bits.  We do it manually
-    // to avoid needing &mut on `raw` for cfmakeraw's C ABI.
-    raw.c_iflag &= !(libc::BRKINT | libc::ICRNL | libc::INPCK | libc::ISTRIP | libc::IXON);
-    raw.c_oflag &= !libc::OPOST;
-    raw.c_cflag |= libc::CS8;
-    raw.c_lflag &= !(libc::ECHO | libc::ICANON | libc::IEXTEN | libc::ISIG);
-    raw.c_cc[libc::VMIN] = 1;
-    raw.c_cc[libc::VTIME] = 0;
-    // SAFETY: tcsetattr with TCSAFLUSH discards pending unread data.
-    if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &raw) } != 0 {
+    // Save original file status flags
+    let original_flags = unsafe { libc::fcntl(dup_fd, libc::F_GETFL) };
+    if original_flags == -1 {
+        return None; // _reader dropped → closes dup_fd
+    }
+    // Set non-blocking so read_available returns immediately
+    if unsafe { libc::fcntl(dup_fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } == -1 {
         return None;
     }
-    // Drop the raw reference so we can use orig_termios again later.
-    let _ = raw;
 
     // ── Send OSC 11 query ──────────────────────────────────────────────
-    let mut stdout = std::io::stdout();
-    let _ = write!(stdout, "\x1b]11;?\x1b\\");
-    let _ = stdout.flush();
+    let _ = write!(std::io::stdout(), "\x1b]11;?\x1b\\");
+    let _ = std::io::stdout().flush();
 
     let mut buf = [0u8; 256];
     let mut response = Vec::new();
     let deadline = Instant::now() + Duration::from_millis(500);
 
-    // ── Read loop ──────────────────────────────────────────────────────
+    // ── Read loop (non-blocking, poll-driven) ──────────────────────────
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             break;
         }
 
-        let mut pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-        let ret = unsafe { libc::poll(&mut pollfd, 1, remaining.as_millis().min(100) as i32) };
+        let mut pollfd = libc::pollfd {
+            fd: dup_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ret = unsafe {
+            libc::poll(&mut pollfd, 1, remaining.as_millis().min(100) as i32)
+        };
         if ret <= 0 {
             continue;
         }
 
         if (pollfd.revents & libc::POLLIN) != 0 {
-            let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast::<libc::c_void>(), buf.len()) };
+            let n = unsafe {
+                libc::read(
+                    dup_fd,
+                    buf.as_mut_ptr().cast::<libc::c_void>(),
+                    buf.len(),
+                )
+            };
             if n <= 0 {
                 break;
             }
             response.extend_from_slice(&buf[..n as usize]);
+            // ST (ESC \) or BEL — both valid OSC terminators
             if response.ends_with(b"\x1b\\") || response.ends_with(b"\x07") {
                 break;
             }
         }
     }
 
-    // ── Drain pass ─────────────────────────────────────────────────────
+    // ── Drain any trailing bytes ───────────────────────────────────────
     let drain_end = Instant::now() + Duration::from_millis(100);
     loop {
         if Instant::now() >= drain_end {
             break;
         }
-        let mut pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        let mut pollfd = libc::pollfd {
+            fd: dup_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
         let ret = unsafe { libc::poll(&mut pollfd, 1, 30) };
         if ret <= 0 {
             break;
         }
         if (pollfd.revents & libc::POLLIN) != 0 {
-            let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast::<libc::c_void>(), buf.len()) };
+            let n = unsafe {
+                libc::read(
+                    dup_fd,
+                    buf.as_mut_ptr().cast::<libc::c_void>(),
+                    buf.len(),
+                )
+            };
             if n <= 0 {
                 break;
             }
@@ -132,32 +144,64 @@ pub fn query_terminal_bg_color() -> Option<(u8, u8, u8)> {
         }
     }
 
-    // ── Restore original termios ───────────────────────────────────────
-    unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &orig_termios) };
+    // ── Restore original file status flags, then close dup_fd ──────────
+    unsafe { libc::fcntl(dup_fd, libc::F_SETFL, original_flags) };
+    // _reader drops here, closing dup_fd
 
     parse_osc_11_response(&response)
 }
 
 /// Parse an OSC 11 response into an 8‑bit RGB triple.
 ///
-/// Expected format: `ESC ] 11 ; rgb:RRRR/GGGG/BBBB ST`
-/// Where `RRRR` / `GGGG` / `BBBB` are 16‑bit hex values.
-/// Some terminals also send `rgba:RRRR/GGGG/BBBB/AAAA`.
+/// Expected format from the terminal:
+///   `ESC ] 11 ; rgb:RRRR/GGGG/BBBB ST`   — 16‑bit hex components
+///   `ESC ] 11 ; rgb:RR/GG/BB ST`         — 8‑bit hex components
+///   `ESC ] 11 ; rgba:… ST`               — with alpha (ignored)
+///
+/// ST may be either `ESC \` (canonical) or BEL (`\x07`).
+/// The response is prefixed by `ESC ] 11 ;` and suffixed by the terminator.
+///
+/// We first locate the `rgb:` / `rgba:` prefix, then find the first valid
+/// OSC terminator after it, so trailing junk (including the terminator itself)
+/// never reaches the hex parser.
 fn parse_osc_11_response(raw: &[u8]) -> Option<(u8, u8, u8)> {
+    // Find the start of the colour payload — "rgb:" or "rgba:" anywhere in
+    // the buffer (there may be other DSR / probe responses mixed in).
     let s = std::str::from_utf8(raw).ok()?;
-    let color_start = s.find("rgb:")?;
-    let color_part = &s[color_start + 4..];
+    let payload_start = s.find("rgb:").or_else(|| s.find("rgba:"))?;
 
-    let parts: Vec<&str> = color_part.split('/').collect();
+    // Convert back to byte index (safe: str is valid UTF-8 view of raw)
+    let start_byte = payload_start;
+    let rest = &raw[start_byte..];
+
+    // Find the OSC terminator (ST = ESC \  or BEL = \x07)
+    let term_pos = rest
+        .windows(2)
+        .position(|w| w == b"\x1b\\")
+        .or_else(|| rest.iter().position(|&b| b == 0x07))?;
+
+    // The RGB payload is between "rgb:" and the terminator
+    let payload = std::str::from_utf8(&rest[4..term_pos]).ok()?;
+
+    let parts: Vec<&str> = payload.split('/').collect();
     if parts.len() < 3 {
         return None;
     }
 
-    let r = u16::from_str_radix(parts[0], 16).ok()?;
-    let g = u16::from_str_radix(parts[1], 16).ok()?;
-    let b = u16::from_str_radix(parts[2], 16).ok()?;
+    let parse_comp = |s: &str| -> Option<u8> {
+        match s.len() {
+            2 => u8::from_str_radix(s, 16).ok(),
+            // 16-bit: right-shift 8 to get the 8‑bit value
+            4 => u16::from_str_radix(s, 16).ok().map(|v| (v >> 8) as u8),
+            _ => None,
+        }
+    };
 
-    Some(((r >> 8) as u8, (g >> 8) as u8, (b >> 8) as u8))
+    let r = parse_comp(parts[0])?;
+    let g = parse_comp(parts[1])?;
+    let b = parse_comp(parts[2])?;
+
+    Some((r, g, b))
 }
 
 /// Leave alternate screen and disable raw mode
