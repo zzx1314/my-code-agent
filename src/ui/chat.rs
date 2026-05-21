@@ -5,7 +5,6 @@ use ratatui::{
 
 use crate::app::{App, ChatEntry};
 use crate::ui::render::{render_full, render_streaming_markdown};
-use crate::ui::terminal;
 
 /// Threshold for collapsing content: sections with more lines than this are collapsed.
 const COLLAPSE_THRESHOLD: usize = 8;
@@ -88,14 +87,62 @@ fn render_paragraph_with_scroll(f: &mut Frame, app: &mut App, lines: Vec<ratatui
     f.render_widget(paragraph, area);
 }
 
-/// Render the startup banner.
+/// Render the startup banner — bordered info panel wrapping tightly around content.
 fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
-    let banner = terminal::make_startup_text();
-    app.total_lines = banner.height() as u16;
-    let paragraph = Paragraph::new(banner)
-        .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::NONE));
-    f.render_widget(paragraph, area);
+    let model = app
+        .config
+        .llm
+        .model
+        .as_deref()
+        .unwrap_or("unknown");
+    let dir = std::env::current_dir()
+        .unwrap_or_default()
+        .display()
+        .to_string();
+    let title_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let dim = Style::default().fg(Color::LightYellow).add_modifier(Modifier::DIM);
+    let value_style = Style::default().fg(Color::Cyan);
+
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(" >_ My Code Agent", title_style),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(" model:     ", dim),
+            Span::styled(model, value_style),
+            Span::styled("   ", dim),
+            Span::styled("/model to change", dim),
+        ]),
+        Line::from(vec![
+            Span::styled(" directory: ", dim),
+            Span::styled(dir, value_style),
+        ]),
+    ];
+
+    // Border fits content width + 2 for left/right borders + 2 for inner padding.
+    let content_width = lines.iter().map(|l| l.width()).max().unwrap_or(0);
+    let box_width = (content_width + 4).min(area.width as usize);
+
+    // Height = content lines + 2 border rows (top + bottom)
+    let box_height = (lines.len() as u16 + 2).min(area.height);
+
+    let box_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: box_width as u16,
+        height: box_height,
+    };
+
+    app.total_lines = box_area.height;
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let paragraph = Paragraph::new(lines)
+        .block(block);
+    f.render_widget(paragraph, box_area);
 }
 
 /// Render chat with reasoning placed before the last assistant message.

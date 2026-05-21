@@ -65,61 +65,12 @@ pub fn style_text(text: &str, fg: Option<Color>, bold: bool, dim: bool) -> Strin
     result
 }
 
-/// The ASCII art banner displayed on startup.
-pub const BANNER_ART: &str = r#"
-  __  __       ____          _      
-|  \/  |_   _/ ___|___   __| | ___ 
-| |\/| | | | | |   / _ \ / _` |/ _ \
-| |  | | |_| | |__| (_) | (_| |  __/
-|_|  |_|\__, |\____\___/ \__,_|\___|
-        |___/                     
-"#;
-
-/// Return startup banner as ratatui Text (can be passed directly to Paragraph)
+/// Minimal startup header text — just a simple title line.
 pub fn make_startup_text() -> Text<'static> {
-    let mut lines: Vec<Line> = Vec::new();
-
-    // ASCII art, displayed in cyan
-    for l in BANNER_ART.lines() {
-        lines.push(Line::from(Span::styled(
-            l.to_string(),
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
-    }
-
-    lines.push(Line::from(""));
-
-    // Title line
-    lines.push(Line::from(Span::styled(
+    Text::from(Line::from(Span::styled(
         "My Code Agent",
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
-    )));
-
-    // Subtitle
-    lines.push(Line::from(Span::styled(
-        "  Interactive AI Coding Assistant",
-        Style::default()
-            .fg(Color::LightYellow)
-            .add_modifier(Modifier::DIM),
-    )));
-
-    lines.push(Line::from(""));
-
-    lines.push(Line::from(Span::styled(
-        "Type your message below to start chatting.",
-        Style::default()
-            .fg(Color::LightYellow)
-            .add_modifier(Modifier::DIM),
-    )));
-
-    lines.push(Line::from(Span::styled(
-        "Commands: /help  /quit  /clear  /save  /load  /status  /tokens  /think  /connect  /model  /init  /shell",
-        Style::default().fg(Color::LightYellow).add_modifier(Modifier::DIM),
-    )));
-
-    Text::from(lines)
+    )))
 }
