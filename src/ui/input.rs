@@ -23,7 +23,7 @@ fn update_input_style(app: &mut App) {
     } else if app.shell_mode {
         Style::default().bg(Color::Rgb(40, 0, 60)) // purple tint for shell mode
     } else {
-        Style::default().bg(Color::Rgb(30, 40, 52)) // subtle blue-gray highlight
+        Style::default() // no highlight — terminal cursor shows position
     };
 
     // No block/borders — Codex-style input is clean.
@@ -179,6 +179,17 @@ pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Render the textarea over the background (full area — no footer row).
     f.render_widget(&app.input, area);
+
+    // Render the prompt prefix (›) on the first text line (Codex-style).
+    // Rendered after the textarea so it's not overwritten by cursor-line fill.
+    let prompt = Span::styled("›", Style::default().add_modifier(Modifier::BOLD));
+    let prefix_area = Rect {
+        x: area.x,
+        y: area.y + 1, // top_pad = 1
+        width: 1,
+        height: 1,
+    };
+    f.render_widget(Paragraph::new(Line::from(prompt)), prefix_area);
 
     // Position the native terminal cursor.
     if let Some((x, y)) = app.input.cursor_pos(area) {

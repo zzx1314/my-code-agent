@@ -142,15 +142,7 @@ fn compute_wrapped_ranges(text: &str, max_width: usize) -> Vec<Range<usize>> {
     ranges
 }
 
-// ---------------------------------------------------------------------------
-// Kill‑buffer kind
-// ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KillBufferKind {
-    Characterwise,
-    Linewise,
-}
 
 // ---------------------------------------------------------------------------
 // TextArea
@@ -173,7 +165,6 @@ pub struct TextArea {
     preferred_col: Option<usize>,
 
     kill_buffer: String,
-    kill_buffer_kind: KillBufferKind,
 }
 
 /// Per‑frame state (scroll offset).
@@ -203,7 +194,6 @@ impl TextArea {
             wrap_cache: RefCell::new(None),
             preferred_col: None,
             kill_buffer: String::new(),
-            kill_buffer_kind: KillBufferKind::Characterwise,
         }
     }
 
@@ -354,53 +344,16 @@ impl TextArea {
         self.preferred_col = None;
     }
 
-    fn replace_range(&mut self, range: Range<usize>, replacement: &str) {
-        let start = range.start.min(self.text.len());
-        let end = range.end.min(self.text.len());
-        let removed = end - start;
-        let diff = replacement.len() as isize - removed as isize;
-
-        self.text.replace_range(start..end, replacement);
-        self.clear_wrap_cache();
-        self.preferred_col = None;
-
-        self.cursor_pos = if self.cursor_pos < start {
-            self.cursor_pos
-        } else if self.cursor_pos <= end {
-            start + replacement.len()
-        } else {
-            (self.cursor_pos as isize + diff) as usize
-        }
-        .min(self.text.len());
-    }
-
     // ===== Kill buffer =====
 
-    fn kill(&mut self, s: &str, kind: KillBufferKind) {
+    fn kill(&mut self, s: &str) {
         self.kill_buffer = s.to_string();
-        self.kill_buffer_kind = kind;
     }
 
     fn yank(&mut self) {
         let buf = self.kill_buffer.clone();
-        if buf.is_empty() {
-            return;
-        }
-        let kind = self.kill_buffer_kind;
-        match kind {
-            KillBufferKind::Characterwise => {
-                self.insert_str(&buf);
-            }
-            KillBufferKind::Linewise => {
-                let bol = self.beginning_of_line(self.cursor_pos);
-                let eol = self.end_of_line(bol);
-                let after = (eol + 1).min(self.text.len());
-                self.cursor_pos = after;
-                self.insert_str(&buf);
-                if !buf.ends_with('\n') {
-                    self.insert_str("\n");
-                }
-            }
+        if !buf.is_empty() {
+            self.insert_str(&buf);
         }
     }
 
@@ -451,7 +404,7 @@ impl TextArea {
         }
         let start = self.beginning_of_previous_word();
         let killed = self.text[start..self.cursor_pos].to_string();
-        self.kill(&killed, KillBufferKind::Characterwise);
+        self.kill(&killed);
         self.text.replace_range(start..self.cursor_pos, "");
         self.cursor_pos = start;
         self.clear_wrap_cache();
@@ -465,7 +418,7 @@ impl TextArea {
         let end = self.end_of_next_word();
         if end > self.cursor_pos {
             let killed = self.text[self.cursor_pos..end].to_string();
-            self.kill(&killed, KillBufferKind::Characterwise);
+            self.kill(&killed);
             self.text
                 .replace_range(self.cursor_pos..end, "");
             self.clear_wrap_cache();
@@ -477,7 +430,7 @@ impl TextArea {
         let bol = self.beginning_of_line(self.cursor_pos);
         if bol < self.cursor_pos {
             let killed = self.text[bol..self.cursor_pos].to_string();
-            self.kill(&killed, KillBufferKind::Characterwise);
+            self.kill(&killed);
             self.text.replace_range(bol..self.cursor_pos, "");
             self.cursor_pos = bol;
             self.clear_wrap_cache();
@@ -489,24 +442,12 @@ impl TextArea {
         let eol = self.end_of_line(self.cursor_pos);
         if eol > self.cursor_pos {
             let killed = self.text[self.cursor_pos..eol].to_string();
-            self.kill(&killed, KillBufferKind::Characterwise);
+            self.kill(&killed);
             self.text
                 .replace_range(self.cursor_pos..eol, "");
             self.clear_wrap_cache();
             self.preferred_col = None;
         }
-    }
-
-    fn kill_current_line(&mut self) {
-        let bol = self.beginning_of_line(self.cursor_pos);
-        let eol = self.end_of_line(bol);
-        let end = (eol + 1).min(self.text.len());
-        let killed = self.text[bol..end].to_string();
-        self.kill(&killed, KillBufferKind::Linewise);
-        self.text.replace_range(bol..end, "");
-        self.cursor_pos = bol;
-        self.clear_wrap_cache();
-        self.preferred_col = None;
     }
 
     // ===== Movement =====
