@@ -137,3 +137,99 @@ fn desired_height_grows_with_content() {
     let h_narrow = t.desired_height(3);
     assert!(h_narrow > h);
 }
+
+// ── Delete operations ─────────────────────────────────────────────────────────
+
+#[test]
+fn delete_backward_via_backspace() {
+    let mut t = ta("hello");
+    t.set_cursor(5);
+    let bs = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
+    t.input(bs);
+    t.input(bs);
+    assert_eq!(t.text(), "hel");
+}
+
+#[test]
+fn delete_forward_via_delete() {
+    let mut t = ta("hello");
+    t.set_cursor(0);
+    let del = KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE);
+    t.input(del);
+    t.input(del);
+    assert_eq!(t.text(), "llo");
+}
+
+// ── Word navigation ──────────────────────────────────────────────────────────
+
+#[test]
+fn word_navigation_via_ctrl_right() {
+    let mut t = ta("alpha beta gamma");
+    t.set_cursor(0);
+    let ctrl_right = KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL);
+    t.input(ctrl_right);
+    assert_eq!(&t.text()[..t.cursor_byte_pos()], "alpha");
+    t.input(ctrl_right);
+    assert_eq!(&t.text()[..t.cursor_byte_pos()], "alpha beta");
+}
+
+#[test]
+fn word_navigation_via_ctrl_left() {
+    let mut t = ta("alpha beta gamma");
+    t.set_cursor(0);
+    let ctrl_right = KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL);
+    let ctrl_left = KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL);
+    t.input(ctrl_right);
+    assert_eq!(&t.text()[..t.cursor_byte_pos()], "alpha");
+    t.input(ctrl_left);
+    assert_eq!(t.cursor_byte_pos(), 0);
+}
+
+// ── Kill / yank ──────────────────────────────────────────────────────────────
+
+#[test]
+fn kill_to_end_of_line_via_ctrl_k() {
+    let mut t = ta("hello world");
+    let ctrl_k = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL);
+    let ctrl_y = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL);
+    t.set_cursor(5);
+    t.input(ctrl_k);
+    assert_eq!(t.text(), "hello");
+    t.input(ctrl_y);
+    assert_eq!(t.text(), "hello world");
+}
+
+// ── Wrapping ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn empty_text_has_one_wrapped_line() {
+    let t = TextArea::new();
+    assert_eq!(t.desired_height(10), 1);
+}
+
+#[test]
+fn cjk_text_wrapping() {
+    let t = ta("你好世界");
+    assert_eq!(t.desired_height(4), 2);
+    assert_eq!(t.desired_height(8), 1);
+}
+
+// ── CJK cursor movement ──────────────────────────────────────────────────────
+
+#[test]
+fn cjk_cursor_movement_via_keys() {
+    let mut t = ta("你好世界");
+    t.set_cursor(0);
+    let right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+    let left = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+    let end = KeyEvent::new(KeyCode::End, KeyModifiers::NONE);
+
+    t.input(right);
+    assert_eq!(t.cursor_byte_pos(), 3, "cursor after 你");
+
+    t.input(left);
+    assert_eq!(t.cursor_byte_pos(), 0);
+
+    t.input(end);
+    assert!(t.text()[t.cursor_byte_pos()..].is_empty());
+}
