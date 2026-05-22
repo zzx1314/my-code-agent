@@ -1,46 +1,15 @@
+use ratatui::crossterm::event::MouseEventKind;
 use crate::app::App;
 
-/// Handle mouse events
+/// Handle mouse events — scroll wheel and click events.
+///
+/// Under basic mouse tracking (`?1000h`), the scroll wheel generates `ScrollUp` /
+/// `ScrollDown` mouse events, and left-button clicks generate `Down(MouseButton::Left)`.
+///
+/// Click events on collapsible toggle lines (thinking blocks, git diffs, stdout/stderr,
+/// file outlines) toggle the section's expanded/collapsed state.
 pub fn handle_mouse_event(mouse: ratatui::crossterm::event::MouseEvent, app: &mut App) {
-    use ratatui::crossterm::event::{MouseButton, MouseEventKind};
-
     match mouse.kind {
-        MouseEventKind::Down(MouseButton::Left) => {
-            // Left-click on a collapsible toggle: compute virtual line from
-            // screen y + scroll offset, then find the matching toggle.
-            // The y=mouse.row is the row within the terminal (0-indexed).
-            // We need to account for the chat area's position in the layout.
-            // For simplicity, we approximate: virtual_line ≈ mouse.row + scroll.
-            let clicked_virtual = (mouse.row as u16).saturating_add(app.scroll);
-
-            // Find the toggle whose position is closest to the click.
-            // Use a dynamic tolerance based on the section's content line count:
-            // larger sections accumulate more word-wrap discrepancy between our
-            // simplified `visual_lines` calculation and Ratatui's actual wrapping.
-            // Formula: min(10, max(3, content_lines / 5))
-            let mut found: Option<String> = None;
-            for &(toggle_line, ref section_id, content_lines) in &app.collapsed_toggles {
-                // Dynamic tolerance: proportional to section size
-                let tol: u16 = (content_lines as u16 / 5).clamp(3, 10);
-                let diff = if toggle_line >= clicked_virtual {
-                    toggle_line - clicked_virtual
-                } else {
-                    clicked_virtual - toggle_line
-                };
-                if diff <= tol {
-                    found = Some(section_id.clone());
-                    break;
-                }
-            }
-
-            if let Some(section_id) = found {
-                if app.collapsed_sections.contains(&section_id) {
-                    app.collapsed_sections.remove(&section_id);
-                } else {
-                    app.collapsed_sections.insert(section_id);
-                }
-            }
-        }
         MouseEventKind::ScrollUp => {
             app.scroll = app.scroll.saturating_sub(3);
             app.auto_scroll = false;
@@ -48,11 +17,56 @@ pub fn handle_mouse_event(mouse: ratatui::crossterm::event::MouseEvent, app: &mu
         MouseEventKind::ScrollDown => {
             let max_scroll = app.total_lines.saturating_sub(app.chat_area_height);
             app.scroll = (app.scroll + 3).min(max_scroll);
-            // Re-enable auto_scroll when scrolled to the bottom
-            if app.scroll >= max_scroll {
-                app.auto_scroll = true;
-            }
+            app.auto_scroll = false;
         }
-        _ => {} // Ignore other mouse events without affecting text selection
+        MouseEventKind::Down(ratatui::crossterm::event::MouseButton::Left) => {
+            handle_click(mouse, app);
+        }
+        _ => {
+            // Ignore other mouse events (drag, move, right/ middle clicks, etc.)
+        }
+    }
+}
+
+/// Handle left-click: check if the click position hits a collapsible toggle line,
+/// and if so, toggle the section's collapsed/expanded state.
+///
+/// `mouse.row` is 1-based from crossterm; `app.chat_area_y` is 0-based from ratatui layout.
+/// We compute the content line index as:
+///   content_line = (mouse.row - 1) - chat_area_y + app.scroll
+///
+/// Then we search toggles for a match, using a dynamic tolerance that scales
+/// with the section's content line count (larger sections accumulate more
+/// word-wrap discrepancy and need a wider search radius).
+fn handle_click(mouse: ratatui::crossterm::event::MouseEvent, app: &mut App) {
+    if app.collapsed_toggles.is_empty() {
+        return;
+    }
+
+    // Convert terminal row → content visual line index.
+    // mouse.row is 1-based; area.y is 0-based.
+    let rel_y = (mouse.row as i16).saturating_sub(1) - app.chat_area_y as i16;
+    if rel_y < 0 {
+        return; // Click is above the chat area
+    }
+    let content_line = rel_y as u16 + app.scroll;
+
+    // Search for a matching toggle with dynamic tolerance.
+    // Base tolerance of 2 visual lines, plus 1 per 40 content lines (rounded up).
+    for &(toggle_line, ref section_id, content_count) in &app.collapsed_toggles {
+        let tolerance = 2u16 + ((content_count as u16) + 39) / 40;
+        let lower = toggle_line.saturating_sub(tolerance);
+        let upper = toggle_line.saturating_add(tolerance);
+
+        if content_line >= lower && content_line <= upper {
+            // Toggle the section: remove returns true if present (expanding)
+            // so the else branch inserts the section_id back (collapsing).
+            if !app.collapsed_sections.remove(section_id) {
+                app.collapsed_sections.insert(section_id.clone());
+            }
+            // Reset auto-scroll so the user stays where they clicked
+            app.auto_scroll = false;
+            return;
+        }
     }
 }

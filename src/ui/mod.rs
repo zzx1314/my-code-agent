@@ -65,11 +65,17 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     let input_chunk_index = next_index;
     let status_chunk_index = next_index + 1;
 
+    // Store chat area Y position for mouse click → content line conversion
+    app.chat_area_y = chunks[chat_chunk_index].y;
+
     render_chat_area(f, app, chunks[chat_chunk_index]);
 
     if let Some(qi) = queue_chunk_index {
         input::render_queue_display(f, app, chunks[qi]);
     }
+
+    // Store input area for mouse scroll routing
+    app.input_area = chunks[input_chunk_index];
 
     render_input(f, app, chunks[input_chunk_index]);
 

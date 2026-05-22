@@ -38,8 +38,32 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(Color::Yellow),
         ));
     } else if app.is_streaming {
-        // Show reasoning header (Codex-style) when model is thinking/reasoning
-        if app.is_reasoning_active && !app.streaming_text.is_empty() {
+        // Tool call indicator: when the model is actively calling a tool,
+        // show ⚙️ tool_name with animated dots in the status bar.
+        if let Some(ref tool_call) = app.current_tool_call {
+            let dot_cycle = (app.marquee_frame / 4) % 4;
+            let dots = ".".repeat(dot_cycle as usize);
+            spans.push(Span::styled(
+                format!(" | ⚙️ {} {}", tool_call.name, dots),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
+        } else if let Some((ref name, _)) = app.streaming_tool_result {
+            // Briefly show the completed tool result while tool result is set
+            // No marquee dots — this represents a completed action (✅).
+            spans.push(Span::styled(
+                format!(" | ✅ {} complete", name),
+                Style::default().fg(Color::Green),
+            ));
+        } else if !app.streaming_status.is_empty() {
+            // Inter-turn waiting indicator (e.g. "⏳ Waiting for model response...")
+            // Show with animated dots to indicate an active wait state.
+            let dot_cycle = (app.marquee_frame / 4) % 4;
+            let dots = ".".repeat(dot_cycle as usize);
+            spans.push(Span::styled(
+                format!(" | {} {}", app.streaming_status, dots),
+                Style::default().fg(Color::Yellow),
+            ));
+        } else if app.is_reasoning_active && !app.streaming_text.is_empty() {
             // Show reasoning header as status when text is also streaming
             if let Some(ref header) = app.streaming_reasoning_header {
                 spans.push(Span::styled(
@@ -100,6 +124,11 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
         } else {
             spans.push(Span::styled(" | Ready", Style::default().fg(Color::Green)));
         }
+    } else if app.selection_mode {
+        spans.push(Span::styled(
+            " | [SELECT]",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ));
     } else if app.shell_mode {
         spans.push(Span::styled(
             " | 🐚 Shell",

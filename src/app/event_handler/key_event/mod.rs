@@ -1,10 +1,12 @@
 mod completion;
 mod input;
 mod mouse;
+pub use mouse::handle_mouse_event;
 mod paste;
 
 use ratatui::crossterm::event::{self, KeyCode, KeyModifiers};
 
+use crate::app::terminal;
 use crate::app::App;
 use crate::core::context::context_manager::ContextManager;
 use completion::{
@@ -13,7 +15,6 @@ use completion::{
 };
 use input::handle_enter_key;
 use input::{history_down, history_up};
-pub use mouse::handle_mouse_event;
 pub use paste::handle_paste_event;
 use crate::app::event_handler::picker::{handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key};
 
@@ -100,6 +101,27 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
         (KeyCode::Char('r'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
             app.show_reasoning = !app.show_reasoning;
         }
+        (KeyCode::Char('e'), modifiers) if modifiers.contains(KeyModifiers::ALT) => {
+            // Alt+E: toggle the last collapsible section (closest to bottom)
+            if let Some(last_idx) = app.collapsed_toggles.len().checked_sub(1) {
+                let section_id = app.collapsed_toggles[last_idx].1.clone();
+                if app.collapsed_sections.contains(&section_id) {
+                    app.collapsed_sections.remove(&section_id);
+                } else {
+                    app.collapsed_sections.insert(section_id);
+                }
+                app.auto_scroll = false;
+            }
+        }
+        (KeyCode::Char('s'), modifiers) if modifiers.contains(KeyModifiers::ALT) => {
+            // Alt+S: toggle selection mode
+            app.selection_mode = !app.selection_mode;
+            if app.selection_mode {
+                terminal::disable_mouse_tracking();
+            } else {
+                terminal::enable_mouse_tracking();
+            }
+        }
         (KeyCode::Esc, _) => {
             if app.show_completion {
                 hide_completion(app);
@@ -141,27 +163,39 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
             app.scroll = (app.scroll + 3).min(max_scroll);
             app.auto_scroll = false;
         }
+        (KeyCode::Up, _) if app.show_completion => {
+            if !app.completion_items.is_empty() {
+                app.completion_selected = if app.completion_selected == 0 {
+                    app.completion_items.len() - 1
+                } else {
+                    app.completion_selected - 1
+                };
+            }
+        }
         (KeyCode::Up, modifiers) if modifiers.is_empty() => {
-            if app.show_completion {
-                if !app.completion_items.is_empty() {
-                    app.completion_selected = if app.completion_selected == 0 {
-                        app.completion_items.len() - 1
-                    } else {
-                        app.completion_selected - 1
-                    };
+            if !app.show_completion {
+                // ↑ key → history navigation (only when !show_completion)
+                if app.history_index.is_some() || app.input.is_empty() {
+                    history_up(app);
+                } else {
+                    app.input.input(key);
                 }
-            } else {
-                history_up(app);
+            }
+        }
+        (KeyCode::Down, _) if app.show_completion => {
+            if !app.completion_items.is_empty() {
+                app.completion_selected =
+                    (app.completion_selected + 1) % app.completion_items.len();
             }
         }
         (KeyCode::Down, modifiers) if modifiers.is_empty() => {
-            if app.show_completion {
-                if !app.completion_items.is_empty() {
-                    app.completion_selected =
-                        (app.completion_selected + 1) % app.completion_items.len();
+            if !app.show_completion {
+                // ↓ key → history navigation (only when !show_completion)
+                if app.history_index.is_some() || app.input.is_empty() {
+                    history_down(app);
+                } else {
+                    app.input.input(key);
                 }
-            } else {
-                history_down(app);
             }
         }
         (KeyCode::Char(c), _) => {

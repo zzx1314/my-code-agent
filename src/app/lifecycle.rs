@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::sync::Arc;
 use anyhow::Result;
-use ratatui::crossterm::event::{Event, poll, read};
+use ratatui::crossterm::event::{poll, read, Event};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::app;
@@ -216,17 +216,29 @@ pub async fn run_app(
         }
 
         if poll(std::time::Duration::from_millis(100))? {
-            match read()? {
-                Event::Key(key) => {
-                    app::event_handler::handle_key_event(key, &mut app, &mut context_manager);
+            // Drain ALL pending events before the next render.
+            // With ?1000h mouse tracking, scroll wheel generates
+            // Event::Mouse(ScrollUp/Down) — separate from ↑/↓ key events,
+            // so no confusion with history navigation.
+            loop {
+                let event = read()?;
+
+                match event {
+                    Event::Key(key) => {
+                        app::event_handler::handle_key_event(key, &mut app, &mut context_manager);
+                    }
+                    Event::Paste(text) => {
+                        app::event_handler::handle_paste_event(&text, &mut app);
+                    }
+                    Event::Mouse(mouse) => {
+                        app::event_handler::handle_mouse_event(mouse, &mut app);
+                    }
+                    _ => {}
                 }
-                Event::Mouse(mouse) => {
-                    app::event_handler::handle_mouse_event(mouse, &mut app);
+
+                if !poll(std::time::Duration::from_millis(0))? {
+                    break;
                 }
-                Event::Paste(text) => {
-                    app::event_handler::handle_paste_event(&text, &mut app);
-                }
-                _ => {}
             }
         }
 

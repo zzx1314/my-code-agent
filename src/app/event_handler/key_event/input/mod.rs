@@ -24,9 +24,11 @@ fn set_input_text(app: &mut App, text: &str) {
 }
 
 /// Navigate up in input history (toward older entries).
-pub fn history_up(app: &mut App) {
+/// Returns `true` if navigation occurred, `false` if no navigation was possible
+/// (no history, or already at the oldest entry).
+pub fn history_up(app: &mut App) -> bool {
     if app.input_history.is_empty() {
-        return;
+        return false;
     }
 
     let current_index = match app.history_index {
@@ -38,7 +40,7 @@ pub fn history_up(app: &mut App) {
         }
         Some(idx) => {
             if idx == 0 {
-                return; // Already at the oldest entry
+                return false; // Already at the oldest entry
             }
             idx - 1
         }
@@ -47,23 +49,28 @@ pub fn history_up(app: &mut App) {
     app.history_index = Some(current_index);
     let text = app.input_history[current_index].clone();
     set_input_text(app, &text);
+    true
 }
 
 /// Navigate down in input history (toward newer entries).
-pub fn history_down(app: &mut App) {
+/// Returns `true` if navigation occurred, `false` if no navigation was possible
+/// (not browsing history, or past the newest entry which restores the draft).
+pub fn history_down(app: &mut App) -> bool {
     match app.history_index {
-        None => return, // Not browsing history
+        None => return false, // Not browsing history
         Some(idx) => {
             if idx + 1 >= app.input_history.len() {
-                // Past the end: restore the draft
+                // Past the end: restore the draft and exit browsing
                 app.history_index = None;
                 let draft = app.history_draft.clone();
                 set_input_text(app, &draft);
+                return false;
             } else {
                 let new_idx = idx + 1;
                 app.history_index = Some(new_idx);
                 let text = app.input_history[new_idx].clone();
                 set_input_text(app, &text);
+                true
             }
         }
     }

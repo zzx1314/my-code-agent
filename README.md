@@ -246,21 +246,15 @@ my-code-agent        # If installed to PATH
 
 ## Usage
 
-Once started, you'll see the agent banner and a prompt:
+Once started, you'll see the agent banner showing the current model and working directory:
 
 ```
-  __  __       ____          _
-|  \/  |_   _/ ___|___   __| | ___
-| |\/| | | | | |   / _ \ / _` |/ _ \
-| |  | | |_| | |__| (_) | (_| |  __/
-|_|  |_|\__, |\____\___/ \__,_|\___|
-        |___/
-
-My Code Agent
-  Interactive AI Coding Assistant
-
-Type your message below to start chatting.
-Commands: /help  /connect  /model  /save  /load  /new  /think
+╭──────────────────────────────────────────────╮
+│ >_ My Code Agent                             │
+│                                              │
+│  model:     deepseek-v4-pro /model to change │
+│  directory: /home/user/project               │
+╰──────────────────────────────────────────────╯
 ```
 
 ### File References (`@filepath`)

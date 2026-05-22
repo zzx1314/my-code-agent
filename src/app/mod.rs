@@ -222,6 +222,15 @@ pub struct App {
     pub history_index: Option<usize>,
     /// Draft text saved when the user starts browsing history (so we can restore it on Down past the end)
     pub history_draft: String,
+    /// Screen area of the input widget (set each frame during layout).
+    pub input_area: ratatui::layout::Rect,
+    /// Selection mode toggle: when `true`, mouse tracking is disabled so the
+    /// terminal's native click-drag selection works.  When `false` (default),
+    /// `?1000h` mouse tracking is active and scroll wheel events are correctly
+    /// routed to chat scrolling (not confused with ↑/↓ key events).
+    /// Toggled by the user via **Alt+S**.
+    pub selection_mode: bool,
+
     // === Collapsible sections state ===
     /// Track which sections are collapsed (section_id -> collapsed)
     pub collapsed_sections: std::collections::HashSet<String>,
@@ -277,6 +286,9 @@ pub struct App {
     /// Dynamically computed from the terminal's actual background color at startup.
     /// Falls back to `Rgb(48, 48, 52)` when the terminal doesn't support OSC 11.
     pub input_bg_color: ratatui::style::Color,
+    /// Y position (0-based) of the chat area in the terminal.
+    /// Used by mouse click handling to convert terminal row → content line index.
+    pub chat_area_y: u16,
 }
 
 impl App {
@@ -354,6 +366,8 @@ impl App {
                 }
             },
             model_selected: 0,
+            input_area: ratatui::layout::Rect::default(),
+            selection_mode: false,
             // Provider picker initialization
             show_provider_picker: false,
             provider_options: vec!["deepseek".to_string(), "openrouter".to_string(), "ollama".to_string(), "custom".to_string()],
@@ -401,6 +415,7 @@ impl App {
             translation_original: String::new(),
             user_message_bg: compute_user_message_bg(),
             input_bg_color: ratatui::style::Color::Reset,
+            chat_area_y: 0,
         }
     }
 }
@@ -417,6 +432,7 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
             // ── DeepSeek V4 ──────────────────────────────────────────────
             "deepseek/deepseek-v4-flash".to_string(),
             "deepseek/deepseek-v4-pro".to_string(),
+            "openrouter/owl-alpha".to_string(),
         ],
         "ollama" => fetch_ollama_models(),
         "custom" => vec!["custom-model".to_string()],

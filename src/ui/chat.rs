@@ -5,6 +5,7 @@ use ratatui::{
 
 use crate::app::{App, ChatEntry};
 use crate::ui::render::{render_full, render_streaming_markdown};
+use unicode_width::UnicodeWidthStr;
 
 /// Threshold for collapsing content: sections with more lines than this are collapsed.
 const COLLAPSE_THRESHOLD: usize = 8;
@@ -56,6 +57,7 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         let post_text: String = app.post_text_reasoning.clone();
         let last_reasoning: String = app.last_reasoning.clone();
         let active_reasoning: String = app.streaming_reasoning.clone();
+        let streaming_todos: Option<String> = app.streaming_todos.clone();
 
         // 1. Pre-text completed reasoning (from before any text appeared)
         if !last_reasoning.is_empty() {
@@ -122,10 +124,25 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         if !active_reasoning.is_empty() {
             render_streaming_reasoning_inline(&mut lines, &active_reasoning, app, "stream_reasoning", area_width);
         }
+
+        // Streaming todos — rendered below text/reasoning when present
+        if let Some(ref todos_md) = streaming_todos {
+            if !todos_md.is_empty() {
+                let rendered = render_full(todos_md, width);
+                if !rendered.is_empty() {
+                    lines.push(Line::default());
+                    lines.extend(rendered);
+                }
+            }
+        }
+
     }
 
     // Render review reasoning (transient — not added to chat history)
     render_review_reasoning(&mut lines, app, width, 8);
+
+    // Render aggregated file change summary (when not streaming)
+    render_file_change_summary(&mut lines, app, width);
 
     // Render status messages at the bottom
     render_status_messages(&mut lines, app, area);
@@ -151,15 +168,16 @@ fn render_paragraph_with_scroll(f: &mut Frame, app: &mut App, lines: Vec<ratatui
     let max_scroll = actual_lines.saturating_sub(area.height);
 
     if app.auto_scroll {
-        // Use max() to prevent scroll from decreasing (monotonic),
-        // which avoids visual jumping when line_count fluctuates due to word-wrap reflow.
-        app.scroll = app.scroll.max(max_scroll);
+        // When auto-scrolling, always stay at the bottom of content.
+        // This prevents visual jumping when total_lines fluctuates (e.g.
+        // due to word-wrap reflow of collapsed reasoning sections).
+        app.scroll = max_scroll;
+    } else {
+        // Manual scrolling: clamp to valid range so scroll doesn't go
+        // past the end of content after layout transitions (streaming→done,
+        // collapse toggle).
+        app.scroll = app.scroll.min(max_scroll);
     }
-
-    // Clamp scroll to valid range. Without this, layout transitions
-    // (streaming→done, collapse toggle) can leave scroll pointing past
-    // the end of the new smaller content, resulting in a blank screen.
-    app.scroll = app.scroll.min(max_scroll);
 
     let paragraph = Paragraph::new(lines)
         .scroll((app.scroll, 0))
@@ -205,8 +223,25 @@ fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
     let content_width = lines.iter().map(|l| l.width()).max().unwrap_or(0);
     let box_width = (content_width + 4).min(area.width as usize);
 
-    // Height = content lines + 2 border rows (top + bottom)
-    let box_height = (lines.len() as u16 + 2).min(area.height);
+    // Inner text width available after borders (2) + padding (2).
+    let text_width = box_width.saturating_sub(4).max(1);
+
+    // Calculate total height accounting for line wrapping when the terminal
+    // is narrower than the content (e.g. long directory paths).
+    let total_text_rows: u16 = lines
+        .iter()
+        .map(|l| {
+            let w = l.width();
+            if w == 0 {
+                1u16
+            } else {
+                ((w as u16) + (text_width as u16) - 1) / (text_width as u16).max(1)
+            }
+        })
+        .sum();
+
+    // Height = wrapped content lines + 2 border rows (top + bottom)
+    let box_height = (total_text_rows + 2).min(area.height);
 
     let box_area = Rect {
         x: area.x,
@@ -222,9 +257,11 @@ fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
         .border_style(Style::default().fg(Color::Cyan));
 
     let paragraph = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
         .block(block);
     f.render_widget(paragraph, box_area);
 }
+
 
 /// Render chat with reasoning placed before the last assistant message.
 /// Uses the new inline reasoning style (Codex-inspired: `• ` prefix, dim/italic).
@@ -346,15 +383,14 @@ fn render_collapsible_block<'a>(
 fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEntry, entry_idx: usize, app: &mut App, max_width: Option<usize>, show_tool_calls: bool, show_tool_details: bool) {
     let area_width = max_width.unwrap_or(80) as u16;
     match entry.role.as_str() {            "user" => {
-            // Codex-style user message display:
-            // - Empty line before the message
-            // - Subtle background highlight (Codex blends white at 12% over terminal bg)
+            // User message display with full-row background:
+            // - Full-width background color across the entire terminal
+            // - Top margin spacer (1 line) with background
             // - "› " prefix (bold, dim) on first line
             // - "  " continuation indent on wrapped/subsequent lines
-            // - Empty line after
-            let area_width = max_width.unwrap_or(80) as u16;
+            // - Each content line is padded with spaces to fill the full terminal width
+            // - Bottom margin spacer (1 line) with background
             let user_bg = app.user_message_bg;
-            let line_style = Style::default().bg(user_bg);
             let body_style = Style::default()
                 .fg(Color::Rgb(220, 220, 240))
                 .bg(user_bg);
@@ -362,20 +398,26 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
                 .add_modifier(Modifier::BOLD)
                 .add_modifier(Modifier::DIM)
                 .bg(user_bg);
-            lines.push(Line::from(vec![Span::styled("", Style::default().bg(user_bg))]).style(line_style));
+            let full_bg = Style::default().bg(user_bg);
+            let area_w = area_width as usize;
+            // Top margin spacer — full-width with background
+            lines.push(Line::from(vec![Span::styled(" ".repeat(area_w), full_bg)]));
             if !entry.content.is_empty() {
                 let wrap_width = area_width.saturating_sub(3).max(8) as usize;
                 let message = entry.content.trim_end_matches(['\r', '\n']);
                 let wrapped = word_wrap_text(message, wrap_width);
                 for (i, line_text) in wrapped.iter().enumerate() {
                     let prefix = if i == 0 { "› " } else { "  " };
+                    let padding = area_w.saturating_sub(prefix.width() + line_text.width());
+                    let padded_body = format!("{}{}", line_text, " ".repeat(padding));
                     lines.push(Line::from(vec![
                         Span::styled(prefix.to_string(), prefix_style),
-                        Span::styled(line_text.to_string(), body_style),
+                        Span::styled(padded_body, body_style),
                     ]));
                 }
             }
-            lines.push(Line::from(vec![Span::styled("", Style::default().bg(user_bg))]).style(line_style));
+            // Bottom margin spacer — full-width with background
+            lines.push(Line::from(vec![Span::styled(" ".repeat(area_w), full_bg)]));
         }
         "assistant" => {
             // Display tool calls (e.g. shell_exec) if present and config allows
@@ -537,15 +579,22 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
     }
 }
 
-/// Render reasoning block with blockquote style, always exactly max_height lines tall.
-/// Fixed height prevents the content below from jumping as reasoning streams in.
+
 /// Render review reasoning block — transient thinking content shown during code review.
-/// Uses the same blockquote style as the main reasoning block but with a shorter fixed height
-/// since review phases complete quickly and reasoning is shown within the scrollable chat area.
-fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &App, _max_width: Option<usize>, max_height: u16) {
+/// Uses a blockquote style with `│ ` prefix and a fixed height so the content below
+/// doesn't jump as reasoning streams in. Each line is pre-word-wrapped to
+/// `area_width - 2` (for the `"│ "` prefix) to prevent Paragraph re-wrapping and
+/// the resulting visual height fluctuations that cause flickering.
+fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &App, max_width: Option<usize>, max_height: u16) {
     if !app.is_reviewing {
         return;
     }
+
+    let area_width = max_width.unwrap_or(80) as usize;
+    // Wrap width = terminal width - 2 for the "│ " prefix, so each final line
+    // fits in exactly 1 visual line without Paragraph re-wrapping.
+    let wrap_width = area_width.saturating_sub(2).max(8);
+
     if app.review_reasoning.is_empty() {
         // Pad with empty lines to maintain fixed height even when no content
         if max_height > 0 {
@@ -579,8 +628,19 @@ fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &
             .add_modifier(Modifier::BOLD),
     )));
 
-    let reasoning_lines: Vec<&str> = app.review_reasoning.lines().collect();
-    let total = reasoning_lines.len();
+    // Pre-word-wrap each reasoning line to wrap_width so that after adding
+    // the "│ " prefix, each content line is exactly 1 visual line (no re-wrap).
+    let reasoning_wrapped: Vec<String> = app.review_reasoning.lines()
+        .flat_map(|line| {
+            if line.is_empty() {
+                vec![String::new()]
+            } else {
+                word_wrap_text(line, wrap_width)
+            }
+        })
+        .collect();
+
+    let total = reasoning_wrapped.len();
     let max_display = content_budget as usize;
 
     if total > max_display {
@@ -591,7 +651,7 @@ fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &
             format!("│ … {} lines hidden (showing last {}) …", skipped, effective_display),
             Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
         )));
-        for line in &reasoning_lines[total - effective_display..] {
+        for line in &reasoning_wrapped[total - effective_display..] {
             lines.push(Line::from(vec![
                 Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
                 Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
@@ -599,7 +659,7 @@ fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &
         }
     } else {
         let mut content_lines_added: u16 = 0;
-        for line in &reasoning_lines {
+        for line in &reasoning_wrapped {
             lines.push(Line::from(vec![
                 Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
                 Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
@@ -636,7 +696,13 @@ fn build_reasoning_lines(
         return None;
     }
 
-    let rendered = crate::ui::render::render_full(reasoning, Some(area_width as usize));
+    // Use area_width - 4 so the "  • " / "    " prefix (4 chars) doesn't
+    // cause the Paragraph widget to re-wrap the line beyond area_width.
+    // This keeps each content line at exactly 1 visual line, preventing
+    // total_lines from fluctuating when the collapsed reasoning content
+    // changes between frames during streaming.
+    let wrap_width = (area_width as usize).saturating_sub(4).max(10);
+    let rendered = crate::ui::render::render_full(reasoning, Some(wrap_width));
     if rendered.is_empty() {
         return None;
     }
@@ -893,8 +959,6 @@ fn render_streaming_reasoning_inline(
     }
 }
 
-/// and render it with a collapsible git diff display.
-/// Returns Some(()) if the content contained a git_diff field.
 /// Word-wrap text to fit within `max_width` characters, splitting at word boundaries.
 /// Preserves explicit newlines. Returns a flat list of wrapped lines.
 fn word_wrap_text(text: &str, max_width: usize) -> Vec<String> {
@@ -922,6 +986,21 @@ fn word_wrap_text(text: &str, max_width: usize) -> Vec<String> {
         }
     }
     result
+}
+
+/// Parse a unified diff string and return (additions, deletions) counts.
+fn count_diff_stats(diff: &str) -> (usize, usize) {
+    let mut adds = 0usize;
+    let mut dels = 0usize;
+    for line in diff.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('+') && !trimmed.starts_with("+++") {
+            adds += 1;
+        } else if trimmed.starts_with('-') && !trimmed.starts_with("---") {
+            dels += 1;
+        }
+    }
+    (adds, dels)
 }
 
 fn try_render_file_tool_result(
@@ -1008,32 +1087,55 @@ fn try_render_file_tool_result(
 
     // Show the git diff (collapsible)
     if show_git_diff && !git_diff.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "  ─── git diff ───",
-            Style::default().fg(Color::Green),
-        )));
+        // Compute diff stats for display
+        let (adds, dels) = count_diff_stats(git_diff);
+        lines.push(Line::from(vec![
+            Span::styled(
+                "  ─── git diff ",
+                Style::default().fg(Color::Green),
+            ),
+            Span::styled(
+                format!("+{} -{}", adds, dels),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " ───",
+                Style::default().fg(Color::Green),
+            ),
+        ]));
 
-        // Build styled diff lines (inspired by codebuff's DiffViewer)
-        // Filter out hunk headers (@@) for a cleaner view - matches codebuff's behavior
+        // Build styled diff lines with preserved @@ hunk headers
         let diff_lines: Vec<Line> = git_diff
             .lines()
-            .filter(|line| !line.starts_with("@@"))
             .map(|line| {
                 let line = line.trim_end();
                 // Empty lines should have a space for rendering
                 let display_line = if line.is_empty() { " " } else { line };
 
-                let style = if line.starts_with('+') && !line.starts_with("+++") {
+                let (prefix, style) = if line.starts_with("@@") {
+                    // Hunk header — bright cyan with bold
+                    (
+                        format!("  {}", display_line),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else if line.starts_with('+') && !line.starts_with("+++") {
                     // Added lines - green
-                    Style::default().fg(Color::Green)
+                    (format!("  {}", display_line), Style::default().fg(Color::Green))
                 } else if line.starts_with('-') && !line.starts_with("---") {
                     // Removed lines - red
-                    Style::default().fg(Color::Red)
+                    (format!("  {}", display_line), Style::default().fg(Color::Red))
                 } else if line.starts_with("+++") || line.starts_with("---") {
                     // File header lines - gray bold
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::BOLD)
+                    (
+                        format!("  {}", display_line),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )
                 } else if line.starts_with("diff ")
                     || line.starts_with("index ")
                     || line.starts_with("rename ")
@@ -1042,16 +1144,16 @@ fn try_render_file_tool_result(
                     || line.starts_with("deleted file ")
                 {
                     // Metadata lines - gray
-                    Style::default().fg(Color::DarkGray)
+                    (format!("  {}", display_line), Style::default().fg(Color::DarkGray))
                 } else if line.starts_with('\\') {
                     // "No newline at end of file" - gray
-                    Style::default().fg(Color::DarkGray)
+                    (format!("  {}", display_line), Style::default().fg(Color::DarkGray))
                 } else {
                     // Context lines - default
-                    Style::default()
+                    (format!("  {}", display_line), Style::default())
                 };
 
-                Line::from(Span::styled(format!("  {}", display_line), style))
+                Line::from(Span::styled(prefix, style))
             })
             .collect();
 
@@ -1220,4 +1322,114 @@ fn render_status_messages(lines: &mut Vec<ratatui::text::Line<'static>>, app: &A
             lines.push(Line::from(line.to_string()));
         }
     }
+}
+
+/// Render an aggregated file change summary block at the end of a turn.
+/// Inspired by Codex's change summary display: shows a compact list of
+/// all files that were modified in the current turn with +X -Y stats.
+/// Only renders when not streaming, and when there are actual changes.
+fn render_file_change_summary(lines: &mut Vec<ratatui::text::Line<'static>>, app: &App, max_width: Option<usize>) {
+    if app.is_streaming {
+        return;
+    }
+
+    // Find the most recent user message boundary — scan backward from the end
+    // of chat_history for the last user message.
+    let turn_start = app.chat_history.iter().rposition(|e| e.role == "user");
+    let start_idx = turn_start.unwrap_or(0);
+
+    // Aggregate per-file stats from tool entries in the current turn
+    let mut per_file: Vec<(String, usize, usize)> = Vec::new();
+    let mut total_adds = 0usize;
+    let mut total_dels = 0usize;
+
+    for entry in app.chat_history[start_idx..].iter() {
+        if entry.role != "tool" {
+            continue;
+        }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&entry.content) {
+            // Only show file-change results (file_write, file_update, file_delete)
+            let has_file_op = value.get("bytes_written").is_some()
+                || value.get("replacements").is_some()
+                || value.get("deleted_type").is_some();
+            if !has_file_op {
+                continue;
+            }
+            if let Some(path) = value.get("path").and_then(|p| p.as_str()) {
+                let diff_str = value.get("git_diff").and_then(|v| v.as_str()).unwrap_or("");
+                let (adds, dels) = count_diff_stats(diff_str);
+                if adds > 0 || dels > 0 {
+                    total_adds += adds;
+                    total_dels += dels;
+                    per_file.push((path.to_string(), adds, dels));
+                }
+            }
+        }
+    }
+
+    if per_file.is_empty() {
+        return;
+    }
+
+    let area_width = max_width.unwrap_or(80) as usize;
+
+    // Separator line
+    lines.push(Line::from(Span::styled(
+        "─".repeat(area_width),
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    // Header: "📝 N files changed: +X -Y"
+    lines.push(Line::from(vec![
+        Span::styled(
+            "📝 ",
+            Style::default().fg(Color::Cyan),
+        ),
+        Span::styled(
+            format!("{} file{} changed: ", per_file.len(), if per_file.len() == 1 { "" } else { "s" }),
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("+{} -{}", total_adds, total_dels),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    // Per-file entries
+    for (path, adds, dels) in &per_file {
+        let (add_color, del_color) = if *adds > 0 && *dels > 0 {
+            (Color::Green, Color::Red)
+        } else if *adds > 0 {
+            (Color::Green, Color::DarkGray)
+        } else {
+            (Color::DarkGray, Color::Red)
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(
+                "  ",
+                Style::default(),
+            ),
+            Span::styled(
+                path.clone(),
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::styled(
+                "  ",
+                Style::default(),
+            ),
+            Span::styled(
+                format!("+{}", adds),
+                Style::default().fg(add_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" -{}", dels),
+                Style::default().fg(del_color),
+            ),
+        ]));
+    }
+
+    lines.push(Line::default());
 }

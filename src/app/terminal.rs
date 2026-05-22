@@ -9,29 +9,43 @@ use ratatui::{
 };
 use std::io::Write as _;
 
-/// Enter alternate screen and enable raw mode
+/// Enter alternate screen, enable raw mode, and enable basic mouse tracking.
 ///
-/// Instead of crossterm's `EnableMouseCapture` (which enables `?1003h` any-event
-/// tracking and blocks native terminal text selection), we manually enable only
-/// `?1000h` (basic button tracking) + `?1006h` (SGR extended coordinates).
+/// Basic mouse tracking (?1000h) reports button press/release events — including
+/// scroll wheel — as `Event::Mouse(MouseEvent)` with `ScrollUp` / `ScrollDown`
+/// kinds.  This cleanly separates wheel scrolling (mouse events → chat scroll)
+/// from ↑/↓ key presses (key events → history navigation), eliminating the
+/// scroll-wheel-induced history flicker that plagues the `?1007h` approach.
 ///
-/// This allows:
-/// - Mouse scroll wheel events for scrolling chat history
-/// - Shift+drag for native terminal text selection & copy in most terminals
+/// The trade-off is that mouse tracking interferes with the terminal's native
+/// click-drag text selection.  The user can press **Alt+S** to temporarily
+/// disable mouse tracking (`?1000l`), select text natively, and re-enable
+/// it with another Alt+S.
 pub fn enter_terminal() -> anyhow::Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
-    // Basic mouse tracking (button press/release + scroll) with SGR encoding.
-    // Intentionally NOT enabling ?1002h (button-event motion) or ?1003h (any-event motion)
-    // so that terminals can handle Shift+drag for native text selection.
-    let _ = write!(stdout, "\x1b[?1000h\x1b[?1006h");
-    // Bracketed paste mode
-    let _ = write!(stdout, "\x1b[?2004h");
+    // Enable bracketed paste + basic mouse tracking
+    let _ = write!(stdout, "\x1b[?2004h\x1b[?1000h");
     let _ = stdout.flush();
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
     Ok(terminal)
+}
+
+/// Enable basic mouse tracking (`?1000h`).
+pub fn enable_mouse_tracking() {
+    let _ = write!(std::io::stdout(), "\x1b[?1000h");
+    let _ = std::io::stdout().flush();
+}
+
+/// Disable basic mouse tracking (`?1000l`).
+///
+/// This allows the terminal's native click-drag text selection to work.
+/// Call [`enable_mouse_tracking`] to re-enable after selection is done.
+pub fn disable_mouse_tracking() {
+    let _ = write!(std::io::stdout(), "\x1b[?1000l");
+    let _ = std::io::stdout().flush();
 }
 
 /// Query the terminal's default background color via OSC 11.
@@ -208,11 +222,10 @@ fn parse_osc_11_response(raw: &[u8]) -> Option<(u8, u8, u8)> {
 pub fn leave_terminal(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
 ) -> anyhow::Result<()> {
-    // Disable mouse tracking and bracketed paste
+    // Disable bracketed paste and mouse tracking
     // Reset cursor color to default (OSC 112) and ensure cursor is visible
     let _ = write!(std::io::stdout(), "\x1b]112\x1b\\");
-    let _ = write!(std::io::stdout(), "\x1b[?1000l\x1b[?1006l");
-    let _ = write!(std::io::stdout(), "\x1b[?2004l");
+    let _ = write!(std::io::stdout(), "\x1b[?2004l\x1b[?1000l");
     let _ = std::io::stdout().flush();
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), Show)?;
