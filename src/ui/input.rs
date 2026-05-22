@@ -174,7 +174,11 @@ pub fn render_queue_display(f: &mut Frame, app: &App, area: Rect) {
 pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     update_input_style(app);
 
-    let bg = app.input_bg_color;
+    let bg = if app.shell_mode {
+        Color::Rgb(40, 0, 60) // dark purple for shell mode
+    } else {
+        app.input_bg_color
+    };
     let bg_paragraph = Paragraph::new("")
         .style(Style::default().bg(bg));
     f.render_widget(bg_paragraph, area);
