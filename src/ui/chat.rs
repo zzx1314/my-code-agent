@@ -36,15 +36,96 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         render_chat_messages(&mut lines, app, width);
     }
 
-    // Render streaming reasoning inline (Codex-style: dim/italic with `• ` prefix)
-    // during streaming when reasoning is active but no text output yet.
-    render_streaming_reasoning_inline(&mut lines, app, width);
+    // During streaming, render content in chronological order:
+    // pre-text thinking → text → post-text thinking → text → ...
+    // This interleaves thinking segments with their associated text chunks
+    // using `text_segment_boundaries` recorded when each post-text thinking
+    // segment starts.
+    //
+    // All app data is cloned BEFORE rendering to avoid borrow conflicts:
+    // render_reasoning_inline and render_streaming_reasoning_inline take
+    // &mut app (for collapse toggles), while boundaries/text/segments are
+    // immutable references that would conflict.
+    if app.is_streaming {
+        let area_width = width.unwrap_or(80) as u16;
+
+        // Clone all streaming data from app first
+        let boundaries: Vec<usize> = app.text_segment_boundaries.clone();
+        let text: String = app.streaming_text.clone();
+        let archived_segments: Vec<String> = app.completed_post_text_segments.clone();
+        let post_text: String = app.post_text_reasoning.clone();
+        let last_reasoning: String = app.last_reasoning.clone();
+        let active_reasoning: String = app.streaming_reasoning.clone();
+
+        // 1. Pre-text completed reasoning (from before any text appeared)
+        if !last_reasoning.is_empty() {
+            render_reasoning_inline(&mut lines, &last_reasoning, app, "stream_last_reasoning", area_width);
+        }
+
+        // 2. Interleave text chunks with post-text thinking segments using
+        //    the recorded text segment boundaries.
+        let mut prev: usize = 0;
+
+        // Archived segments map to boundaries[0..n-1]
+        for i in 0..archived_segments.len() {
+            if i < boundaries.len() {
+                let b = boundaries[i];
+                if b > prev && b <= text.len() {
+                    lines.push(Line::from(vec![Span::styled(
+                        "Assistant: ",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    )]));
+                    let md_lines = render_streaming_markdown(&text[prev..b], width);
+                    lines.extend(md_lines);
+                    prev = b;
+                }
+            }
+            // Render the archived thinking segment that follows this text chunk
+            let section_id = format!("stream_post_text_reasoning_{}", i);
+            render_reasoning_inline(&mut lines, &archived_segments[i], app, &section_id, area_width);
+        }
+
+        // Current post-text reasoning (follows the next text chunk)
+        if !post_text.is_empty() {
+            // The boundary for the current post-text segment is at
+            // boundaries[archived_segments.len()] (if it exists).
+            let b = boundaries.get(archived_segments.len()).copied().unwrap_or(text.len());
+            if b > prev && b <= text.len() {
+                lines.push(Line::from(vec![Span::styled(
+                    "Assistant: ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )]));
+                let md_lines = render_streaming_markdown(&text[prev..b], width);
+                lines.extend(md_lines);
+                prev = b;
+            }
+            render_reasoning_inline(&mut lines, &post_text, app, "stream_post_text_reasoning", area_width);
+        }
+
+        // Remaining streaming text (not yet associated with any thinking segment)
+        if prev < text.len() {
+            lines.push(Line::from(vec![Span::styled(
+                "Assistant: ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )]));
+            let md_lines = render_streaming_markdown(&text[prev..], width);
+            lines.extend(md_lines);
+        }
+
+        // Active reasoning (currently streaming segment)
+        if !active_reasoning.is_empty() {
+            render_streaming_reasoning_inline(&mut lines, &active_reasoning, app, "stream_reasoning", area_width);
+        }
+    }
 
     // Render review reasoning (transient — not added to chat history)
     render_review_reasoning(&mut lines, app, width, 8);
-
-    // Render streaming content (text, tool calls)
-    render_streaming_content(&mut lines, app, width);
 
     // Render status messages at the bottom
     render_status_messages(&mut lines, app, area);
@@ -328,7 +409,8 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
             }
             // Display reasoning inline (Codex style) if present
             if let Some(ref reasoning) = entry.reasoning_content {
-                render_reasoning_inline(lines, reasoning, app, entry_idx, area_width);
+                let section_id = format!("reason_{}", entry_idx);
+                render_reasoning_inline(lines, reasoning, app, &section_id, area_width);
             }
             // Display normal content (cached to avoid re-parsing markdown every frame)
             // Cache key includes max_width to handle terminal resizing correctly.
@@ -597,20 +679,22 @@ fn build_reasoning_lines(
 }
 
 /// Render reasoning lines into the output, with collapsible support.
+///
+/// Always inserts a blank-line separator and "💭 Thinking..." header before the
+/// content so distinct reasoning segments remain visually separated even when
+/// each segment is shorter than `COLLAPSE_THRESHOLD`.
 fn render_reasoning_inline(
     lines: &mut Vec<Line<'static>>,
     reasoning: &str,
     app: &mut App,
-    entry_idx: usize,
+    section_id: &str,
     area_width: u16,
 ) {
     let Some(styled) = build_reasoning_lines(reasoning, area_width) else {
         return;
     };
-
-    let section_id = format!("reason_{}", entry_idx);
     let total = styled.len();
-    let collapsed = !app.collapsed_sections.contains(&section_id);
+        let collapsed = !app.collapsed_sections.contains(section_id);
 
     /// Compute how many visual lines a `Line` occupies after word-wrap at `width`.
     fn visual_lines(line: &ratatui::text::Line<'_>, width: u16) -> u16 {
@@ -623,6 +707,10 @@ fn render_reasoning_inline(
     }
 
     let vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
+
+    // Blank-line separator to visually distinguish reasoning segments
+    // (applies to BOTH large and small segments).
+    lines.push(Line::default());
 
     if total > COLLAPSE_THRESHOLD {
         // Build clickable header line
@@ -666,7 +754,7 @@ fn render_reasoning_inline(
         };
 
         app.collapsed_toggles
-            .push((vis_pos, section_id.clone(), total));
+            .push((vis_pos, section_id.to_string(), total));
 
         lines.push(header);
 
@@ -683,37 +771,43 @@ fn render_reasoning_inline(
             }
         }
     } else {
+        // Small reasoning block: show a minimal header so even short segments
+        // are visually separated from adjacent reasoning blocks.
+        lines.push(Line::from(vec![
+            Span::styled(
+                "  💭 Thinking...",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
+            ),
+        ]));
         lines.extend(styled);
     }
 }
 
-/// Render streaming reasoning inline (Codex-style) during streaming.
-/// Shows the reasoning content with dim/italic style and `• ` prefix,
-/// matching the inline reasoning display used for completed messages.
-/// Reasoning persists for the entire streaming duration — even after text
-/// starts arriving — so the user can always see what the model is thinking.
-fn render_streaming_reasoning_inline(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut App, max_width: Option<usize>) {
-    if !app.is_streaming {
-        return;
-    }
+/// Render an active streaming reasoning segment inline (Codex-style).
+/// Shows the reasoning content with dim/italic style and `• ` prefix.
+/// This handles only the currently streaming segment — completed segments
+/// are rendered separately via `render_reasoning_inline` to match the
+/// final per-entry output format.
+fn render_streaming_reasoning_inline(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    reasoning: &str,
+    app: &mut App,
+    section_id: &str,
+    area_width: u16,
+) {
     if app.config.agent.thinking_display == "hidden" {
         return;
     }
 
-    // Use streaming_reasoning if available; fall back to last_reasoning
-    // (which is set when reasoning ends but streaming is still active).
-    let reasoning = if !app.streaming_reasoning.is_empty() {
-        &app.streaming_reasoning
-    } else if !app.last_reasoning.is_empty() {
-        &app.last_reasoning
-    } else {
+    if reasoning.trim().is_empty() {
         return;
-    };
+    }
 
-    let area_width = max_width.unwrap_or(80) as u16;
     if let Some(styled) = build_reasoning_lines(reasoning, area_width) {
-        let section_id = "stream_reasoning";
-        let collapsed = !app.collapsed_sections.contains(section_id);
+        let section_id_owned = section_id.to_string();
+        let collapsed = !app.collapsed_sections.contains(&section_id_owned);
         let total = styled.len();
 
         // Compute current visual line position for toggle placement
@@ -722,6 +816,9 @@ fn render_streaming_reasoning_inline(lines: &mut Vec<ratatui::text::Line<'static
             if line_width == 0 || width == 0 { 1 } else { (line_width + width - 1) / width }
         }
         let vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
+
+        // Blank-line separator to visually distinguish from prior reasoning segment
+        lines.push(Line::default());
 
         if total > COLLAPSE_THRESHOLD {
             // Build clickable header line
@@ -781,135 +878,18 @@ fn render_streaming_reasoning_inline(lines: &mut Vec<ratatui::text::Line<'static
                 }
             }
         } else {
+            // Small active reasoning block: show a minimal header so even short
+            // streaming segments are visually separated from adjacent blocks.
+            lines.push(Line::from(vec![
+                Span::styled(
+                    "  💭 Thinking...",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                ),
+            ]));
             lines.extend(styled);
         }
-    }
-}
-
-/// Render streaming content (text and tool calls).
-fn render_streaming_content(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut App, max_width: Option<usize>) {
-    let area_width = max_width.unwrap_or(80) as u16;
-    if !app.is_streaming {
-        return;
-    }
-
-    // Render persistent todos FIRST so they stay visible even during
-    // inter-turn waiting periods (between tool execution and next text).
-    // streaming_todos is set when a write_todos tool result arrives and
-    // cleared when new streaming text arrives or streaming ends.
-    // Skip if streaming_tool_result is still present (it will render the
-    // same content via .take() on this same frame).
-    if app.streaming_tool_result.is_none() {
-        if let Some(ref todos) = app.streaming_todos {
-            try_render_todos(lines, todos, max_width);
-            lines.push(Line::default());
-        }
-    }
-
-    if !app.streaming_text.is_empty() || app.current_tool_call.is_some() || app.streaming_tool_result.is_some() {
-        lines.push(Line::from(vec![Span::styled(
-            "Assistant: ",
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        )]));
-        if !app.streaming_text.is_empty() {
-            let md_lines = render_streaming_markdown(&app.streaming_text, max_width);
-            lines.extend(md_lines);
-        }
-        // Display current executing tool call with detailed info (if config allows)
-        if app.config.agent.show_tool_calls {
-            if let Some(ref tool_call) = app.current_tool_call {
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        "⚙️ ",
-                        Style::default().fg(Color::Yellow),
-                    ),
-                    Span::styled(
-                        tool_call.name.clone(),
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                    ),
-                ]));
-                // Try to parse arguments as JSON to show command nicely
-                if app.config.agent.show_tool_details {
-                    match serde_json::from_str::<serde_json::Value>(&tool_call.arguments) {
-                        Ok(val) if !val.is_null() => {
-                            if let Some(cmd) = val.get("command").and_then(|c| c.as_str()) {
-                                lines.push(Line::from(format!("  {}", cmd)));
-                            } else {
-                                lines.push(Line::from(format!("  {}", val)));
-                            }
-                        }
-                        _ => {
-                            // Show raw arguments if not yet valid JSON (still streaming)
-                            if !tool_call.arguments.is_empty() {
-                                lines.push(Line::from(format!("  {}", tool_call.arguments)));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Display completed tool result with truncated content display.
-        // Take the content to avoid borrowing conflicts with &mut App calls
-        // and avoid cloning the potentially large content string every frame.
-        let streaming_content = app.streaming_tool_result.take().map(|(_name, content)| content);
-        if let Some(ref content) = streaming_content {
-            // Todos results are ALWAYS shown — they contain planning progress.
-            // Check this BEFORE the show_tool_details guard so todos are visible
-            // regardless of tool display settings.
-            if try_render_todos(lines, content, max_width).is_some() {
-                // Already rendered the todos, nothing more to do.
-            }
-            // Only render other tool results when show_tool_calls and show_tool_details
-            // are both enabled. Without this guard, the specialized renderers below
-            // (file_tool_result, shell_exec, file_outline) would render their content
-            // even when the user has configured show_tool_calls = false.
-            else if app.config.agent.show_tool_calls && app.config.agent.show_tool_details {
-                // Try rendering as file tool result (git diff) first
-                // Use a special high index for streaming section IDs — only one
-                // streaming tool result exists at a time, so section IDs won't clash.
-                if try_render_file_tool_result(lines, content, usize::MAX, app, false, area_width).is_none()
-                    && try_render_shell_exec_result(lines, content, usize::MAX, app, true, area_width).is_none()
-                    && try_render_file_outline(lines, content, usize::MAX, app, area_width).is_none()
-                {
-                    // Lightweight rendering: only show first few lines with a note
-                    let total_lines = content.lines().count();
-                    let max_preview = 5;
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            "🔧 Tool Result:",
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                        ),
-                    ]));
-                    for line in content.lines().take(max_preview) {
-                        lines.push(Line::from(line.to_string()));
-                    }
-                    if total_lines > max_preview {
-                        lines.push(Line::from(Span::styled(
-                            format!("  ... {} more lines (tool result shown briefly)", total_lines - max_preview),
-                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-                        )));
-                    }
-                }
-            }
-        }
-    } else if !app.streaming_status.is_empty() {
-        // Show a status message during inter-turn waiting periods
-        // (e.g. "⏳ Waiting for model response..." after tool execution)
-        lines.push(Line::from(Span::styled(
-            app.streaming_status.clone(),
-            Style::default().fg(Color::Yellow),
-        )));
-    } else if !app.streaming_reasoning.is_empty() || !app.last_reasoning.is_empty() {
-        // Reasoning is already shown inline by render_streaming_reasoning_inline —
-        // no need for a redundant "💭 Thinking..." placeholder.
-    } else {
-        lines.push(Line::from(Span::styled(
-            "⏳ Generating response...",
-            Style::default().fg(Color::Yellow),
-        )));
     }
 }
 
@@ -1077,90 +1057,6 @@ fn try_render_file_tool_result(
 
         let section_id = format!("gd_{}", entry_idx);
         render_collapsible_block(lines, app, &section_id, diff_lines, area_width);
-    }
-
-    Some(())
-}
-
-/// Try to parse tool content as a shell exec result and render it with collapsible
-/// stdout/stderr blocks.
-/// Returns Some(()) if the content was successfully rendered as a shell exec result.
-fn try_render_shell_exec_result(
-    lines: &mut Vec<ratatui::text::Line>,
-    content: &str,
-    entry_idx: usize,
-    app: &mut App,
-    show_tool_details: bool,
-    area_width: u16,
-) -> Option<()> {
-    // When details are hidden, don't render shell results at all
-    if !show_tool_details {
-        return None;
-    }
-
-    let value: serde_json::Value = serde_json::from_str(content).ok()?;
-    let cmd = value.get("command")?.as_str()?;
-
-    // Header
-    lines.push(Line::from(vec![
-        Span::styled("⚙️ ", Style::default().fg(Color::Yellow)),
-        Span::styled(
-            "Shell Exec",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        ),
-    ]));
-    lines.push(Line::from(format!("  Command: {}", cmd)));
-
-    if let Some(exit_code) = value.get("exit_code") {
-        let color = if exit_code.as_i64() == Some(0) {
-            Color::Green
-        } else {
-            Color::Red
-        };
-        lines.push(Line::from(vec![
-            Span::styled("  Exit Code: ", Style::default()),
-            Span::styled(format!("{}", exit_code), Style::default().fg(color)),
-        ]));
-    }
-
-    if let Some(timed_out) = value.get("timed_out").and_then(|t| t.as_bool()) {
-        if timed_out {
-            lines.push(Line::from(Span::styled(
-                "  ⚠ Timed out",
-                Style::default().fg(Color::Red),
-            )));
-        }
-    }
-
-    // Show stdout/stderr
-    if let Some(stdout) = value.get("stdout").and_then(|s| s.as_str()) {
-        if !stdout.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  ─── stdout ───",
-                Style::default().fg(Color::DarkGray),
-            )));
-            let stdout_lines: Vec<Line> = stdout
-                .lines()
-                .map(|l| Line::from(format!("  {}", l)))
-                .collect();
-            let section_id = format!("so_{}", entry_idx);
-            render_collapsible_block(lines, app, &section_id, stdout_lines, area_width);
-        }
-    }
-
-    if let Some(stderr) = value.get("stderr").and_then(|s| s.as_str()) {
-        if !stderr.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  ─── stderr ───",
-                Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
-            )));
-            let stderr_lines: Vec<Line> = stderr
-                .lines()
-                .map(|l| Line::from(format!("  {}", l)))
-                .collect();
-            let section_id = format!("se_{}", entry_idx);
-            render_collapsible_block(lines, app, &section_id, stderr_lines, area_width);
-        }
     }
 
     Some(())

@@ -388,15 +388,45 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     app.streaming_todos = None;
     app.streaming_status.clear();
 
-    // Use the authoritative reasoning from the backend ReasoningTracker.
-    if !result.last_reasoning.is_empty() {
+    // The UI has already accumulated all reasoning segments from streaming
+    // events (ReasoningDelta + ReasoningActive). When tools are called, the
+    // backend ReasoningTracker is reset between turns (reset_total in
+    // stream_response.rs:680), so result.last_reasoning only contains the
+    // LAST turn's reasoning — prefer the UI-accumulated version which has
+    // the complete cross-turn picture.
+    if !app.last_reasoning.is_empty() {
+        // UI has accumulated reasoning from streaming events — keep it.
+        app.streaming_reasoning.clear();
+    } else if !result.last_reasoning.is_empty() {
+        // Fallback: use backend's result (single-turn or first-turn only).
         app.last_reasoning = result.last_reasoning;
         app.streaming_reasoning.clear();
-    } else if app.last_reasoning.is_empty() && !app.streaming_reasoning.is_empty() {
+    } else if !app.streaming_reasoning.is_empty() {
+        // Last resort: streaming content not yet moved to last_reasoning.
         app.last_reasoning = std::mem::take(&mut app.streaming_reasoning);
     } else {
         app.streaming_reasoning.clear();
     }
+
+    // Merge all archived post-text reasoning segments into last_reasoning
+    // for the completed state (used by /think, session save, and final
+    // inline-rendering flag). These segments were split during streaming
+    // so each thinking block appeared separately.
+    for segment in app.completed_post_text_segments.drain(..) {
+        if !app.last_reasoning.is_empty() {
+            app.last_reasoning.push('\n');
+        }
+        app.last_reasoning.push_str(&segment);
+    }
+    // Merge the final (still in-progress) post-text reasoning, if any.
+    if !app.post_text_reasoning.is_empty() {
+        if !app.last_reasoning.is_empty() {
+            app.last_reasoning.push('\n');
+        }
+        app.last_reasoning.push_str(&app.post_text_reasoning);
+        app.post_text_reasoning.clear();
+    }
+
     app.current_tool_call = None;
     app.streaming_events_rx = None;
 

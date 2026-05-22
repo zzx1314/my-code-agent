@@ -8,6 +8,9 @@ pub fn reset_streaming_state(app: &mut App) {
     app.reasoning_scroll = 0;
     app.streaming_text.clear();
     app.streaming_reasoning.clear();
+    app.post_text_reasoning.clear();
+    app.completed_post_text_segments.clear();
+    app.text_segment_boundaries.clear();
     app.last_reasoning.clear();
     app.is_reasoning_active = false;
     app.current_tool_call = None;

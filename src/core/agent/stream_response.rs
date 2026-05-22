@@ -267,6 +267,14 @@ async fn process_sse_stream(
                 if reasoning.is_reasoning() {
                     reasoning.end_segment();
                 }
+                // Signal reasoning end to the frontend when tool_calls arrive
+                // without preceding text content. Without this, streaming_reasoning
+                // on the app side never gets moved to last_reasoning, causing the
+                // next turn's reasoning to be incorrectly appended to the old one.
+                if reasoning_active {
+                    reasoning_active = false;
+                    send_event(StreamEvent::ReasoningActive(false));
+                }
                 for tcd in tcds {
                     let idx = tcd.index as usize;
                     while acc_tool_calls.len() <= idx {

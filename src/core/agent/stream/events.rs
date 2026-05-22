@@ -79,17 +79,41 @@ pub fn process_streaming_events(app: &mut App) {
                     app.is_reasoning_active = active;
                     if !active {
                         if !app.streaming_reasoning.is_empty() {
-                            // Reasoning just ended — the upcoming text should be
-                            // separated from any previous content by a newline.
-                            if !app.streaming_text.is_empty() {
-                                app.streaming_text.push_str("\n");
+                            if app.streaming_text.is_empty() {
+                                // Pre-text thinking segment: merge to last_reasoning
+                                // so it displays above the streaming text.
+                                if !app.last_reasoning.is_empty() {
+                                    app.last_reasoning.push('\n');
+                                }
+                                app.last_reasoning.push_str(&app.streaming_reasoning);
+                            } else {
+                                // Post-text thinking (text already started):
+                                // Record a text segment boundary so rendering can
+                                // interleave text chunks with thinking sections
+                                // (thought→text→thought→text...).
+                                app.text_segment_boundaries.push(app.streaming_text.len());
+                                // First archive any previous post-text segment so
+                                // that each reasoning block renders as its own
+                                // separate area instead of being merged together.
+                                if !app.post_text_reasoning.is_empty() {
+                                    app.completed_post_text_segments
+                                        .push(std::mem::take(&mut app.post_text_reasoning));
+                                }
+                                // Then save the new segment's content.
+                                app.post_text_reasoning.push_str(&app.streaming_reasoning);
                             }
-                            app.last_reasoning = app.streaming_reasoning.clone();
                             app.streaming_reasoning.clear();
                         }
                     }
                 }
                 Ok(crate::core::agent::stream_response::StreamEvent::ReasoningDelta(delta)) => {
+                    // NOTE: Archived post-text reasoning is handled in
+                    // ReasoningActive(false) — not here — because that event
+                    // is the definitive signal that a segment has ended.
+                    // ReasoningDelta fires for every SSE chunk with reasoning
+                    // content and cannot reliably distinguish "start of a new
+                    // segment" from "continuation of the current one".
+
                     // Some API providers send FULL accumulated reasoning_content
                     // in each SSE chunk rather than incremental deltas.
                     if delta.starts_with(&app.streaming_reasoning) {

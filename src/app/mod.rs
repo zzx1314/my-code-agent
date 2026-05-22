@@ -112,6 +112,20 @@ pub struct App {
     pub streaming_events_rx: Option<mpsc::UnboundedReceiver<StreamEvent>>,
     pub streaming_text: String,
     pub streaming_reasoning: String,
+    /// Completed reasoning segments that appeared AFTER text started (post-text).
+    /// Rendered below streaming text but above active reasoning, keeping pre-text
+    /// and post-text reasoning sections separate during streaming.
+    pub post_text_reasoning: String,
+    /// Archived completed post-text reasoning segments, each representing a distinct
+    /// reasoning block that appeared after text had already started.
+    /// When a new reasoning segment begins while post_text_reasoning already has
+    /// content, the old content is moved here so each segment renders separately.
+    pub completed_post_text_segments: Vec<String>,
+    /// Character boundaries in `streaming_text` marking where each text "chunk"
+    /// ends between successive post-text reasoning segments.
+    /// Used to interleave text chunks with thinking sections during rendering:
+    /// e.g. thought→text[..b0]→archived[0]→text[b0..b1]→post_text→text[b1..]
+    pub text_segment_boundaries: Vec<usize>,
     /// Whether the model is actively producing reasoning in the current response.
     /// Set by ReasoningActive events during streaming. Prevents showing the thinking
     /// area for models that don't produce reasoning output.
@@ -300,6 +314,9 @@ impl App {
             streaming_events_rx: None,
             streaming_text: String::new(),
             streaming_reasoning: String::new(),
+            post_text_reasoning: String::new(),
+            completed_post_text_segments: Vec::new(),
+            text_segment_boundaries: Vec::new(),
             is_reasoning_active: false,
             current_tool_call: None,
             status_messages: Vec::new(),
