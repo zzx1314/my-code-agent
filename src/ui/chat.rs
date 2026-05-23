@@ -48,6 +48,11 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     // &mut app (for collapse toggles), while boundaries/text/segments are
     // immutable references that would conflict.
     if app.is_streaming {
+        // Add a blank-line separator between the last rendered message and
+        // the streaming output, so there is visual spacing between the user's
+        // input and the model's response during streaming.
+        lines.push(Line::default());
+
         let area_width = width.unwrap_or(80) as u16;
 
         // Clone all streaming data from app first
@@ -107,13 +112,16 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             render_streaming_reasoning_inline(&mut lines, &active_reasoning, app, "stream_reasoning", area_width);
         }
 
-        // Streaming todos — rendered below text/reasoning when present
+        // Streaming todos — rendered below text/reasoning when present.
+        // Always rendered during streaming (not cleared by new text) so the
+        // plan stays visible throughout the streaming phase.
         if let Some(ref todos_md) = streaming_todos {
             if !todos_md.is_empty() {
                 let rendered = render_full(todos_md, width);
                 if !rendered.is_empty() {
                     lines.push(Line::default());
                     lines.extend(rendered);
+                    lines.push(Line::default());
                 }
             }
         }
@@ -255,18 +263,32 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app
     let split_idx = last_assistant_idx.unwrap_or(app.chat_history.len());
 
     let show_tool_calls_in_history = app.config.agent.show_tool_calls_in_history;
+    let mut prev_role: Option<String> = None;
 
     // Clone entries before the last assistant to avoid borrow conflict with &mut App
     let before: Vec<(usize, ChatEntry)> = app.chat_history[..split_idx].iter().enumerate()
         .map(|(i, e)| (i, e.clone()))
         .collect();
     for (i, entry) in &before {
+        // Add separator blank line between messages of different roles for visual spacing
+        if let Some(ref prev) = prev_role {
+            if prev != &entry.role {
+                lines.push(Line::default());
+            }
+        }
         render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
+        prev_role = Some(entry.role.clone());
     }
 
     // Render the last assistant message inline — its reasoning_content will be
     // rendered by render_message via the new inline reasoning helper.
     if let Some(idx) = last_assistant_idx {
+        // Add separator before the last assistant message if the role differs from previous
+        if let Some(ref prev) = prev_role {
+            if prev != "assistant" {
+                lines.push(Line::default());
+            }
+        }
         let entry = app.chat_history[idx].clone();
         render_message(lines, &entry, idx, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
     }
@@ -279,8 +301,16 @@ fn render_chat_messages(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut
     let entries: Vec<(usize, ChatEntry)> = app.chat_history.iter().enumerate()
         .map(|(i, e)| (i, e.clone()))
         .collect();
+    let mut prev_role: Option<String> = None;
     for (i, entry) in &entries {
+        // Add separator blank line between messages of different roles for visual spacing
+        if let Some(ref prev) = prev_role {
+            if prev != &entry.role {
+                lines.push(Line::default());
+            }
+        }
         render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
+        prev_role = Some(entry.role.clone());
     }
 }
 

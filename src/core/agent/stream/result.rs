@@ -383,9 +383,13 @@ pub fn trigger_auto_review(app: &mut App) {
 
 /// Process the final result of a streaming response
 fn process_stream_result(app: &mut App, result: crate::core::agent::stream_response::StreamResult) {
+    // Save streaming_todos before clearing — we'll re-add it after the
+    // chat_history is synced so the plan stays visible after streaming
+    // completes, right alongside the assistant's final response.
+    let final_todos = app.streaming_todos.take();
+
     app.is_streaming = false;
     app.streaming_text.clear();
-    app.streaming_todos = None;
     app.streaming_status.clear();
 
     // The UI has already accumulated all reasoning segments from streaming
@@ -493,10 +497,36 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     }
     app.show_inline_reasoning = !app.last_reasoning.is_empty();
 
+    // ── Preserve streaming_todos after completion ──────────────────────────
+    // Append the final plan to the assistant's message so it stays visible
+    // at the bottom of the response, rather than being buried earlier in the
+    // chat history as a separate tool entry.
+    if let Some(ref todos_md) = final_todos {
+        if !todos_md.is_empty() {
+            if let Some(last) = app.chat_history.last_mut() {
+                if last.role == "assistant" {
+                    if !last.content.is_empty() {
+                        last.content.push('\n');
+                    }
+                    last.content.push_str(todos_md);
+                }
+            }
+        }
+    }
+
     app.token_usage = result.session_usage;
     app.status_messages = result.status_messages;
     app.turn_usage_line = result.turn_usage_line;
     app.auto_scroll = true;
+
+    // ── Response cooldown: delay before next user message ───────────────────
+    // When response_interval_ms is configured, set a cooldown deadline so the
+    // user has time to read the response before the next message is sent.
+    let interval_ms = app.config.agent.response_interval_ms;
+    if interval_ms > 0 {
+        app.response_cooldown_until =
+            Some(std::time::Instant::now() + std::time::Duration::from_millis(interval_ms));
+    }
 
     if result.should_exit {
         app.should_exit = true;

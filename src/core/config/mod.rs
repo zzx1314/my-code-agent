@@ -219,6 +219,12 @@ pub struct AgentConfig {
     /// Default: false.
     #[serde(default)]
     pub show_tool_calls_in_history: bool,
+    /// Minimum interval (in milliseconds) between the model's response completing
+    /// and the user's next message being sent to the LLM. During this cooldown
+    /// period, new messages are queued and a status indicator is shown.
+    /// Set to 0 to disable (no delay). Default: 0.
+    #[serde(default)]
+    pub response_interval_ms: u64,
 }
 
 /// LLM provider settings.
@@ -428,6 +434,7 @@ impl Default for AgentConfig {
             show_tool_calls: false,
             show_tool_details: true,
             show_tool_calls_in_history: false,
+            response_interval_ms: 0,
         }
     }
 }

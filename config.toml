@@ -77,6 +77,13 @@ max_turns = 10
 # Default: false
 # show_tool_calls_in_history = false
 
+# Minimum interval (in milliseconds) between the model's response completing
+# and the user's next message being sent to the LLM. During this cooldown
+# period, new messages are queued and automatically sent when the interval expires.
+# Set to 0 to disable (no delay). Default: 0.
+# Examples: 500 = half-second pause, 1000 = one-second pause
+# response_interval_ms = 0
+
 # ── Plan Confirmation Settings ──
 [plan]
 # Timeout in seconds for plan confirmation prompt.

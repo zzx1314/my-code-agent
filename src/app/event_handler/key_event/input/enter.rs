@@ -65,7 +65,14 @@ pub fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
         app.history_index = None;
         app.history_draft.clear();
 
-        send_message_to_llm(app, context_manager, input_text);
+        if app.is_response_cooldown_active() {
+            // Response cooldown active — queue the message instead of sending
+            // immediately, so the configured interval is respected.
+            app.message_queue.push(input_text);
+            reset_input(app);
+        } else {
+            send_message_to_llm(app, context_manager, input_text);
+        }
     } else if !input_text.is_empty() && app.is_streaming {
         // Save to input history (avoid consecutive duplicates)
         if app.input_history.last().map(|s| s.as_str()) != Some(&input_text) {

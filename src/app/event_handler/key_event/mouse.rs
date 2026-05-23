@@ -17,7 +17,8 @@ pub fn handle_mouse_event(mouse: ratatui::crossterm::event::MouseEvent, app: &mu
         MouseEventKind::ScrollDown => {
             let max_scroll = app.total_lines.saturating_sub(app.chat_area_height);
             app.scroll = (app.scroll + 3).min(max_scroll);
-            app.auto_scroll = false;
+            // Re-enable auto-scroll when user scrolls to the very bottom
+            app.auto_scroll = app.scroll >= max_scroll;
         }
         MouseEventKind::Down(ratatui::crossterm::event::MouseButton::Left) => {
             handle_click(mouse, app);

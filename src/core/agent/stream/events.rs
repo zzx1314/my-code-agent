@@ -43,9 +43,9 @@ pub fn process_streaming_events(app: &mut App) {
                         app.streaming_text.push_str("\n");
                         app.current_tool_call = None;
                     }
-                    // Clear tool result, todos, and status when new text arrives — model is responding
+                    // Clear tool result and status when new text arrives — model is responding.
+                    // Keep streaming_todos so the plan stays visible throughout streaming.
                     app.streaming_tool_result = None;
-                    app.streaming_todos = None;
                     app.streaming_status.clear();
                     app.streaming_text.push_str(&delta);
                 }

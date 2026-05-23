@@ -102,15 +102,19 @@ fn test_non_todo_tool_result_does_not_set_streaming_todos() {
     );
 }
 
-// ── Tests: streaming_todos is cleared on new text ────────────────────────────
+// ── Tests: streaming_todos persists when new text arrives ───────────────────
+// The plan stays visible throughout the streaming phase so the user can
+// see what the model is working on, even during text generation after a
+// tool call.
 
 #[test]
-fn test_new_text_clears_streaming_todos() {
+fn test_new_text_preserves_streaming_todos() {
     let (tx, rx) = mpsc::unbounded_channel();
     let mut app = make_app(rx);
 
     // First, set streaming_todos by sending a tool result
     let content = sample_todo(1, 3);
+    let content_clone = content.clone();
     tx.send(StreamEvent::ToolResult {
         name: "write_todos".to_string(),
         content,
@@ -119,18 +123,21 @@ fn test_new_text_clears_streaming_todos() {
     process_streaming_events(&mut app);
     assert!(app.streaming_todos.is_some(), "precondition: streaming_todos should be set");
 
-    // Now send streaming text (model responds)
+    // Now send streaming text (model responds after tool call)
     tx.send(StreamEvent::Text("Here is the result...".to_string()))
         .unwrap();
     process_streaming_events(&mut app);
 
-    assert!(
-        app.streaming_todos.is_none(),
-        "streaming_todos should be cleared when new text arrives"
+    // streaming_todos should still be present — the plan stays visible
+    // during the entire streaming phase, even when text arrives.
+    assert_eq!(
+        app.streaming_todos.as_deref(),
+        Some(content_clone.as_str()),
+        "streaming_todos should persist when new text arrives"
     );
     assert!(
         app.streaming_tool_result.is_none(),
-        "streaming_tool_result should also be cleared when new text arrives"
+        "streaming_tool_result should still be cleared when new text arrives"
     );
     assert_eq!(
         app.streaming_text, "Here is the result...",

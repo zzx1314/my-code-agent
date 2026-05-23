@@ -289,6 +289,9 @@ pub struct App {
     /// Y position (0-based) of the chat area in the terminal.
     /// Used by mouse click handling to convert terminal row → content line index.
     pub chat_area_y: u16,
+    /// Cooldown deadline: when set, new user messages are delayed until this instant.
+    /// Set after a model response completes when `response_interval_ms > 0`.
+    pub response_cooldown_until: Option<Instant>,
 }
 
 impl App {
@@ -416,7 +419,29 @@ impl App {
             user_message_bg: compute_user_message_bg(),
             input_bg_color: ratatui::style::Color::Reset,
             chat_area_y: 0,
+            response_cooldown_until: None,
         }
+    }
+
+    /// Returns `true` if the response cooldown is still active (user must wait
+    /// before the next message can be sent to the LLM).
+    pub fn is_response_cooldown_active(&self) -> bool {
+        self.response_cooldown_until
+            .map(|deadline| Instant::now() < deadline)
+            .unwrap_or(false)
+    }
+
+    /// Returns the remaining cooldown duration, or `None` if the cooldown has
+    /// expired or was never set.
+    pub fn response_cooldown_remaining(&self) -> Option<std::time::Duration> {
+        self.response_cooldown_until.and_then(|deadline| {
+            let now = Instant::now();
+            if now < deadline {
+                Some(deadline - now)
+            } else {
+                None
+            }
+        })
     }
 }
 

@@ -1,3 +1,4 @@
+use my_code_agent::core::paths;
 use my_code_agent::tools::file_undo::apply_undo;
 use my_code_agent::tools::undo_history::{
     pop_current_session_entries, record_change, set_session_id,
@@ -6,8 +7,9 @@ use tempfile::tempdir;
 
 #[test]
 fn test_undo_session_scoped() {
-    // Clean up shared state
-    let _ = std::fs::remove_file(".undo_history.json");
+    // Clean up shared state from the correct app directory path
+    let history_file = paths::app_file(".undo_history.json");
+    let _ = std::fs::remove_file(&history_file);
 
     // Set a session ID for testing
     set_session_id("test_session".to_string());
