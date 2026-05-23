@@ -73,12 +73,6 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             if i < boundaries.len() {
                 let b = boundaries[i];
                 if b > prev && b <= text.len() {
-                    lines.push(Line::from(vec![Span::styled(
-                        "Assistant: ",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    )]));
                     let md_lines = render_streaming_markdown(&text[prev..b], width);
                     lines.extend(md_lines);
                     prev = b;
@@ -95,12 +89,6 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             // boundaries[archived_segments.len()] (if it exists).
             let b = boundaries.get(archived_segments.len()).copied().unwrap_or(text.len());
             if b > prev && b <= text.len() {
-                lines.push(Line::from(vec![Span::styled(
-                    "Assistant: ",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                )]));
                 let md_lines = render_streaming_markdown(&text[prev..b], width);
                 lines.extend(md_lines);
                 prev = b;
@@ -110,12 +98,6 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
         // Remaining streaming text (not yet associated with any thinking segment)
         if prev < text.len() {
-            lines.push(Line::from(vec![Span::styled(
-                "Assistant: ",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            )]));
             let md_lines = render_streaming_markdown(&text[prev..], width);
             lines.extend(md_lines);
         }
