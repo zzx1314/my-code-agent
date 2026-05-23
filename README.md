@@ -253,7 +253,7 @@ Once started, you'll see the agent banner showing the current model and working 
 │ >_ My Code Agent                             │
 │                                              │
 │  model:     deepseek-v4-pro /model to change │
-│  directory: /home/user/project               │
+│  directory: ~/project                        │
 ╰──────────────────────────────────────────────╯
 ```
 

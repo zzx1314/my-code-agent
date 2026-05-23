@@ -184,10 +184,20 @@ fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
         .model
         .as_deref()
         .unwrap_or("unknown");
-    let dir = std::env::current_dir()
-        .unwrap_or_default()
-        .display()
-        .to_string();
+    let dir = {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if let Some(home) = dirs::home_dir() {
+            if cwd == home {
+                "~".to_string()
+            } else if let Ok(rel) = cwd.strip_prefix(&home) {
+                format!("~/{}", rel.display())
+            } else {
+                cwd.display().to_string()
+            }
+        } else {
+            cwd.display().to_string()
+        }
+    };
     let title_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(Color::LightYellow).add_modifier(Modifier::DIM);
     let value_style = Style::default().fg(Color::Cyan);
