@@ -274,7 +274,7 @@ pub struct LLMConfig {
     #[serde(default)]
     pub presence_penalty: Option<f64>,
     /// Maximum tokens in the response.
-    /// For OpenAI, this is sent as `max_completion_tokens` (default: 1024).
+    /// For OpenAI, this is sent as `max_completion_tokens` (default: 2048).
     /// For other providers, this is sent as `max_tokens` (default: not set).
     #[serde(default)]
     pub max_tokens: Option<u64>,

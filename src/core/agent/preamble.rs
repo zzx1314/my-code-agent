@@ -300,11 +300,11 @@ pub fn build_client(config: &Config) -> LlmClient {
         client = client.with_use_completion_tokens(true);
     }
 
-    // Max tokens: config value > OpenAI/Custom default (1024) > not set
+    // Max tokens: config value > OpenAI/Custom default (2048) > not set
     if let Some(max_tokens) = config.llm.max_tokens {
         client = client.with_max_tokens(max_tokens);
     } else if provider == Provider::OpenAI || provider == Provider::Custom {
-        client = client.with_max_tokens(1024);
+        client = client.with_max_tokens(2048);
     }
 
     // Optional sampling / penalty parameters from config
