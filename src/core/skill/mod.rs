@@ -305,7 +305,7 @@ mod tests {
         let lines = mgr.format_skill_list();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("rust-review"));
-        assert!(lines[0].contains("Review Rust code"));
+        assert!(lines[0].contains("rust-review description"));
     }
 
     #[test]

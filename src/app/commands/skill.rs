@@ -115,7 +115,6 @@ mod tests {
     use crate::core::agent::preamble::{Agent, build_client};
     use crate::core::config::Config;
     use crate::core::context::token_usage::TokenUsage;
-    use crate::core::skill::SkillManager;
     use std::sync::Arc;
     use tokio::sync::broadcast;
 
