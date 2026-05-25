@@ -14,6 +14,268 @@ use super::results::{
 };
 use super::word_wrap_text;
 
+/// Render a user message with full-row background styling.
+fn render_user_message(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    entry: &ChatEntry,
+    app: &App,
+    area_width: u16,
+) {
+    // User message display with full-row background:
+    // - Full-width background color across the entire terminal
+    // - Top margin spacer (1 line) with background
+    // - "› " prefix (bold, dim) on first line
+    // - "  " continuation indent on wrapped/subsequent lines
+    // - Each content line is padded with spaces to fill the full terminal width
+    // - Bottom margin spacer (1 line) with background
+    let user_bg = app.user_message_bg;
+    let body_style = Style::default().fg(Color::Rgb(220, 220, 240)).bg(user_bg);
+    let prefix_style = Style::default()
+        .add_modifier(Modifier::BOLD)
+        .add_modifier(Modifier::DIM)
+        .bg(user_bg);
+    let full_bg = Style::default().bg(user_bg);
+    let area_w = area_width as usize;
+    // Top margin spacer — full-width with background
+    lines.push(Line::from(vec![Span::styled(" ".repeat(area_w), full_bg)]));
+    if !entry.content.is_empty() {
+        let wrap_width = area_width.saturating_sub(3).max(8) as usize;
+        let message = entry.content.trim_end_matches(['\r', '\n']);
+        let wrapped = word_wrap_text(message, wrap_width);
+        for (i, line_text) in wrapped.iter().enumerate() {
+            let prefix = if i == 0 { "› " } else { "  " };
+            let padding = area_w.saturating_sub(prefix.width() + line_text.width());
+            let padded_body = format!("{}{}", line_text, " ".repeat(padding));
+            lines.push(Line::from(vec![
+                Span::styled(prefix.to_string(), prefix_style),
+                Span::styled(padded_body, body_style),
+            ]));
+        }
+    }
+    // Bottom margin spacer — full-width with background
+    lines.push(Line::from(vec![Span::styled(" ".repeat(area_w), full_bg)]));
+}
+
+/// Render tool calls (⚙️ name + args) for an assistant message.
+fn render_tool_calls(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    tool_calls: &[crate::core::types::ToolCall],
+    show_tool_details: bool,
+) {
+    for tc in tool_calls {
+        let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+            .unwrap_or(serde_json::Value::Null);
+        lines.push(Line::from(vec![
+            Span::styled("⚙️ ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                tc.function.name.clone(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        if show_tool_details {
+            if let Some(cmd) = args.get("command").and_then(|c| c.as_str()) {
+                lines.push(Line::from(format!("  {}", cmd)));
+            } else {
+                lines.push(Line::from(format!("  {}", args)));
+            }
+        }
+    }
+}
+
+/// Render cached markdown content for an assistant message.
+fn render_assistant_content(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    entry: &ChatEntry,
+    app: &mut App,
+    max_width: Option<usize>,
+) {
+    if entry.content.is_empty() {
+        return;
+    }
+    let cache_key = format!("{}|{}", entry.content, max_width.map_or(0, |w| w as isize));
+    let md = if let Some(cached) = app.rendered_cache.get(&cache_key) {
+        cached.clone()
+    } else {
+        let rendered = render_full(&entry.content, max_width);
+        app.rendered_cache.insert(cache_key, rendered.clone());
+        rendered
+    };
+    lines.extend(md);
+}
+
+/// Render an assistant message with tool calls, reasoning, and markdown content.
+fn render_assistant_message(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    entry: &ChatEntry,
+    entry_idx: usize,
+    app: &mut App,
+    max_width: Option<usize>,
+    area_width: u16,
+    show_tool_calls: bool,
+    show_tool_details: bool,
+) {
+    // Display tool calls (e.g. shell_exec) if present and config allows
+    if show_tool_calls {
+        if let Some(ref tool_calls) = entry.tool_calls {
+            render_tool_calls(lines, tool_calls, show_tool_details);
+            if !entry.content.is_empty() {
+                lines.push(Line::default());
+            }
+        }
+    }
+    // Display reasoning inline (Codex style) if present
+    if let Some(ref reasoning) = entry.reasoning_content {
+        let section_id = format!("reason_{}", entry_idx);
+        render_reasoning_inline(lines, reasoning, app, &section_id, area_width);
+    }
+    // Display normal content (cached to avoid re-parsing markdown every frame)
+    render_assistant_content(lines, entry, app, max_width);
+    if (show_tool_calls && entry.tool_calls.is_some()) || !entry.content.is_empty() {
+        lines.push(Line::default());
+    }
+}
+
+/// Render a ShellExec tool result (command, exit code, stdout/stderr).
+/// Returns true if the content was successfully parsed as a ShellExec result.
+fn render_shell_exec_result(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    output: &serde_json::Value,
+    entry_idx: usize,
+    app: &mut App,
+    area_width: u16,
+) -> bool {
+    let cmd = match output.get("command").and_then(|c| c.as_str()) {
+        Some(cmd) => cmd,
+        None => return false,
+    };
+
+    lines.push(Line::from(vec![
+        Span::styled("⚙️ ", Style::default().fg(Color::Yellow)),
+        Span::styled(
+            "Shell Exec",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(format!("  Command: {}", cmd)));
+
+    if let Some(exit_code) = output.get("exit_code") {
+        let color = if exit_code.as_i64() == Some(0) {
+            Color::Green
+        } else {
+            Color::Red
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  Exit Code: ", Style::default()),
+            Span::styled(format!("{}", exit_code), Style::default().fg(color)),
+        ]));
+    }
+
+    if let Some(timed_out) = output.get("timed_out").and_then(|t| t.as_bool()) {
+        if timed_out {
+            lines.push(Line::from(Span::styled(
+                "  ⚠ Timed out",
+                Style::default().fg(Color::Red),
+            )));
+        }
+    }
+
+    if let Some(stdout) = output.get("stdout").and_then(|s| s.as_str()) {
+        if !stdout.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  ─── stdout ───",
+                Style::default().fg(Color::DarkGray),
+            )));
+            let stdout_lines: Vec<Line> = stdout
+                .lines()
+                .map(|l| Line::from(format!("  {}", l)))
+                .collect();
+            let section_id = format!("so_{}", entry_idx);
+            render_collapsible_block(lines, app, &section_id, stdout_lines, area_width);
+        }
+    }
+
+    if let Some(stderr) = output.get("stderr").and_then(|s| s.as_str()) {
+        if !stderr.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  ─── stderr ───",
+                Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
+            )));
+            let stderr_lines: Vec<Line> = stderr
+                .lines()
+                .map(|l| Line::from(format!("  {}", l)))
+                .collect();
+            let section_id = format!("se_{}", entry_idx);
+            render_collapsible_block(lines, app, &section_id, stderr_lines, area_width);
+        }
+    }
+
+    lines.push(Line::default());
+    true
+}
+
+/// Render a tool message — file ops, todos, shell exec, file outline, or fallback.
+fn render_tool_message(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    entry: &ChatEntry,
+    entry_idx: usize,
+    app: &mut App,
+    max_width: Option<usize>,
+    area_width: u16,
+    show_tool_calls: bool,
+    show_tool_details: bool,
+) {
+    // File tool results (file_write, file_update, file_delete) with git_diff
+    // are ALWAYS shown — they contain substantive code changes.
+    if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true, area_width)
+        .is_some()
+    {
+        lines.push(Line::default());
+        return;
+    }
+
+    // Todos results are ALWAYS shown — they contain planning progress.
+    if try_render_todos(lines, &entry.content, max_width).is_some() {
+        lines.push(Line::default());
+        return;
+    }
+
+    // Other tool results are only shown when show_tool_calls is enabled
+    if !(show_tool_calls && show_tool_details) {
+        return;
+    }
+
+    // Parse the tool result (ShellExecOutput JSON) for nice display
+    if let Ok(output) = serde_json::from_str::<serde_json::Value>(&entry.content) {
+        if render_shell_exec_result(lines, &output, entry_idx, app, area_width) {
+            return;
+        }
+    }
+
+    // Check if it's a file_outline result
+    if try_render_file_outline(lines, &entry.content, entry_idx, app, area_width)
+        .is_some()
+    {
+        lines.push(Line::default());
+        return;
+    }
+
+    // Fallback: show raw content for non-shell tool results
+    if !entry.content.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "🔧 Tool Result:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]));
+        lines.push(Line::from(entry.content.to_string()));
+        lines.push(Line::default());
+    }
+}
+
 /// Render a single message with role-based styling.
 pub(super) fn render_message(
     lines: &mut Vec<ratatui::text::Line<'static>>,
@@ -26,210 +288,13 @@ pub(super) fn render_message(
 ) {
     let area_width = max_width.unwrap_or(80) as u16;
     match entry.role.as_str() {
-        "user" => {
-            // User message display with full-row background:
-            // - Full-width background color across the entire terminal
-            // - Top margin spacer (1 line) with background
-            // - "› " prefix (bold, dim) on first line
-            // - "  " continuation indent on wrapped/subsequent lines
-            // - Each content line is padded with spaces to fill the full terminal width
-            // - Bottom margin spacer (1 line) with background
-            let user_bg = app.user_message_bg;
-            let body_style = Style::default().fg(Color::Rgb(220, 220, 240)).bg(user_bg);
-            let prefix_style = Style::default()
-                .add_modifier(Modifier::BOLD)
-                .add_modifier(Modifier::DIM)
-                .bg(user_bg);
-            let full_bg = Style::default().bg(user_bg);
-            let area_w = area_width as usize;
-            // Top margin spacer — full-width with background
-            lines.push(Line::from(vec![Span::styled(" ".repeat(area_w), full_bg)]));
-            if !entry.content.is_empty() {
-                let wrap_width = area_width.saturating_sub(3).max(8) as usize;
-                let message = entry.content.trim_end_matches(['\r', '\n']);
-                let wrapped = word_wrap_text(message, wrap_width);
-                for (i, line_text) in wrapped.iter().enumerate() {
-                    let prefix = if i == 0 { "› " } else { "  " };
-                    let padding = area_w.saturating_sub(prefix.width() + line_text.width());
-                    let padded_body = format!("{}{}", line_text, " ".repeat(padding));
-                    lines.push(Line::from(vec![
-                        Span::styled(prefix.to_string(), prefix_style),
-                        Span::styled(padded_body, body_style),
-                    ]));
-                }
-            }
-            // Bottom margin spacer — full-width with background
-            lines.push(Line::from(vec![Span::styled(" ".repeat(area_w), full_bg)]));
-        }
-        "assistant" => {
-            // Display tool calls (e.g. shell_exec) if present and config allows
-            if show_tool_calls {
-                if let Some(ref tool_calls) = entry.tool_calls {
-                    for tc in tool_calls {
-                        let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
-                            .unwrap_or(serde_json::Value::Null);
-                        lines.push(Line::from(vec![
-                            Span::styled("⚙️ ", Style::default().fg(Color::Yellow)),
-                            Span::styled(
-                                tc.function.name.clone(),
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                        ]));
-                        if show_tool_details {
-                            if let Some(cmd) = args.get("command").and_then(|c| c.as_str()) {
-                                lines.push(Line::from(format!("  {}", cmd)));
-                            } else {
-                                lines.push(Line::from(format!("  {}", args)));
-                            }
-                        }
-                    }
-                    if !entry.content.is_empty() {
-                        lines.push(Line::default());
-                    }
-                }
-            }
-            // Display reasoning inline (Codex style) if present
-            if let Some(ref reasoning) = entry.reasoning_content {
-                let section_id = format!("reason_{}", entry_idx);
-                render_reasoning_inline(lines, reasoning, app, &section_id, area_width);
-            }
-            // Display normal content (cached to avoid re-parsing markdown every frame)
-            // Cache key includes max_width to handle terminal resizing correctly.
-            if !entry.content.is_empty() {
-                let cache_key =
-                    format!("{}|{}", entry.content, max_width.map_or(0, |w| w as isize));
-                let md = if let Some(cached) = app.rendered_cache.get(&cache_key) {
-                    cached.clone()
-                } else {
-                    let rendered = render_full(&entry.content, max_width);
-                    app.rendered_cache.insert(cache_key, rendered.clone());
-                    rendered
-                };
-                lines.extend(md);
-            }
-            if (show_tool_calls && entry.tool_calls.is_some()) || !entry.content.is_empty() {
-                lines.push(Line::default());
-            }
-        }
-        "tool" => {
-            // File tool results (file_write, file_update, file_delete) with git_diff
-            // are ALWAYS shown — they contain substantive code changes.
-            if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true, area_width)
-                .is_some()
-            {
-                lines.push(Line::default());
-                return;
-            }
-
-            // Todos results are ALWAYS shown — they contain planning progress.
-            if try_render_todos(lines, &entry.content, max_width).is_some() {
-                lines.push(Line::default());
-                return;
-            }
-
-            // Other tool results are only shown when show_tool_calls is enabled
-            if show_tool_calls && show_tool_details {
-                // Parse the tool result (ShellExecOutput JSON) for nice display
-                if let Ok(output) = serde_json::from_str::<serde_json::Value>(&entry.content) {
-                    if let Some(cmd) = output.get("command").and_then(|c| c.as_str()) {
-                        lines.push(Line::from(vec![
-                            Span::styled("⚙️ ", Style::default().fg(Color::Yellow)),
-                            Span::styled(
-                                "Shell Exec",
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                        ]));
-                        lines.push(Line::from(format!("  Command: {}", cmd)));
-                        if let Some(exit_code) = output.get("exit_code") {
-                            let color = if exit_code.as_i64() == Some(0) {
-                                Color::Green
-                            } else {
-                                Color::Red
-                            };
-                            lines.push(Line::from(vec![
-                                Span::styled("  Exit Code: ", Style::default()),
-                                Span::styled(format!("{}", exit_code), Style::default().fg(color)),
-                            ]));
-                        }
-                        if let Some(timed_out) = output.get("timed_out").and_then(|t| t.as_bool()) {
-                            if timed_out {
-                                lines.push(Line::from(Span::styled(
-                                    "  ⚠ Timed out",
-                                    Style::default().fg(Color::Red),
-                                )));
-                            }
-                        }
-                        if let Some(stdout) = output.get("stdout").and_then(|s| s.as_str()) {
-                            if !stdout.is_empty() {
-                                lines.push(Line::from(Span::styled(
-                                    "  ─── stdout ───",
-                                    Style::default().fg(Color::DarkGray),
-                                )));
-                                // Collapsible stdout
-                                let stdout_lines: Vec<Line> = stdout
-                                    .lines()
-                                    .map(|l| Line::from(format!("  {}", l)))
-                                    .collect();
-                                let section_id = format!("so_{}", entry_idx);
-                                render_collapsible_block(
-                                    lines,
-                                    app,
-                                    &section_id,
-                                    stdout_lines,
-                                    area_width,
-                                );
-                            }
-                        }
-                        if let Some(stderr) = output.get("stderr").and_then(|s| s.as_str()) {
-                            if !stderr.is_empty() {
-                                lines.push(Line::from(Span::styled(
-                                    "  ─── stderr ───",
-                                    Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
-                                )));
-                                // Collapsible stderr
-                                let stderr_lines: Vec<Line> = stderr
-                                    .lines()
-                                    .map(|l| Line::from(format!("  {}", l)))
-                                    .collect();
-                                let section_id = format!("se_{}", entry_idx);
-                                render_collapsible_block(
-                                    lines,
-                                    app,
-                                    &section_id,
-                                    stderr_lines,
-                                    area_width,
-                                );
-                            }
-                        }
-                        lines.push(Line::default());
-                        return;
-                    }
-                }
-                // Check if it's a file_outline result
-                if try_render_file_outline(lines, &entry.content, entry_idx, app, area_width)
-                    .is_some()
-                {
-                    lines.push(Line::default());
-                    return;
-                }
-
-                // Fallback: show raw content for non-shell tool results
-                if !entry.content.is_empty() {
-                    lines.push(Line::from(vec![Span::styled(
-                        "🔧 Tool Result:",
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    )]));
-                    lines.push(Line::from(entry.content.to_string()));
-                    lines.push(Line::default());
-                }
-            }
-        }
+        "user" => render_user_message(lines, entry, app, area_width),
+        "assistant" => render_assistant_message(
+            lines, entry, entry_idx, app, max_width, area_width, show_tool_calls, show_tool_details,
+        ),
+        "tool" => render_tool_message(
+            lines, entry, entry_idx, app, max_width, area_width, show_tool_calls, show_tool_details,
+        ),
         _ => {
             lines.push(Line::from(format!("{}: {}", entry.role, entry.content)));
             lines.push(Line::default());
