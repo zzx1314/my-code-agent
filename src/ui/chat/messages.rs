@@ -210,7 +210,6 @@ fn render_shell_exec_result(
         }
     }
 
-    lines.push(Line::default());
     true
 }
 
@@ -230,13 +229,11 @@ fn render_tool_message(
     if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true, area_width)
         .is_some()
     {
-        lines.push(Line::default());
         return;
     }
 
     // Todos results are ALWAYS shown — they contain planning progress.
     if try_render_todos(lines, &entry.content, max_width).is_some() {
-        lines.push(Line::default());
         return;
     }
 
@@ -254,7 +251,6 @@ fn render_tool_message(
 
     // Check if it's a file_outline result
     if try_render_file_outline(lines, &entry.content, entry_idx, app, area_width).is_some() {
-        lines.push(Line::default());
         return;
     }
 
@@ -267,7 +263,6 @@ fn render_tool_message(
                 .add_modifier(Modifier::BOLD),
         )]));
         lines.push(Line::from(entry.content.to_string()));
-        lines.push(Line::default());
     }
 }
 
@@ -306,7 +301,6 @@ pub(super) fn render_message(
         ),
         _ => {
             lines.push(Line::from(format!("{}: {}", entry.role, entry.content)));
-            lines.push(Line::default());
         }
     }
 }
