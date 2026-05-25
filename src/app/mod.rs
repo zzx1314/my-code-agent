@@ -2,6 +2,7 @@ use crate::core::agent::preamble::Agent;
 use crate::core::agent::stream_response::{StreamEvent, StreamResult};
 use crate::core::config::Config;
 use crate::core::context::token_usage::TokenUsage;
+use crate::core::skill::SkillManager;
 use crate::tools::exec::confirmation::ConfirmationRequest;
 use crate::ui::textarea::TextArea;
 use std::collections::HashMap;
@@ -297,6 +298,8 @@ pub struct App {
     /// Cooldown deadline: when set, new user messages are delayed until this instant.
     /// Set after a model response completes when `response_interval_ms > 0`.
     pub response_cooldown_until: Option<Instant>,
+    /// Skill manager for handling skill activation/deactivation.
+    pub skill_manager: SkillManager,
 }
 
 impl App {
@@ -434,6 +437,7 @@ impl App {
             input_bg_color: ratatui::style::Color::Reset,
             chat_area_y: 0,
             response_cooldown_until: None,
+            skill_manager: SkillManager::from_config(&config),
         }
     }
 

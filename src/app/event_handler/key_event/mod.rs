@@ -5,7 +5,6 @@ pub use mouse::handle_mouse_event;
 mod paste;
 
 use ratatui::crossterm::event::{self, KeyCode, KeyModifiers};
-
 use crate::app::App;
 use crate::app::event_handler::picker::{
     handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key,
@@ -19,10 +18,8 @@ use completion::{
 use input::handle_enter_key;
 use input::{history_down, history_up};
 pub use paste::handle_paste_event;
-
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {
-    // If the confirmation dialog is showing, handle confirmation-related keys first
     if app.pending_confirmation.is_some() {
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {

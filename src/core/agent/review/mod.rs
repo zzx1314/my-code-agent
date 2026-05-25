@@ -285,6 +285,25 @@ impl ReviewAgent {
             }
         }
 
+        // ── Fallback: if content is empty, use reasoning content ──────────
+        // Reasoning models (e.g. DeepSeek reasoning) sometimes put the
+        // entire response in `reasoning_content`/`reasoning` instead of
+        // `content`, leaving content empty. If this happens, fall back to
+        // using the accumulated reasoning buffer as the response content.
+        if full_content.trim().is_empty() {
+            if !reasoning_buf.trim().is_empty() {
+                tracing::warn!(
+                    "call_llm_stream: content was empty, falling back to reasoning_content ({} chars)",
+                    reasoning_buf.len()
+                );
+                return Ok(reasoning_buf);
+            } else {
+                tracing::error!(
+                    "call_llm_stream: both content and reasoning_content were empty"
+                );
+            }
+        }
+
         Ok(full_content)
     }
 
@@ -556,7 +575,26 @@ impl ReviewAgent {
     /// Extract issues from a JSON review response (without building the full report).
     /// Returns the raw list of ReviewIssue structs.
     fn parse_issues_from_response(&self, response: &str) -> Result<Vec<ReviewIssue>> {
-        let json_str = self.extract_json(response)?;
+        // Log response details for debugging (before extraction, so we can see
+        // what the LLM actually returned even if extraction fails).
+        let content_preview: String = response.chars().take(300).collect();
+        tracing::debug!(
+            response_len = response.len(),
+            preview = %content_preview,
+            "parse_issues_from_response: attempting JSON extraction"
+        );
+
+        let json_str = self.extract_json(response).map_err(|e| {
+            // Log the full response content on failure for debugging
+            let truncated: String = response.chars().take(2000).collect();
+            tracing::error!(
+                error = %e,
+                response_length = response.len(),
+                response_preview = %truncated,
+                "parse_issues_from_response: JSON extraction failed"
+            );
+            e
+        })?;
 
         // Guard: empty or whitespace-only JSON means no issues to report.
         // This handles cases where the LLM output an empty code block

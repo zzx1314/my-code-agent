@@ -154,6 +154,19 @@ pub fn build_preamble() -> String {
     PREAMBLE_TEMPLATE.replace("{knowledge}", knowledge)
 }
 
+/// Builds the preamble with active skill injections appended.
+///
+/// Skills with `inject_into_preamble = true` that are currently active
+/// will have their prompts appended as a separate section.
+pub fn build_preamble_with_skills(skill_manager: &crate::core::skill::SkillManager) -> String {
+    let mut preamble = build_preamble();
+    let injections = skill_manager.preamble_injections();
+    if !injections.is_empty() {
+        preamble.push_str("\n\n## Active Skills\n\n");
+        preamble.push_str(&injections);
+    }
+    preamble
+}
 fn check_api_key(provider_name: &str, api_key_env: &str) {
     if std::env::var(api_key_env).is_err() {
         tracing::error!(

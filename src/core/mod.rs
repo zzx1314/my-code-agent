@@ -8,6 +8,9 @@ pub mod agent;
 // Context: file attachment, caching, token tracking
 pub mod context;
 
+// Skills: reusable behavior packages
+pub mod skill;
+
 // Code parsing
 pub mod parser;
 
