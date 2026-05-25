@@ -123,6 +123,11 @@ pub struct ReviewConfig {
     /// Maximum auto-review iterations (fix → review loop). Default: `3`.
     #[serde(default = "default_review_max_iterations")]
     pub max_review_iterations: usize,
+    /// Maximum lines per file before the review agent suggests splitting.
+    /// When set, any source file exceeding this limit will be flagged.
+    /// Default: `None` (disabled).
+    #[serde(default)]
+    pub max_file_lines: Option<usize>,
 }
 
 fn default_review_threshold() -> usize {
@@ -396,6 +401,7 @@ impl Default for ReviewConfig {
             on_file_write: true,
             on_file_update: true,
             max_review_iterations: 3,
+            max_file_lines: None,
         }
     }
 }

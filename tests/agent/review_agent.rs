@@ -1,10 +1,10 @@
-//! 代码审查 Agent 集成测试
+//! Code Review Agent Integration Tests
 //!
-//! 测试 ReviewAgent、AgentOrchestrator 和多 Agent 协作流程。
+//! Tests for ReviewAgent, AgentOrchestrator, and multi-agent collaboration workflow.
 
 use my_code_agent::core::types::review::*;
 
-/// 测试 ReviewIssue 结构的创建和基本方法
+/// Test ReviewIssue struct creation and basic methods
 #[test]
 fn test_review_issue_creation() {
     let issue = ReviewIssue {
@@ -13,9 +13,9 @@ fn test_review_issue_creation() {
         end_line: Some(50),
         severity: Severity::High,
         category: ReviewCategory::Security,
-        title: "不安全的函数调用".to_string(),
-        description: "使用了不安全的函数，可能导致缓冲区溢出".to_string(),
-        suggestion: Some("使用安全的替代函数".to_string()),
+        title: "Unsafe function call".to_string(),
+        description: "Used an unsafe function that could cause buffer overflow".to_string(),
+        suggestion: Some("Use a safe alternative function".to_string()),
         code_snippet: Some("unsafe { ... }".to_string()),
         fix_example: Some("safe_function()".to_string()),
     };
@@ -26,19 +26,19 @@ fn test_review_issue_creation() {
     assert_eq!(issue.file, "src/main.rs");
     assert_eq!(issue.line, Some(42));
 }
-/// 测试 Severity 排序（声明顺序即为优先级排序）
+/// Test Severity ordering (declaration order is priority order)
 #[test]
 fn test_severity_ordering() {
-    // Critical 优先级最高（先声明），所以 Critical < High 为 true
+    // Critical has highest priority (declared first), so Critical < High is true
     assert!(Severity::Critical < Severity::High);
     assert!(Severity::High < Severity::Medium);
     assert!(Severity::Medium < Severity::Low);
     assert!(Severity::Low < Severity::Info);
 }
 
-/// 测试 ReviewVerdict 方法
+/// Test ReviewVerdict methods
 
-/// 测试 ReviewVerdict 方法
+/// Test ReviewVerdict methods
 #[test]
 fn test_review_verdict() {
     assert_eq!(ReviewVerdict::Approved.icon(), "✅");
@@ -46,7 +46,7 @@ fn test_review_verdict() {
     assert_eq!(ReviewVerdict::NeedsRevision.icon(), "🔄");
 }
 
-/// 测试 ReviewReport 的构建
+/// Test ReviewReport construction
 #[test]
 fn test_review_report_creation() {
     let report = ReviewReport {
@@ -66,9 +66,9 @@ fn test_review_report_creation() {
                 end_line: None,
                 severity: Severity::Critical,
                 category: ReviewCategory::Security,
-                title: "SQL 注入风险".to_string(),
-                description: "用户输入未经验证直接拼接 SQL 查询".to_string(),
-                suggestion: Some("使用参数化查询".to_string()),
+                title: "SQL injection risk".to_string(),
+                description: "User input directly concatenated into SQL query without validation".to_string(),
+                suggestion: Some("Use parameterized queries".to_string()),
                 code_snippet: None,
                 fix_example: Some("query!(\"SELECT * FROM users WHERE id = ?\", id)".to_string()),
             },
@@ -78,8 +78,8 @@ fn test_review_report_creation() {
                 end_line: Some(120),
                 severity: Severity::High,
                 category: ReviewCategory::BugRisk,
-                title: "可能的空指针引用".to_string(),
-                description: "未检查 Option 值可能为 None".to_string(),
+                title: "Possible null pointer reference".to_string(),
+                description: "Option value not checked for None".to_string(),
                 suggestion: None,
                 code_snippet: Some("let x = opt.unwrap();".to_string()),
                 fix_example: None,
@@ -108,7 +108,7 @@ fn test_review_report_creation() {
     assert!(report.auto_fixable.is_empty());
 }
 
-/// 测试 ChangedFile 和 ChangeType
+/// Test ChangedFile and ChangeType
 #[test]
 fn test_changed_file() {
     let file = ChangedFile {
@@ -124,7 +124,7 @@ fn test_changed_file() {
     assert_eq!(file.lines_removed, 0);
 }
 
-/// 测试 ReviewConfig 的 from_app_config 方法
+/// Test ReviewConfig::from_app_config
 #[test]
 fn test_review_config_from_app_config() {
     let app_config = my_code_agent::core::config::ReviewConfig {
@@ -136,6 +136,7 @@ fn test_review_config_from_app_config() {
         on_file_write: true,
         on_file_update: true,
         max_review_iterations: 3,
+        max_file_lines: None,
     };
 
     let config = ReviewConfig::from_app_config(&app_config);
@@ -146,7 +147,7 @@ fn test_review_config_from_app_config() {
     assert!(!config.categories.is_empty());
 }
 
-/// 测试 CodeMetrics 创建
+/// Test CodeMetrics creation
 #[test]
 fn test_code_metrics() {
     let metrics = CodeMetrics {
@@ -162,7 +163,7 @@ fn test_code_metrics() {
     assert_eq!(metrics.complexity_estimate, Some(15.5));
 }
 
-/// 测试 ReviewSummary 的默认值
+/// Test ReviewSummary defaults
 #[test]
 fn test_review_summary_defaults() {
     let summary = ReviewSummary {
@@ -179,33 +180,33 @@ fn test_review_summary_defaults() {
     assert_eq!(summary.verdict, ReviewVerdict::Approved);
 }
 
-/// 测试 ReviewEvent 枚举
+/// Test ReviewEvent enum
 #[test]
 fn test_review_event_creation() {
     use my_code_agent::app::commands::review::ReviewEvent;
 
     let started = ReviewEvent::Started { file_count: 5 };
     let progress = ReviewEvent::Progress {
-        message: "分析中...".to_string(),
+        message: "Analyzing...".to_string(),
     };
     let error = ReviewEvent::Error {
-        message: "出错了".to_string(),
+        message: "An error occurred".to_string(),
     };
 
-    // 验证这些事件可以匹配
+    // Verify these events can be matched
     match started {
         ReviewEvent::Started { file_count } => assert_eq!(file_count, 5),
-        _ => panic!("事件类型不匹配"),
+        _ => panic!("Event type mismatch"),
     }
 
     match progress {
-        ReviewEvent::Progress { message } => assert_eq!(message, "分析中..."),
-        _ => panic!("事件类型不匹配"),
+        ReviewEvent::Progress { message } => assert_eq!(message, "Analyzing..."),
+        _ => panic!("Event type mismatch"),
     }
 
     match error {
-        ReviewEvent::Error { message } => assert_eq!(message, "出错了"),
-        _ => panic!("事件类型不匹配"),
+        ReviewEvent::Error { message } => assert_eq!(message, "An error occurred"),
+        _ => panic!("Event type mismatch"),
     }
 }
 
@@ -317,10 +318,10 @@ fn test_extract_json_single_object_with_nested_text() {
 // with `find()`.
 // =============================================================================
 
-/// Chinese characters before { in bare JSON — was broken before the fix.
+/// Non-ASCII characters before { in bare JSON — was broken before the fix.
 #[test]
 fn test_extract_json_chinese_before_brace() {
-    let response = "审查结果如下：{\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
+    let response = "Result: {\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["summary"]["verdict"], "approved");
@@ -335,32 +336,32 @@ fn test_extract_json_emoji_before_brace() {
     assert_eq!(parsed["summary"]["verdict"], "approved");
 }
 
-/// Mixed CJK, emoji, and Latin characters before { in bare JSON.
+/// Mixed emoji and Latin characters before { in bare JSON.
 #[test]
 fn test_extract_json_mixed_multibyte_before_brace() {
-    let response = "代码审查🎯完成! Result:{\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
+    let response = "Review🎯Done! Result:{\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["summary"]["verdict"], "approved");
 }
 
-/// CJK text inside a ```json code block (most common LLM output with Chinese).
+/// Non-ASCII text inside a ```json code block.
 #[test]
 fn test_extract_json_chinese_in_code_block() {
-    let response = "审查结果：\n\n```json\n{\"issues\":[{\"file\":\"src/main.rs\",\"line\":42,\"severity\":\"high\",\"title\":\"安全问题\",\"description\":\"发现SQL注入风险\"}],\"summary\":{\"verdict\":\"needs_revision\"}}\n```";
+    let response = "Review result:\n\n```json\n{\"issues\":[{\"file\":\"src/main.rs\",\"line\":42,\"severity\":\"high\",\"title\":\"Security issue\",\"description\":\"SQL injection risk detected\"}],\"summary\":{\"verdict\":\"needs_revision\"}}\n```";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["issues"][0]["title"], "安全问题");
+    assert_eq!(parsed["issues"][0]["title"], "Security issue");
     assert_eq!(parsed["summary"]["verdict"], "needs_revision");
 }
 
-/// CJK text inside a plain ``` code block (without json specifier).
+/// Non-ASCII text inside a plain ``` code block (without json specifier).
 #[test]
 fn test_extract_json_chinese_in_plain_code_block() {
-    let response = "分析完毕:\n\n```\n{\"issues\":[{\"title\":\"需要改进\"}],\"summary\":{\"verdict\":\"approved\"}}\n```";
+    let response = "Analysis complete:\n\n```\n{\"issues\":[{\"title\":\"Needs improvement\"}],\"summary\":{\"verdict\":\"approved\"}}\n```";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["issues"][0]["title"], "需要改进");
+    assert_eq!(parsed["issues"][0]["title"], "Needs improvement");
 }
 
 /// Empty ```json code block — should return empty issues via parse_issues_from_response.
@@ -396,42 +397,42 @@ fn test_extract_json_tab_only_code_block() {
     );
 }
 
-/// Response with only Chinese text and no JSON at all.
+/// Response with only non-JSON text and no JSON at all.
 #[test]
 fn test_extract_json_chinese_only_no_json() {
-    let response = "代码审查完成，没有发现问题。";
+    let response = "Review complete, no issues found.";
     let result = extract_json_from_response(response);
     assert!(result.is_err(), "Response with no JSON should error");
 }
 
-/// JSON with Chinese content inside string values.
+/// JSON with special content inside string values.
 #[test]
 fn test_extract_json_chinese_in_json_values() {
-    let json = r#"{"issues":[{"title":"功能不完整","description":"缺少排序功能"}],"summary":{"score":60}}"#;
+    let json = r#"{"issues":[{"title":"Incomplete feature","description":"Missing sort functionality"}],"summary":{"score":60}}"#;
     let result = extract_json_from_response(json).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["issues"][0]["title"], "功能不完整");
+    assert_eq!(parsed["issues"][0]["title"], "Incomplete feature");
 }
 
-/// Realistic auto-review response with mixed Chinese + emoji before JSON.
+/// Realistic auto-review response with mixed text + emoji before JSON.
 /// This simulates what actually caused the "expected value at line 1 column 1" error.
 #[test]
 fn test_extract_json_auto_review_chinese_response() {
-    let response = "✅ 代码审查完成\n\n分析结果：审查了所有变更文件，以下是审查报告：\n\n{\"issues\":[{\"file\":\"README.md\",\"line\":1,\"severity\":\"low\",\"category\":\"style\",\"title\":\"格式建议\",\"description\":\"可以考虑改进文档结构\"}],\"summary\":{\"verdict\":\"approved\"}}";
+    let response = "✅ Review complete\n\nAnalysis: reviewed all changed files, here is the report:\n\n{\"issues\":[{\"file\":\"README.md\",\"line\":1,\"severity\":\"low\",\"category\":\"style\",\"title\":\"Format suggestion\",\"description\":\"Consider improving document structure\"}],\"summary\":{\"verdict\":\"approved\"}}";
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["summary"]["verdict"], "approved");
-    assert_eq!(parsed["issues"][0]["title"], "格式建议");
+    assert_eq!(parsed["issues"][0]["title"], "Format suggestion");
 }
 
-/// JSON with nested braces AND Chinese content before it.
+/// JSON with nested braces AND text content before it.
 #[test]
 fn test_extract_json_nested_braces_with_chinese_prefix() {
-    let json = r#"{"issues":[{"file":"test.rs","line":5,"description":"包含中文 { 和 } 括号"}],"summary":{"score":85}}"#;
-    let response = format!("审查结果：{} 完毕", json);
+    let json = r#"{"issues":[{"file":"test.rs","line":5,"description":"Contains braces { and } in text"}],"summary":{"score":85}}"#;
+    let response = format!("Result: {} done", json);
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["issues"][0]["description"], "包含中文 { 和 } 括号");
+    assert_eq!(parsed["issues"][0]["description"], "Contains braces { and } in text");
 }
 
 // =============================================================================
@@ -2046,40 +2047,42 @@ fn test_should_auto_review_missing_file_path_still_triggers() {
 }
 
 // =============================================================================
-// Tests for review_baseline — 增量 diff 集成测试
+// Tests for review_baseline — incremental diff integration tests
 // =============================================================================
 //
-// 验证场景：多轮代码修改后，review_baseline 确保审查只看到增量变更而不是累积变更。
+// Scenario: after multiple rounds of code modification, review_baseline ensures
+// the review only sees incremental changes, not cumulative ones.
 //
-// 测试流程：
-// 1. 在临时目录创建独立 git 仓库，提交初始文件
-// 2. 第 1 轮修改：修改 file_a.rs（添加 hello 函数）
-//    - verify: detect_changed_files(None) 检测到 1 个变更文件
-// 3. 创建审查基线 (create_review_baseline)
-//    - verify: 返回有效的 SHA
-//    - verify: 刚创建基线后 detect_changed_files(baseline) 返回空（基线恰好捕获当前状态）
-// 4. 第 2 轮修改：修改 file_a.rs（再添加 goodbye 函数）+ 新建 file_b.rs
-//    - verify: detect_changed_files(None) 显示累积变更（2 文件，file_a 包含两轮的所有改动）
-//    - verify: detect_changed_files(Some(baseline)) 显示增量变更（2 文件，但 file_a 只含第 2 轮改动）
-//    - verify: 增量 file_a 行数 < 累积 file_a 行数
-//    - verify: 增量 file_b 行数 == 累积 file_b 行数（新文件，两轮结果一致）
+// Test flow:
+// 1. Create an independent git repo in a temp directory, commit initial files
+// 2. Round 1: modify file_a.rs (add hello function)
+//    - verify: detect_changed_files(None) detects 1 changed file
+// 3. Create review baseline (create_review_baseline)
+//    - verify: returns a valid SHA
+//    - verify: detect_changed_files(baseline) returns empty (baseline captures current state)
+// 4. Round 2: modify file_a.rs (add goodbye function) + create file_b.rs
+//    - verify: detect_changed_files(None) shows cumulative changes (2 files, file_a has all rounds)
+//    - verify: detect_changed_files(Some(baseline)) shows incremental changes (2 files, file_a only round 2)
+//    - verify: incremental file_a lines < cumulative file_a lines
+//    - verify: incremental file_b lines == cumulative file_b lines (new file, same in both)
 //
-// 注意：这些测试使用 set_current_dir 修改进程级全局目录，所以必须用全局互斥锁
-// 序列化执行，避免并行测试互相干扰。所有 test_review_baseline_* 测试都会获取
-// REVIEW_BASELINE_TEST_MUTEX。
+// Note: these tests use set_current_dir which changes the process-level global
+// directory, so they must use a global mutex for serialized execution to avoid
+// parallel test interference. All test_review_baseline_* tests acquire
+// REVIEW_BASELINE_TEST_MUTEX.
 
 use tempfile::TempDir;
 
 use std::sync::LazyLock;
 use std::sync::Mutex;
 
-/// 全局互斥锁：序列化所有 review_baseline 集成测试。
-/// 这些测试必须独占 set_current_dir，并行运行会导致互相覆盖。
+/// Global mutex: serialize all review_baseline integration tests.
+/// These tests must exclusively hold set_current_dir — parallel runs would overwrite each other.
 static REVIEW_BASELINE_TEST_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-/// Drop guard：确保 panic 时也能恢复原始目录。
-/// 相比手动 `restore()` 闭包，这个结构体在 drop 时自动恢复，
-/// panic 也触发 drop（除非 abort）。
+/// Drop guard: ensures the original directory is restored even on panic.
+/// Unlike manual `restore()` closures, this struct restores automatically on drop,
+/// and panic triggers drop (unless abort).
 struct CwdGuard {
     original_dir: std::path::PathBuf,
 }
@@ -2119,12 +2122,12 @@ fn test_review_baseline_incremental_diff() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let _guard = CwdGuard::new(&temp_dir);
 
-    // 初始化 git 仓库
+    // Initialize git repository
     run_git(&["init"]);
     run_git(&["config", "user.email", "test@test.com"]);
     run_git(&["config", "user.name", "Test"]);
 
-    // 初始提交：file_a.rs 包含 main 函数
+    // Initial commit: lib.rs with main function
     std::fs::write("lib.rs", "fn main() {\n    println!(\"v1\");\n}\n")
         .expect("Failed to write lib.rs");
     run_git(&["add", "lib.rs"]);
@@ -2133,7 +2136,7 @@ fn test_review_baseline_incremental_diff() {
     let orch = make_orchestrator(true);
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
-    // ---- Round 1: 添加 feature_x ----
+    // ---- Round 1: add feature_x ----
     std::fs::write(
         "lib.rs",
         "fn main() {\n    println!(\"v1\");\n}\n\npub fn feature_x() -> &'static str {\n    \"x\"\n}\n",
@@ -2145,41 +2148,41 @@ fn test_review_baseline_incremental_diff() {
     let r1_added = round1_changes[0].lines_added;
     assert!(r1_added > 0);
 
-    // 创建基线
+    // Create baseline
     let baseline_sha =
         AgentOrchestrator::create_review_baseline().expect("Should create baseline after round 1");
     assert!(!baseline_sha.is_empty());
 
-    // 基线精确捕获当前状态
+    // Baseline should exactly capture current state
     let baseline_check = rt.block_on(orch.detect_changed_files_from_git(Some(&baseline_sha)));
     assert!(baseline_check.is_empty());
 
-    // ---- Round 2: 添加 feature_y（只修改 lib.rs，不新建文件） ----
-    // git diff 不显示 untracked 文件，所以我们只修改已有文件来验证增量逻辑
+    // ---- Round 2: add feature_y (modify lib.rs only, no new file) ----
+    // git diff doesn't show untracked files, so only modify existing files to verify incremental logic
     std::fs::write(
         "lib.rs",
         "fn main() {\n    println!(\"v1\");\n}\n\npub fn feature_x() -> &'static str {\n    \"x\"\n}\n\npub fn feature_y() -> &'static str {\n    \"y\"\n}\n",
     )
     .expect("Failed");
 
-    // 累积 diff（无基线）= 第 1 轮 + 第 2 轮所有改动
+    // Cumulative diff (no baseline) = round 1 + round 2 all changes
     let cumulative = rt.block_on(orch.detect_changed_files_from_git(None));
     assert_eq!(cumulative.len(), 1);
     let cum_added = cumulative[0].lines_added;
 
-    // 增量 diff（有基线）= 只有第 2 轮改动
+    // Incremental diff (with baseline) = only round 2 changes
     let incremental = rt.block_on(orch.detect_changed_files_from_git(Some(&baseline_sha)));
     assert_eq!(incremental.len(), 1);
     let inc_added = incremental[0].lines_added;
 
-    // 核心断言：增量 < 累积（基线排除了第 1 轮的改动）
+    // Core assertion: incremental < cumulative (baseline excludes round 1 changes)
     assert!(
         inc_added < cum_added,
         "incremental ({}) should be < cumulative ({})",
         inc_added,
         cum_added
     );
-    // 增量行数应恰好等于第 2 轮新增的行
+    // Incremental lines should equal exactly round 2 additions
     let round2_added = cum_added - r1_added;
     assert_eq!(
         inc_added, round2_added,
@@ -2218,17 +2221,17 @@ fn test_detect_changed_files_non_git_directory() {
     let orch = make_orchestrator(true);
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
-    // 非 git 目录应返回空 Vec，无 panic
+    // Non-git directory should return empty Vec, no panic
     let changes = rt.block_on(orch.detect_changed_files_from_git(None));
     assert!(changes.is_empty());
 
-    // 无效基线也不 panic
+    // Invalid baseline should not panic either
     let changes_with_baseline =
         rt.block_on(orch.detect_changed_files_from_git(Some("invalid-sha")));
     assert!(changes_with_baseline.is_empty());
 }
 
-/// 完整生命周期：3 轮修改 + 2 次基线创建，验证链式增量
+/// Full lifecycle: 3 rounds of modification + 2 baseline creations, verify chained increments
 #[test]
 fn test_review_baseline_full_lifecycle() {
     let _lock = REVIEW_BASELINE_TEST_MUTEX
@@ -2286,8 +2289,8 @@ fn test_review_baseline_full_lifecycle() {
     let from_sha1 = rt.block_on(orch.detect_changed_files_from_git(Some(&sha1)));
     let from_sha2 = rt.block_on(orch.detect_changed_files_from_git(Some(&sha2)));
 
-    // 旧的基线显示更多改动（第 2 轮 + 第 3 轮）
+    // Old baseline shows more changes (round 2 + round 3)
     assert!(from_sha1[0].lines_added > from_sha2[0].lines_added);
 }
 
-// _guard 和 _lock 在这里 drop → CwdGuard 恢复目录，Mutex 解锁, TempDir 清理
+// _guard and _lock drop here → CwdGuard restores directory, Mutex unlocks, TempDir cleans up

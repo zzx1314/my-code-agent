@@ -138,7 +138,10 @@ impl ReviewAgent {
                 "Pre-filter removed known false-positive issues"
             );
         }
-        self.build_report(&filtered, &request.changed_files)
+        // Add deterministic structural checks (file length, test existence)
+        let structural = self.check_code_structure(&request.changed_files);
+        let all_issues = [filtered.as_slice(), structural.as_slice()].concat();
+        self.build_report(&all_issues, &request.changed_files)
     }
 
     pub async fn review_with_events(
@@ -167,7 +170,13 @@ impl ReviewAgent {
                 "Pre-filter removed known false-positive issues"
             );
         }
-        let report = self.build_report(&filtered, &request.changed_files)?;
+        // Add deterministic structural checks (file length, test existence)
+        let _ = event_tx.send(ReviewEvent::Progress {
+            message: "Checking code structure and test coverage...".to_string(),
+        });
+        let structural = self.check_code_structure(&request.changed_files);
+        let all_issues = [filtered.as_slice(), structural.as_slice()].concat();
+        let report = self.build_report(&all_issues, &request.changed_files)?;
 
         let _ = event_tx.send(ReviewEvent::Completed {
             report: report.clone(),
@@ -728,6 +737,75 @@ impl ReviewAgent {
             },
             auto_fixable,
         }
+    }
+
+    /// Perform deterministic code structure checks that don't require an LLM.
+    ///
+    /// Checks two things for each non-deleted changed file:
+    /// 1. **File length** — if the file exceeds `max_file_lines`, suggests splitting
+    /// 2. **Test existence** — if the source file lacks inline tests or a corresponding
+    ///    test file in the `tests/` directory
+    pub fn check_code_structure(&self, files: &[ChangedFile]) -> Vec<ReviewIssue> {
+        let mut issues = Vec::new();
+
+        for file in files {
+            if file.change_type == ChangeType::Deleted {
+                continue;
+            }
+
+            let path = Path::new(&file.path);
+
+            // 1. Check file length
+            if let Some(max_lines) = self.config.max_file_lines {
+                if check_file_too_long(path, max_lines) {
+                    issues.push(ReviewIssue {
+                        file: file.path.clone(),
+                        line: Some(max_lines + 1),
+                        end_line: None,
+                        severity: Severity::Medium,
+                        category: ReviewCategory::Maintainability,
+                        title: "File too long, consider splitting by function".to_string(),
+                        description: format!(
+                            "File `{}` exceeds the recommended {} line limit. Long files hurt readability and maintainability. Consider splitting into smaller files by functional responsibility.",
+                            file.path, max_lines
+                        ),
+                        suggestion: Some(format!(
+                            "Extract different concerns from `{}` into separate files. For example, create one file per major function, each focused on a single responsibility.",
+                            file.path
+                        )),
+                        code_snippet: None,
+                        fix_example: None,
+                    });
+                }
+            }
+
+            // 2. Check test existence (only for source files, skip test/config files)
+            if is_source_file(path) && !has_tests(path) {
+                let filename = path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
+                issues.push(ReviewIssue {
+                    file: file.path.clone(),
+                    line: None,
+                    end_line: None,
+                    severity: Severity::Low,
+                    category: ReviewCategory::Maintainability,
+                    title: "Missing test coverage".to_string(),
+                    description: format!(
+                        "File `{}` has no corresponding test file or inline tests. Please add test coverage for the new functionality.",
+                        file.path
+                    ),
+                    suggestion: Some(format!(
+                        "Create a test file `tests/test_{}.rs` in the `tests/` directory, or add an inline `#[cfg(test)]\n    mod tests {{ ... }}` module at the end of the file.",
+                        filename
+                    )),
+                    code_snippet: None,
+                    fix_example: None,
+                });
+            }
+        }
+
+        issues
     }
 
     /// Extract JSON from response
@@ -1352,4 +1430,116 @@ pub fn parse_json_with_fallback(s: &str) -> std::result::Result<serde_json::Valu
     // Strategy 4: Escape raw control characters in string values
     let escaped = escape_control_chars_in_strings(&no_trailing);
     serde_json::from_str(&escaped).map_err(|e| format!("all strategies exhausted: {e}"))
+}
+
+// =============================================================================
+// Code Structure Checks
+// =============================================================================
+
+/// Check if a file exceeds the maximum line threshold.
+fn check_file_too_long(path: &Path, max_lines: usize) -> bool {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let line_count = content.lines().count();
+    line_count > max_lines
+}
+
+/// Determine if a file is a Rust source file that should have tests.
+///
+/// Returns `true` for Rust source files under `src/`. Returns `false` for
+/// existing test files (under `tests/`, ending with `_test.rs` or `_spec.rs`),
+/// config/doc files, and files from other languages.
+///
+/// This is deliberately limited to `.rs` files to avoid false positives from
+/// other languages whose test conventions differ (TypeScript uses `*.test.ts`,
+/// Python uses `test_*.py`, etc.).
+fn is_source_file(path: &Path) -> bool {
+    let file_str = path.to_string_lossy();
+
+    // Only check Rust source files
+    if !file_str.ends_with(".rs") {
+        return false;
+    }
+
+    // Skip files that are already test files themselves
+    if file_str.ends_with("_test.rs") || file_str.ends_with("_spec.rs") {
+        return false;
+    }
+
+    // Skip files under tests/, test-data/, fixtures/, mocks/ directories
+    let skip_dir_patterns = [
+        "/tests/",
+        "/test-data/",
+        "/fixtures/",
+        "/mocks/",
+    ];
+    if skip_dir_patterns.iter().any(|p| file_str.contains(p)) {
+        return false;
+    }
+
+    // Skip config/doc/generated files
+    let skip_extensions = [
+        ".toml",
+        ".lock",
+        ".md",
+    ];
+    if skip_extensions.iter().any(|ext| file_str.ends_with(ext)) {
+        return false;
+    }
+
+    true
+}
+
+/// Check if a source file has either inline tests or a corresponding test file.
+fn has_tests(path: &Path) -> bool {
+    // Strategy 1: Check if the source file itself contains inline tests
+    if has_inline_tests(path) {
+        return true;
+    }
+
+    // Strategy 2: Check for a corresponding test file
+    derive_test_path(path)
+        .map(|test_path| test_path.exists())
+        .unwrap_or(false)
+}
+
+/// Check if a source file contains inline test annotations.
+fn has_inline_tests(path: &Path) -> bool {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return false;
+    };
+
+    // Check for Rust-style inline tests
+    if content.contains("#[cfg(test)]") || content.contains("#[test]") {
+        return true;
+    }
+
+    false
+}
+
+/// Derive a potential test file path from a source file path.
+///
+/// For `src/foo/bar.rs`, checks `tests/foo/bar.rs` and `tests/test_bar.rs`.
+/// For the root `src/lib.rs`, checks `tests/lib.rs` and `tests/test_lib.rs`.
+fn derive_test_path(source_path: &Path) -> Option<std::path::PathBuf> {
+    let file_str = source_path.to_string_lossy();
+
+    // Strategy A: Strip "src/" prefix, replace with "tests/"
+    if let Some(relative) = file_str.strip_prefix("src/") {
+        let test_path = Path::new("tests").join(relative);
+        if test_path.exists() {
+            return Some(test_path);
+        }
+    }
+
+    // Strategy B: Look for tests/test_<filename>
+    let filename = source_path.file_stem()?.to_str()?;
+    let test_file = format!("tests/test_{}.rs", filename);
+    let test_path = Path::new(&test_file);
+    if test_path.exists() {
+        return Some(test_path.to_path_buf());
+    }
+
+    None
 }

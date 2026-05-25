@@ -255,6 +255,7 @@ pub struct ReviewConfig {
     pub max_issues: usize,               // Maximum number of issues
     pub include_suggestions: bool,       // Whether to include fix suggestions
     pub max_review_iterations: usize,    // Maximum auto-review iterations (default 3)
+    pub max_file_lines: Option<usize>,   // Max lines before suggesting split (None = disabled)
 }
 
 impl ReviewConfig {
@@ -282,6 +283,7 @@ impl ReviewConfig {
             max_issues: app_config.max_issues,
             include_suggestions: true,
             max_review_iterations: app_config.max_review_iterations,
+            max_file_lines: app_config.max_file_lines,
         }
     }
 }
