@@ -10,7 +10,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use super::preamble::Agent;
-use super::review_agent::{ReviewAgent, ReviewEvent, ReviewRequest};
+use super::review::{ReviewAgent, ReviewEvent, ReviewRequest};
 use crate::core::config::Config;
 use crate::core::types::Message;
 use crate::core::types::review::*;

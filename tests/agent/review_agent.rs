@@ -215,7 +215,7 @@ fn test_review_event_creation() {
 // =============================================================================
 
 use my_code_agent::app::App;
-use my_code_agent::core::agent::review_agent::{
+use my_code_agent::core::agent::review::{
     escape_control_chars_in_strings, extract_json_from_response, remove_trailing_commas_from_json,
     repair_truncated_json, sanitize_json_escapes,
 };
@@ -1212,7 +1212,7 @@ fn test_iteration_status_messages() {
 // Tests for Functional Completeness (new feature)
 // =============================================================================
 
-use my_code_agent::core::agent::review_agent::ReviewAgent;
+use my_code_agent::core::agent::review::ReviewAgent;
 use my_code_agent::core::types::Message;
 
 /// Test extract_context_from_history: keeps user messages, includes main agent's

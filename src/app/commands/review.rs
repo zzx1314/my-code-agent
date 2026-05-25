@@ -6,7 +6,7 @@
 //!   /review --auto       — Toggle auto-review mode on/off
 
 use crate::app::App;
-use crate::core::agent::review_agent::ReviewAgent;
+use crate::core::agent::review::ReviewAgent;
 use crate::core::context::context_manager::ContextManager;
 use crate::core::types::review::{ChangeType, ChangedFile};
 
@@ -238,4 +238,4 @@ fn spawn_review(app: &mut App, path: Option<String>) {
 }
 
 // Re-export for app
-pub use crate::core::agent::review_agent::ReviewEvent;
+pub use crate::core::agent::review::ReviewEvent;

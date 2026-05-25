@@ -6,8 +6,33 @@ use anyhow::Result;
 use std::path::Path;
 
 use super::client::LlmClient;
-use crate::core::parser::ParsedFile;
 use crate::core::types::review::*;
+
+mod types;
+mod json;
+mod context;
+mod false_positives;
+mod checks;
+
+// Re-export types and free functions from sub-modules for backward compatibility.
+// External consumers import from `crate::core::agent::review::*`.
+pub use self::types::{ReviewEvent, ReviewRequest};
+pub use self::json::{
+    escape_control_chars_in_strings,
+    extract_json_from_response,
+    remove_trailing_commas_from_json,
+    repair_truncated_json,
+    sanitize_json_escapes,
+};
+pub(crate) use self::checks::{
+    check_file_too_long, has_tests, is_source_file,
+};
+pub(crate) use self::context::{
+    char_boundary_at_or_before, clean_review_content, extract_previous_iteration_feedback,
+    get_file_outline, is_fix_prompt, truncate_content,
+};
+pub(crate) use self::false_positives::filter_known_false_positives;
+use self::json::parse_json_with_fallback;
 
 /// Code Review Agent
 ///
@@ -21,47 +46,6 @@ pub struct ReviewAgent {
     /// How thinking/reasoning content should be displayed to the user.
     /// "streaming" | "collapsed" | "hidden"
     pub thinking_display: String,
-}
-
-/// Review Request
-pub struct ReviewRequest {
-    pub changed_files: Vec<ChangedFile>,
-    pub context: Option<String>,         // Original task description
-    pub history_summary: Option<String>, // Conversation history summary for consistency checking
-}
-
-/// Review response events
-#[derive(Debug, Clone)]
-pub enum ReviewEvent {
-    Started {
-        file_count: usize,
-    },
-    FileAnalyzed {
-        file: String,
-        issues_found: usize,
-    },
-    Progress {
-        message: String,
-    },
-    /// Emitted when a review phase completes (used for phased/multi-category review)
-    PhaseCompleted {
-        phase_index: usize,      // 1-based phase number
-        total_phases: usize,     // total number of phases
-        phase_name: String,      // e.g. "Core Correctness"
-        categories: Vec<String>, // category names checked in this phase
-        issues_found: usize,     // number of issues found
-        passed: bool,            // true if no issues
-        details: String,         // brief summary
-    },
-    /// Reasoning/thinking content from the LLM during review.
-    /// Displayed on the frontend but NOT added to conversation history.
-    ReasoningDelta(String),
-    Completed {
-        report: ReviewReport,
-    },
-    Error {
-        message: String,
-    },
 }
 
 impl ReviewAgent {
@@ -356,7 +340,8 @@ impl ReviewAgent {
         if let (Some(first_idx), Some(last_idx)) = (first_user_idx, last_assistant_idx) {
             for i in (first_idx + 1..last_idx).rev() {
                 if history[i].role == "user" {
-                    let content = clean_review_content(&history[i].content);
+                    let content =
+                        clean_review_content(&history[i].content);
                     if !content.is_empty() && content.len() > 20 {
                         result.push_str("## Follow-up Context\n");
                         result.push_str(&truncate_content(&content, 500));
@@ -528,7 +513,7 @@ impl ReviewAgent {
                 ChangeType::Deleted => "Deleted",
                 ChangeType::Renamed => "Renamed",
             };
-            summary.push_str(&format!("### {} ({})\n", file.path, change_type_str,));
+            summary.push_str(&format!("### {} ({})\n", file.path, change_type_str));
             summary.push_str(&format!(
                 "- +{} lines, -{} lines\n",
                 file.lines_added, file.lines_removed
@@ -545,7 +530,7 @@ impl ReviewAgent {
             }
 
             if !file.diff.is_empty() {
-                summary.push_str(&format!("**Diff:**\n"));
+                summary.push_str("**Diff:**\n");
                 summary.push_str("```diff\n");
                 summary.push_str(&file.diff);
                 summary.push_str("\n```\n");
@@ -814,732 +799,20 @@ impl ReviewAgent {
     }
 }
 
-/// Extract a JSON object from an LLM response string.
-///
-/// Handles multiple formats:
-/// 1. ```json ... ``` code blocks
-/// 2. ``` ... ``` code blocks (looks for JSON-like content inside)
-/// 3. Bare `{...}` objects using brace counting (handles nesting)
-/// 4. If the entire string is valid JSON, returns it directly
-pub fn extract_json_from_response(response: &str) -> Result<String> {
-    let response = response.trim();
-
-    // Strategy 1: Try ```json ... ``` code block (most common with LLMs)
-    if let Some(start) = response.find("```json") {
-        let json_start = start + 7;
-        if let Some(end) = response[json_start..].find("```") {
-            return Ok(response[json_start..json_start + end].trim().to_string());
-        }
-    }
-
-    // Strategy 2: Try ``` ... ``` code block without language specifier
-    if let Some(start) = response.rfind("```") {
-        let before = &response[..start];
-        // Find matching opening ```
-        if let Some(open) = before.rfind("```") {
-            let inner = response[open + 3..start].trim();
-            // Check if it looks like JSON (starts with { or [)
-            if inner.starts_with('{') || inner.starts_with('[') {
-                return Ok(inner.to_string());
-            }
-        }
-    }
-
-    // Strategy 3: Find outermost { ... } pair using string-aware brace counting
-    // This handles nested braces properly and skips braces inside string literals.
-    //
-    // NOTE: `find('{')` returns a byte index, so we use `char_indices()` which
-    // also returns byte indices (not `.chars().enumerate()` which returns char
-    // indices). This is critical for correctness when multi-byte Unicode
-    // characters (emoji, CJK, etc.) appear before the first `{`.
-    if let Some(start) = response.find('{') {
-        let mut depth = 0_i64;
-        let mut json_start = None;
-        let mut json_end = None;
-        let mut in_string = false;
-        let mut prev_was_escape = false;
-        for (byte_i, ch) in response[start..].char_indices() {
-            let i = start + byte_i;
-            // Track string boundaries to skip braces inside strings
-            if ch == '"' && !prev_was_escape {
-                in_string = !in_string;
-            }
-            prev_was_escape = ch == '\\' && !prev_was_escape;
-            if in_string {
-                continue;
-            }
-            match ch {
-                '{' => {
-                    if depth == 0 {
-                        json_start = Some(i);
-                    }
-                    depth += 1;
-                }
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        json_end = Some(i);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        if let (Some(js), Some(je)) = (json_start, json_end) {
-            if je > js {
-                return Ok(response[js..=je].to_string());
-            }
-        }
-    }
-
-    // Strategy 4: If response is itself valid JSON, return it
-    if response.starts_with('{') && response.ends_with('}') {
-        if serde_json::from_str::<serde_json::Value>(response).is_ok() {
-            return Ok(response.to_string());
-        }
-    }
-
-    anyhow::bail!(
-        "Unable to extract JSON from response. Response was:\n{}",
-        response.chars().take(500).collect::<String>()
-    )
-}
-
-/// Sanitize a JSON string by fixing invalid escape sequences.
-///
-/// LLMs frequently produce JSON with invalid escapes like `\x`, `\uGGGG`,
-/// or unescaped backslashes in Windows paths (`C:\Users\test`).
-/// This function converts invalid `\X` → `\\X` so that `serde_json::from_str`
-/// can parse the result without error.
-///
-/// Valid JSON escapes (`\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`)
-/// are left untouched.
-pub fn sanitize_json_escapes(json: &str) -> String {
-    let mut result = String::with_capacity(json.len() + json.len() / 20);
-    let mut chars = json.chars().peekable();
-    let mut in_string = false;
-
-    while let Some(ch) = chars.next() {
-        if ch == '"' {
-            in_string = !in_string;
-            result.push(ch);
-            continue;
-        }
-        if !in_string || ch != '\\' {
-            result.push(ch);
-            continue;
-        }
-
-        // We're inside a string and just saw a backslash — check what follows
-        let Some(next) = chars.peek() else {
-            // Trailing backslash at end of string — escape it
-            result.push_str("\\\\");
-            break;
-        };
-
-        match next {
-            // Valid JSON escape sequences — keep as-is
-            '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' => {
-                result.push(ch);
-                result.push(chars.next().unwrap());
-            }
-            // Unicode escape: must be \u followed by exactly 4 hex digits
-            'u' => {
-                // Peek ahead to check 4 hex digits
-                let mut hex_valid = true;
-                let mut hex_chars = Vec::new();
-                for _ in 0..4 {
-                    chars.next(); // consume 'u' on first iteration
-                    if let Some(h) = chars.peek() {
-                        if h.is_ascii_hexdigit() {
-                            hex_chars.push(*h);
-                        } else {
-                            hex_valid = false;
-                            break;
-                        }
-                    } else {
-                        hex_valid = false;
-                        break;
-                    }
-                }
-                if hex_valid {
-                    // Valid \uXXXX — keep entire sequence
-                    result.push('\\');
-                    result.push('u');
-                    for h in &hex_chars {
-                        result.push(*h);
-                    }
-                } else {
-                    // Invalid unicode escape — treat backslash as literal
-                    result.push_str("\\\\");
-                    result.push('u');
-                    for h in &hex_chars {
-                        result.push(*h);
-                    }
-                }
-            }
-            // Invalid escape — double the backslash to make it literal
-            _ => {
-                result.push_str("\\\\");
-                result.push(chars.next().unwrap());
-            }
-        }
-    }
-
-    result
-}
-
-fn clean_review_content(content: &str) -> String {
-    content
-        .lines()
-        .filter(|line| {
-            !line.contains("fix the issues found in the code review")
-                && !line.contains("Auto-Review Iteration")
-                && !line.contains("Fix Required")
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
-}
-
-/// Detect if a message content is an auto-review fix prompt.
-/// Matches the same patterns as `is_auto_fix_prompt` in result.rs
-/// (but lives here to avoid circular dependencies).
-/// Also matches the broader patterns used by `clean_review_content`
-/// to ensure consistency between what gets filtered and what's
-/// recognized as a fix prompt.
-fn is_fix_prompt(content: &str) -> bool {
-    content.contains("Code Review - Iteration")
-        || content.contains("fix the issues found in the code review")
-        || content.contains("Auto-Review Iteration")
-        || content.contains("Fix Required")
-}
-
-/// Extract the main agent's responses following fix prompts.
-/// For each fix prompt (user message), finds the next assistant message
-/// (the main agent's response) and includes it as "Previous Iteration
-/// Feedback" — so the review agent knows which issues were accepted,
-/// rejected, or partially fixed.
-fn extract_previous_iteration_feedback(history: &[crate::core::types::Message]) -> String {
-    let mut responses = Vec::new();
-
-    for i in 0..history.len() {
-        if history[i].role != "user" || !is_fix_prompt(&history[i].content) {
-            continue;
-        }
-
-        // Found a fix prompt — look for the next assistant message
-        // (the main agent's response to the review)
-        for j in (i + 1)..history.len() {
-            if history[j].role == "assistant" {
-                let content = history[j].content.trim();
-                if !content.is_empty() && content.len() > 10 {
-                    responses.push(content.to_string());
-                }
-                break;
-            }
-        }
-    }
-
-    // Deduplicate by content (same response may appear in multiple iterations)
-    responses.dedup();
-
-    let mut result = String::new();
-    if responses.len() == 1 {
-        result.push_str(&truncate_content(&responses[0], 600));
-    } else {
-        for (i, response) in responses.iter().enumerate() {
-            if i > 0 {
-                result.push_str("\n---\n");
-            }
-            result.push_str(&format!("**Iteration {}:** ", i + 1));
-            result.push_str(&truncate_content(response, 400));
-        }
-    }
-
-    result
-}
-
-/// Find the largest byte index ≤ `max` that is a valid UTF-8 char boundary.
-fn char_boundary_at_or_before(s: &str, max: usize) -> usize {
-    s.char_indices()
-        .take_while(|(i, _)| *i < max)
-        .last()
-        .map(|(i, _)| i)
-        .unwrap_or(0)
-}
-
-/// Try to read a file from disk and return its structural outline.
-/// Returns None if the file can't be read or is not a supported language.
-fn get_file_outline(file_path: &str) -> Option<String> {
-    let path = Path::new(file_path);
-    if !path.exists() {
-        return None;
-    }
-    let content = std::fs::read_to_string(path).ok()?;
-    let parsed = ParsedFile::parse_with_path(content, file_path)?;
-    Some(parsed.get_outline_string())
-}
-
-/// Filter out known false-positive review issues using deterministic rules.
-///
-/// Before sending issues to `build_report`, this function checks each issue
-/// against a set of regex-like patterns that match common false-positive
-/// signals from the review LLM. Patterns are grouped by category:
-///
-/// 1. **`block_in_place` / async panic** — LLMs see `tokio::task::block_in_place`
-///    and claim it will panic, but this is a valid tokio utility.
-/// 2. **`block_on` convention** — `futures::executor::block_on` is used deliberately
-///    throughout this project; it's not a bug.
-/// 3. **"Silent fallback" / "silently"** — LLM flags intentional fallback/default
-///    patterns as error-masking, even when the fallback is correct.
-/// 4. **Generic "consider error handling"** — Vague, non-actionable suggestions
-///    without a specific scenario.
-/// 5. **"Missing documentation" / "consider documenting"** — Low-value doc suggestions
-///    for internal or self-explanatory code.
-/// 6. **"Hardcoded" values** — Test fixtures, config defaults, or intentional
-///    constants flagged as problematic.
-/// 7. **`unwrap()` on safe operations** — When unwrap is provably safe (e.g., on
-///    a `Receiver::try_recv` or a freshly-created value).
-///
-/// Each rule uses simple string matching (case-insensitive) on the issue's
-/// combined title + description + file path. This is intentionally cheap
-/// and deterministic — no regex overhead, no LLM calls.
-pub fn filter_known_false_positives(issues: &[ReviewIssue]) -> Vec<ReviewIssue> {
-    issues
-        .iter()
-        .filter(|issue| !is_known_false_positive(issue))
-        .cloned()
-        .collect()
-}
-
-/// Check a single issue against all known false-positive patterns.
-fn is_known_false_positive(issue: &ReviewIssue) -> bool {
-    // Build a combined text for pattern matching
-    let title_lower = issue.title.to_lowercase();
-    let desc_lower = issue.description.to_lowercase();
-    let file_lower = issue.file.to_lowercase();
-
-    // ── Rule 1: block_in_place async panic ──
-    // LLMs frequently see `tokio::task::block_in_place` and claim it will
-    // cause a panic in async context. In reality, `block_in_place` is a
-    // valid tokio utility for running blocking code without blocking the
-    // async runtime. The LLM confuses it with `block_on` in async context.
-    if desc_lower.contains("block_in_place") || title_lower.contains("block_in_place") {
-        if desc_lower.contains("async")
-            || desc_lower.contains("panic")
-            || desc_lower.contains("blocking")
-        {
-            return true;
-        }
-    }
-
-    // ── Rule 2: futures::executor::block_on project convention ──
-    // This project deliberately uses `futures::executor::block_on()` to
-    // run async code from sync contexts (e.g., startup, tests, drop guards).
-    // The LLM, seeing only the diff, flags it as a "blocking in sync context"
-    // issue, which is the intended usage.
-    if desc_lower.contains("block_on") || title_lower.contains("block_on") {
-        if desc_lower.contains("async")
-            || desc_lower.contains("blocking")
-            || desc_lower.contains(".await")
-            || desc_lower.contains("runtime")
-        {
-            return true;
-        }
-    }
-
-    // ── Rule 3: "Silent fallback" / "silently swallows" ──
-    // LLMs often flag intentional fallback/default patterns as "silently
-    // masking errors". The word "silent" in a review context is a reliable
-    // false-positive signal when paired with "fallback" or "default".
-    let combined = format!("{} {}", desc_lower, title_lower);
-    if (combined.contains("silent") || combined.contains("silently"))
-        && (combined.contains("fallback")
-            || combined.contains("default")
-            || combined.contains("swallow"))
-    {
-        return true;
-    }
-
-    // ── Rule 4: Generic "consider error handling" ──
-    // Vague suggestions without a specific error scenario. If the issue
-    // just says to add error handling but doesn't describe what error
-    // could occur or how, it's likely a default LLM template response.
-    if (combined.contains("consider") || combined.contains("recommend"))
-        && combined.contains("error handling")
-        && !combined.contains("specific")
-        && !combined.contains("scenario")
-    {
-        return true;
-    }
-
-    // ── Rule 5: "Missing documentation" ──
-    // Low-value doc suggestions for internal/trivial code. If the title
-    // or description says to add docs but the code is self-explanatory
-    // (e.g., a simple getter, a test, or internal helper), it's noise.
-    if combined.contains("documentation")
-        || combined.contains("document")
-        || combined.contains("docstring")
-    {
-        // Only filter if it's low severity — real doc gaps are worth noting
-        if issue.severity == Severity::Low || issue.severity == Severity::Info {
-            return true;
-        }
-    }
-
-    // ── Rule 6: "Hardcoded" values ──
-    // LLMs frequently flag string literals, URLs, or numbers as "hardcoded"
-    // without considering whether they're test data, config defaults, or
-    // intentional constants. Filter if the issue doesn't provide a specific
-    // attack scenario or risk.
-    if combined.contains("hardcoded") || combined.contains("hard-coded") {
-        // Keep if it's about security (hardcoded credentials/API keys)
-        if combined.contains("password")
-            || combined.contains("secret")
-            || combined.contains("credential")
-            || combined.contains("api_key")
-            || combined.contains("token")
-        {
-            // Don't filter — this is a real security concern
-        } else {
-            // Filter "hardcoded" for non-security items
-            if issue.severity == Severity::Low || issue.severity == Severity::Medium {
-                return true;
-            }
-        }
-    }
-
-    // ── Rule 7: Test file noise ──
-    // In test files, certain patterns like "magic number", "unwrap",
-    // "missing error handling" are typically intentional. Test code
-    // often uses unwrap liberally and doesn't need production-level
-    // error handling.
-    if file_lower.contains("test")
-        || file_lower.ends_with("_test.rs")
-        || file_lower.ends_with("_spec.rs")
-        || file_lower.ends_with(".test.ts")
-        || file_lower.ends_with(".spec.ts")
-    {
-        if combined.contains("unwrap")
-            || combined.contains("magic number")
-            || combined.contains("error handling")
-        {
-            if issue.severity == Severity::Low || issue.severity == Severity::Info {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-/// Safely truncate a string to at most `max_bytes` bytes, appending "..." if truncated.
-/// Never panics on multi-byte UTF-8 characters.
-fn truncate_content(content: &str, max_bytes: usize) -> String {
-    if content.len() <= max_bytes {
-        return content.to_string();
-    }
-    let boundary = char_boundary_at_or_before(content, max_bytes);
-    let mut s = content[..boundary].to_string();
-    s.push_str("...");
-    s
-}
-
-/// Escape raw control characters inside JSON string values.
-///
-/// LLMs frequently include multi-line content (code snippets, descriptions)
-/// with raw newlines (`\n`, `\r`) or tabs inside JSON string values.
-/// These are invalid in JSON and cause `serde_json` parse errors like
-/// "expected `,` or `}` at line X column Y".
-///
-/// Replaces raw control characters with their JSON escape equivalents:
-/// - `\x00-\x1F (except valid JSON whitespace in strings)` → `\uXXXX` or standard escapes
-/// - Specifically: `\n` → `\\n`, `\r` → `\\r`, `\t` → `\\t`
-///
-/// Properly tracks string boundaries (respects escaped quotes).
-pub fn escape_control_chars_in_strings(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() + 32);
-    let mut in_string = false;
-    let mut prev_was_escape = false;
-
-    for ch in s.chars() {
-        if ch == '"' && !prev_was_escape {
-            in_string = !in_string;
-        }
-        prev_was_escape = ch == '\\' && !prev_was_escape;
-
-        if in_string {
-            match ch {
-                '\n' => result.push_str("\\n"),
-                '\r' => result.push_str("\\r"),
-                '\t' => result.push_str("\\t"),
-                '\x08' => result.push_str("\\b"),
-                '\x0C' => result.push_str("\\f"),
-                // Other C0 control characters (U+0000-U+001F except the ones above)
-                '\x00'..='\x07' | '\x0B' | '\x0E'..='\x1F' | '\x7F' => {
-                    // These are extremely unlikely but escape them as \uXXXX just in case
-                    let code = ch as u32;
-                    result.push_str(&format!("\\u{:04x}", code));
-                }
-                _ => result.push(ch),
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-
-    result
-}
-
-/// Remove trailing commas before `}` and `]` throughout JSON.
-///
-/// LLMs frequently output JSON with trailing commas in nested objects/arrays:
-/// ```json
-/// {"issues": [{"file": "x.rs", "line": 42,}], ...}
-///                                   ^^ trailing comma
-/// ```
-///
-/// `serde_json` rejects these by default. This function removes ALL trailing
-/// commas throughout the JSON by scanning for `,` followed by optional
-/// whitespace and then `}` or `]`, respecting string boundaries.
-pub fn remove_trailing_commas_from_json(s: &str) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    let mut result = String::with_capacity(s.len());
-    let mut in_string = false;
-    let mut prev_was_escape = false;
-    let mut i = 0;
-
-    while i < chars.len() {
-        let ch = chars[i];
-
-        if ch == '"' && !prev_was_escape {
-            in_string = !in_string;
-        }
-        prev_was_escape = ch == '\\' && !prev_was_escape;
-
-        if !in_string && ch == ',' {
-            // Look ahead past whitespace for } or ]
-            let mut j = i + 1;
-            while j < chars.len()
-                && (chars[j] == ' ' || chars[j] == '\t' || chars[j] == '\n' || chars[j] == '\r')
-            {
-                j += 1;
-            }
-            if j < chars.len() && (chars[j] == '}' || chars[j] == ']') {
-                // This is a trailing comma — skip it
-                i += 1;
-                continue;
-            }
-        }
-
-        result.push(ch);
-        i += 1;
-    }
-
-    result
-}
-
-/// Attempt to repair a truncated/malformed JSON string from LLM output.
-///
-/// LLM responses sometimes get cut off mid-JSON (typically hitting output token limits).
-/// This function handles the common truncation patterns:
-/// 1. Trailing comma before closing bracket (`...,` → `...}`)
-/// 2. Unclosed string literals (appends `"`)
-/// 3. Unbalanced braces `{}` and brackets `[]` (appends missing closers)
-///
-/// Uses proper string-aware tracking to avoid misinterpreting
-/// braces/brackets inside string values.
-pub fn repair_truncated_json(s: &str) -> String {
-    let mut result = s.trim_end().to_string();
-
-    if let Some('}' | ']') = result.chars().last() {
-        let closer = result.pop().unwrap();
-        result = result.trim_end_matches(',').to_string();
-        result.push(closer);
-    }
-
-    let mut in_string = false;
-    let mut prev_was_escape = false;
-    let mut stack: Vec<char> = Vec::new();
-
-    for ch in result.chars() {
-        if ch == '"' && !prev_was_escape {
-            in_string = !in_string;
-        }
-        prev_was_escape = ch == '\\' && !prev_was_escape;
-
-        if in_string {
-            continue;
-        }
-
-        match ch {
-            '{' => stack.push('}'),
-            '[' => stack.push(']'),
-            '}' | ']' => {
-                if let Some(&top) = stack.last() {
-                    if top == ch {
-                        stack.pop();
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if in_string {
-        result.push('"');
-    }
-
-    while let Some(closing) = stack.pop() {
-        result.push(closing);
-    }
-
-    result
-}
-
-/// Try to parse a JSON string with progressive repair strategies.
-///
-/// Instead of deeply nested if-let-Err chains, uses a flat sequential
-/// strategy pattern:
-/// 1. Direct parse (fast path for already-valid JSON)
-/// 2. Truncation repair (unclosed braces, unclosed strings)
-/// 3. Trailing comma removal (common LLM output issue)
-/// 4. Control character escaping (raw newlines/tabs in strings)
-///
-/// Each strategy is applied independently and returns early on success.
-pub fn parse_json_with_fallback(s: &str) -> std::result::Result<serde_json::Value, String> {
-    // Strategy 1: Direct parse (fast path — most responses are valid)
-    if let Ok(v) = serde_json::from_str(s) {
-        return Ok(v);
-    }
-
-    // Strategy 2: Repair truncation (unclosed braces, unclosed strings)
-    let repaired = repair_truncated_json(s);
-    if let Ok(v) = serde_json::from_str(&repaired) {
-        return Ok(v);
-    }
-
-    // Strategy 3: Remove trailing commas throughout (common LLM artifact)
-    let no_trailing = remove_trailing_commas_from_json(&repaired);
-    if let Ok(v) = serde_json::from_str(&no_trailing) {
-        return Ok(v);
-    }
-
-    // Strategy 4: Escape raw control characters in string values
-    let escaped = escape_control_chars_in_strings(&no_trailing);
-    serde_json::from_str(&escaped).map_err(|e| format!("all strategies exhausted: {e}"))
-}
-
 // =============================================================================
-// Code Structure Checks
+// Following code is intentionally kept in this file (ReviewAgent impl methods):
+// - ReviewAgent struct + constructor
+// - system_prompt, review, review_with_events
+// - build_user_message, call_llm, call_llm_stream
+// - extract_context_from_history, extract_history_summary
+// - format_changes_summary, parse_review_response, parse_issues_from_response
+// - rebuild_report, build_report, build_report_inner
+// - check_code_structure
+//
+// Extracted to sub-modules (in review/ directory):
+// - types.rs      — ReviewRequest, ReviewEvent
+// - json.rs       — JSON processing utilities
+// - context.rs    — Context/history extraction helpers
+// - false_positives.rs — False positive filtering
+// - checks.rs     — Structural check helpers
 // =============================================================================
-
-/// Check if a file exceeds the maximum line threshold.
-fn check_file_too_long(path: &Path, max_lines: usize) -> bool {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    let line_count = content.lines().count();
-    line_count > max_lines
-}
-
-/// Determine if a file is a Rust source file that should have tests.
-///
-/// Returns `true` for Rust source files under `src/`. Returns `false` for
-/// existing test files (under `tests/`, ending with `_test.rs` or `_spec.rs`),
-/// config/doc files, and files from other languages.
-///
-/// This is deliberately limited to `.rs` files to avoid false positives from
-/// other languages whose test conventions differ (TypeScript uses `*.test.ts`,
-/// Python uses `test_*.py`, etc.).
-fn is_source_file(path: &Path) -> bool {
-    let file_str = path.to_string_lossy();
-
-    // Only check Rust source files
-    if !file_str.ends_with(".rs") {
-        return false;
-    }
-
-    // Skip files that are already test files themselves
-    if file_str.ends_with("_test.rs") || file_str.ends_with("_spec.rs") {
-        return false;
-    }
-
-    // Skip files under tests/, test-data/, fixtures/, mocks/ directories
-    let skip_dir_patterns = [
-        "/tests/",
-        "/test-data/",
-        "/fixtures/",
-        "/mocks/",
-    ];
-    if skip_dir_patterns.iter().any(|p| file_str.contains(p)) {
-        return false;
-    }
-
-    // Skip config/doc/generated files
-    let skip_extensions = [
-        ".toml",
-        ".lock",
-        ".md",
-    ];
-    if skip_extensions.iter().any(|ext| file_str.ends_with(ext)) {
-        return false;
-    }
-
-    true
-}
-
-/// Check if a source file has either inline tests or a corresponding test file.
-fn has_tests(path: &Path) -> bool {
-    // Strategy 1: Check if the source file itself contains inline tests
-    if has_inline_tests(path) {
-        return true;
-    }
-
-    // Strategy 2: Check for a corresponding test file
-    derive_test_path(path)
-        .map(|test_path| test_path.exists())
-        .unwrap_or(false)
-}
-
-/// Check if a source file contains inline test annotations.
-fn has_inline_tests(path: &Path) -> bool {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return false;
-    };
-
-    // Check for Rust-style inline tests
-    if content.contains("#[cfg(test)]") || content.contains("#[test]") {
-        return true;
-    }
-
-    false
-}
-
-/// Derive a potential test file path from a source file path.
-///
-/// For `src/foo/bar.rs`, checks `tests/foo/bar.rs` and `tests/test_bar.rs`.
-/// For the root `src/lib.rs`, checks `tests/lib.rs` and `tests/test_lib.rs`.
-fn derive_test_path(source_path: &Path) -> Option<std::path::PathBuf> {
-    let file_str = source_path.to_string_lossy();
-
-    // Strategy A: Strip "src/" prefix, replace with "tests/"
-    if let Some(relative) = file_str.strip_prefix("src/") {
-        let test_path = Path::new("tests").join(relative);
-        if test_path.exists() {
-            return Some(test_path);
-        }
-    }
-
-    // Strategy B: Look for tests/test_<filename>
-    let filename = source_path.file_stem()?.to_str()?;
-    let test_file = format!("tests/test_{}.rs", filename);
-    let test_path = Path::new(&test_file);
-    if test_path.exists() {
-        return Some(test_path.to_path_buf());
-    }
-
-    None
-}

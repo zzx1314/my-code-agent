@@ -1,7 +1,7 @@
 use tokio::sync::mpsc;
 
 use crate::app::{App, ChatEntry};
-use crate::core::agent::review_agent::{ReviewAgent, ReviewEvent};
+use crate::core::agent::review::{ReviewAgent, ReviewEvent};
 use crate::core::types::review::{ReviewOutcome, ReviewVerdict};
 
 use super::state::cleanup_stream_state;
