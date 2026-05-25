@@ -24,7 +24,7 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::path::Path;
 
-use crate::ui::codex_md::table_detect;
+use crate::ui::md_render::table_detect;
 
 /// Render markdown source to styled ratatui lines and append them to `lines`.
 ///
@@ -36,12 +36,12 @@ pub(crate) fn append_markdown(
     cwd: Option<&Path>,
     lines: &mut Vec<Line<'static>>,
 ) {
-    let rendered = crate::ui::codex_md::markdown_render::render_markdown_text_with_width_and_cwd(
+    let rendered = crate::ui::md_render::markdown_render::render_markdown_text_with_width_and_cwd(
         markdown_source,
         width,
         cwd,
     );
-    crate::ui::codex_md::render::line_utils::push_owned_lines(&rendered.lines, lines);
+    crate::ui::md_render::render::line_utils::push_owned_lines(&rendered.lines, lines);
 }
 
 /// Render an agent message to styled ratatui lines.
@@ -67,12 +67,12 @@ pub fn append_markdown_agent_with_cwd(
     lines: &mut Vec<Line<'static>>,
 ) {
     let normalized = unwrap_markdown_fences(markdown_source);
-    let rendered = crate::ui::codex_md::markdown_render::render_markdown_text_with_width_and_cwd(
+    let rendered = crate::ui::md_render::markdown_render::render_markdown_text_with_width_and_cwd(
         &normalized,
         width,
         cwd,
     );
-    crate::ui::codex_md::render::line_utils::push_owned_lines(&rendered.lines, lines);
+    crate::ui::md_render::render::line_utils::push_owned_lines(&rendered.lines, lines);
 }
 
 /// Strip `` ```md ``/`` ```markdown `` fences that contain tables, emitting their content as bare

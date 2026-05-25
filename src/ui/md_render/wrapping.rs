@@ -34,7 +34,7 @@ use textwrap::WordSeparator;
 use textwrap::core::Word;
 use textwrap::core::display_width;
 
-use crate::ui::codex_md::render::line_utils::push_owned_lines;
+use crate::ui::md_render::render::line_utils::push_owned_lines;
 
 /// Returns byte-ranges into `text` for each wrapped line, including
 /// trailing whitespace and a +1 sentinel byte. Used by the textarea

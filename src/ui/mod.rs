@@ -1,5 +1,5 @@
-pub mod codex_md;
 pub mod markdown;
+pub mod md_render;
 pub mod render;
 pub mod terminal;
 

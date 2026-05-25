@@ -6,7 +6,7 @@
 use ratatui::text::Line;
 use std::path::Path;
 
-use crate::ui::codex_md::agent_md::append_markdown_agent_with_cwd;
+use crate::ui::md_render::agent_md::append_markdown_agent_with_cwd;
 
 /// Render markdown for agent chat (unwraps `` ```md ``/`` ```markdown `` table fences).
 pub fn render_markdown(text: &str, max_width: Option<usize>) -> Vec<Line<'static>> {

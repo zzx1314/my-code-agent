@@ -36,13 +36,13 @@
 //! column's header token width.  When even 3-char-wide columns cannot fit,
 //! the table falls back to pipe-delimited format.
 
-use crate::ui::codex_md::render::highlight::highlight_code_to_lines;
-use crate::ui::codex_md::render::line_utils::line_to_static;
-use crate::ui::codex_md::render::line_utils::push_owned_lines;
-use crate::ui::codex_md::string_util::normalize_markdown_hash_location_suffix;
-use crate::ui::codex_md::wrapping::RtOptions;
-use crate::ui::codex_md::wrapping::adaptive_wrap_line;
-use crate::ui::codex_md::wrapping::word_wrap_line;
+use crate::ui::md_render::render::highlight::highlight_code_to_lines;
+use crate::ui::md_render::render::line_utils::line_to_static;
+use crate::ui::md_render::render::line_utils::push_owned_lines;
+use crate::ui::md_render::string_util::normalize_markdown_hash_location_suffix;
+use crate::ui::md_render::wrapping::RtOptions;
+use crate::ui::md_render::wrapping::adaptive_wrap_line;
+use crate::ui::md_render::wrapping::word_wrap_line;
 use dirs::home_dir;
 use pulldown_cmark::Alignment;
 use pulldown_cmark::CodeBlockKind;
