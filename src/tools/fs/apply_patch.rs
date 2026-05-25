@@ -81,13 +81,9 @@ impl Tool for ApplyPatch {
 
         let new_content = apply_hunks(&content, &hunks, &args.path)?;
 
-        let (_, git_diff) = super::fs_write_with_tracking(
-            &args.path,
-            &new_content,
-            "apply_patch",
-            Some(content),
-        )
-        .await?;
+        let (_, git_diff) =
+            super::fs_write_with_tracking(&args.path, &new_content, "apply_patch", Some(content))
+                .await?;
 
         serde_json::to_string(&ApplyPatchOutput {
             path: args.path,
@@ -166,10 +162,7 @@ fn parse_patch(patch: &str) -> Result<Vec<Hunk>, String> {
 }
 
 fn parse_hunk_header(line: &str) -> Option<(usize, Option<usize>, usize, Option<usize>)> {
-    let content = line
-        .trim_start_matches("@@")
-        .trim_end_matches("@@")
-        .trim();
+    let content = line.trim_start_matches("@@").trim_end_matches("@@").trim();
 
     let parts: Vec<&str> = content.split_whitespace().collect();
     if parts.len() < 2 {

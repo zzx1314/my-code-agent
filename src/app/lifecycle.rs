@@ -1,17 +1,17 @@
 //! Application main loop and shutdown/cleanup logic.
 
+use anyhow::Result;
+use ratatui::crossterm::event::{Event, poll, read};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::Write;
 use std::sync::Arc;
-use anyhow::Result;
-use ratatui::crossterm::event::{poll, read, Event};
-use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::app;
 use crate::app::App;
 use crate::app::PendingConfirmation;
 use crate::core::context::context_manager::ContextManager;
-use crate::core::session::SessionData;
 use crate::core::context::token_usage::TokenUsage;
+use crate::core::session::SessionData;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Cursor color palette — cycles through these hues for the native terminal
@@ -22,12 +22,12 @@ use crate::core::context::token_usage::TokenUsage;
 const CURSOR_PULSE_MS: u128 = 2000;
 
 const CURSOR_PALETTE: &[(u8, u8, u8)] = &[
-    (255, 120, 0),     // warm orange
-    (255, 60, 60),     // coral red
-    (255, 180, 0),     // gold
-    (0,   200, 255),   // cyan
-    (0,   255, 120),   // spring green
-    (200, 100, 255),   // purple
+    (255, 120, 0),   // warm orange
+    (255, 60, 60),   // coral red
+    (255, 180, 0),   // gold
+    (0, 200, 255),   // cyan
+    (0, 255, 120),   // spring green
+    (200, 100, 255), // purple
 ];
 
 fn lerp_rgb(a: (u8, u8, u8), b: (u8, u8, u8), t: f64) -> (u8, u8, u8) {
@@ -71,9 +71,7 @@ pub async fn run_app(
     orchestrator: Arc<crate::core::agent::orchestrator::AgentOrchestrator>,
     interrupt_tx: tokio::sync::broadcast::Sender<()>,
     confirmation_rx: Option<
-        tokio::sync::mpsc::UnboundedReceiver<
-            crate::tools::exec::confirmation::ConfirmationRequest,
-        >,
+        tokio::sync::mpsc::UnboundedReceiver<crate::tools::exec::confirmation::ConfirmationRequest>,
     >,
     mut context_manager: ContextManager,
 ) -> Result<()> {
@@ -154,9 +152,7 @@ pub async fn run_app(
         };
         let _ = std::io::Write::write_fmt(
             &mut std::io::stdout(),
-            format_args!(
-                "\x1b]12;{cursor_color}\x1b\\\x1b[?25h\x1b[5 q"
-            ),
+            format_args!("\x1b]12;{cursor_color}\x1b\\\x1b[?25h\x1b[5 q"),
         );
         let _ = std::io::stdout().flush();
 
@@ -293,9 +289,7 @@ fn shutdown(
 /// Convert app chat_history to Message vector for session persistence.
 /// Preserves `reasoning_content` and tool metadata for DeepSeek reasoning
 /// models.
-fn to_session_messages(
-    chat_history: &[crate::app::ChatEntry],
-) -> Vec<crate::core::types::Message> {
+fn to_session_messages(chat_history: &[crate::app::ChatEntry]) -> Vec<crate::core::types::Message> {
     chat_history
         .iter()
         .map(|entry| crate::core::types::Message {
@@ -333,11 +327,7 @@ fn save_timestamped_session(app: &App) {
 /// Save to the default session file for auto-resume next time.
 fn save_default_session(app: &App) {
     let history = to_session_messages(&app.chat_history);
-    let data = SessionData::new(
-        history,
-        app.token_usage.clone(),
-        app.last_reasoning.clone(),
-    );
+    let data = SessionData::new(history, app.token_usage.clone(), app.last_reasoning.clone());
     if let Err(e) = data.save_default(app.config.session.save_file.as_deref()) {
         tracing::error!(error = %e, "Failed to save session");
     }

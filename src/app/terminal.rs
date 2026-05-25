@@ -99,21 +99,14 @@ pub fn query_terminal_bg_color() -> Option<(u8, u8, u8)> {
             events: libc::POLLIN,
             revents: 0,
         };
-        let ret = unsafe {
-            libc::poll(&mut pollfd, 1, remaining.as_millis().min(100) as i32)
-        };
+        let ret = unsafe { libc::poll(&mut pollfd, 1, remaining.as_millis().min(100) as i32) };
         if ret <= 0 {
             continue;
         }
 
         if (pollfd.revents & libc::POLLIN) != 0 {
-            let n = unsafe {
-                libc::read(
-                    dup_fd,
-                    buf.as_mut_ptr().cast::<libc::c_void>(),
-                    buf.len(),
-                )
-            };
+            let n =
+                unsafe { libc::read(dup_fd, buf.as_mut_ptr().cast::<libc::c_void>(), buf.len()) };
             if n <= 0 {
                 break;
             }
@@ -141,13 +134,8 @@ pub fn query_terminal_bg_color() -> Option<(u8, u8, u8)> {
             break;
         }
         if (pollfd.revents & libc::POLLIN) != 0 {
-            let n = unsafe {
-                libc::read(
-                    dup_fd,
-                    buf.as_mut_ptr().cast::<libc::c_void>(),
-                    buf.len(),
-                )
-            };
+            let n =
+                unsafe { libc::read(dup_fd, buf.as_mut_ptr().cast::<libc::c_void>(), buf.len()) };
             if n <= 0 {
                 break;
             }

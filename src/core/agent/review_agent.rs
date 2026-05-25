@@ -26,38 +26,57 @@ pub struct ReviewAgent {
 /// Review Request
 pub struct ReviewRequest {
     pub changed_files: Vec<ChangedFile>,
-    pub context: Option<String>,  // Original task description
-    pub history_summary: Option<String>,  // Conversation history summary for consistency checking
+    pub context: Option<String>,         // Original task description
+    pub history_summary: Option<String>, // Conversation history summary for consistency checking
 }
 
 /// Review response events
 #[derive(Debug, Clone)]
 pub enum ReviewEvent {
-    Started { file_count: usize },
-    FileAnalyzed { file: String, issues_found: usize },
-    Progress { message: String },
+    Started {
+        file_count: usize,
+    },
+    FileAnalyzed {
+        file: String,
+        issues_found: usize,
+    },
+    Progress {
+        message: String,
+    },
     /// Emitted when a review phase completes (used for phased/multi-category review)
     PhaseCompleted {
-        phase_index: usize,           // 1-based phase number
-        total_phases: usize,          // total number of phases
-        phase_name: String,           // e.g. "Core Correctness"
-        categories: Vec<String>,      // category names checked in this phase
-        issues_found: usize,          // number of issues found
-        passed: bool,                 // true if no issues
-        details: String,              // brief summary
+        phase_index: usize,      // 1-based phase number
+        total_phases: usize,     // total number of phases
+        phase_name: String,      // e.g. "Core Correctness"
+        categories: Vec<String>, // category names checked in this phase
+        issues_found: usize,     // number of issues found
+        passed: bool,            // true if no issues
+        details: String,         // brief summary
     },
     /// Reasoning/thinking content from the LLM during review.
     /// Displayed on the frontend but NOT added to conversation history.
     ReasoningDelta(String),
-    Completed { report: ReviewReport },
-    Error { message: String },
+    Completed {
+        report: ReviewReport,
+    },
+    Error {
+        message: String,
+    },
 }
 
-
-
 impl ReviewAgent {
-    pub fn new(client: LlmClient, config: ReviewConfig, reasoning_field: String, thinking_display: String) -> Self {
-        Self { client, config, reasoning_field, thinking_display }
+    pub fn new(
+        client: LlmClient,
+        config: ReviewConfig,
+        reasoning_field: String,
+        thinking_display: String,
+    ) -> Self {
+        Self {
+            client,
+            config,
+            reasoning_field,
+            thinking_display,
+        }
     }
 
     pub fn system_prompt(&self) -> String {
@@ -107,13 +126,17 @@ impl ReviewAgent {
 
     pub async fn review(&self, request: &ReviewRequest) -> Result<ReviewReport> {
         let changes_summary = self.format_changes_summary(&request.changed_files);
-        let user_message = self.build_user_message(&changes_summary, &request.context, &request.history_summary);
+        let user_message =
+            self.build_user_message(&changes_summary, &request.context, &request.history_summary);
         let (response, _reasoning) = self.call_llm(&user_message).await?;
         let issues = self.parse_issues_from_response(&response)?;
         let filtered = filter_known_false_positives(&issues);
         let filtered_count = issues.len() - filtered.len();
         if filtered_count > 0 {
-            tracing::info!(filtered_count, "Pre-filter removed known false-positive issues");
+            tracing::info!(
+                filtered_count,
+                "Pre-filter removed known false-positive issues"
+            );
         }
         self.build_report(&filtered, &request.changed_files)
     }
@@ -131,14 +154,18 @@ impl ReviewAgent {
         });
 
         let changes_summary = self.format_changes_summary(&request.changed_files);
-        let user_message = self.build_user_message(&changes_summary, &request.context, &request.history_summary);
+        let user_message =
+            self.build_user_message(&changes_summary, &request.context, &request.history_summary);
 
         let response = self.call_llm_stream(&user_message, &event_tx).await?;
         let issues = self.parse_issues_from_response(&response)?;
         let filtered = filter_known_false_positives(&issues);
         let filtered_count = issues.len() - filtered.len();
         if filtered_count > 0 {
-            tracing::info!(filtered_count, "Pre-filter removed known false-positive issues");
+            tracing::info!(
+                filtered_count,
+                "Pre-filter removed known false-positive issues"
+            );
         }
         let report = self.build_report(&filtered, &request.changed_files)?;
 
@@ -149,7 +176,12 @@ impl ReviewAgent {
         Ok(report)
     }
 
-    fn build_user_message(&self, changes_summary: &str, context: &Option<String>, history_summary: &Option<String>) -> String {
+    fn build_user_message(
+        &self,
+        changes_summary: &str,
+        context: &Option<String>,
+        history_summary: &Option<String>,
+    ) -> String {
         let mut msg = String::new();
 
         if let Some(ctx) = context {
@@ -172,7 +204,10 @@ impl ReviewAgent {
             Message::user(user_message),
         ];
 
-        let response = self.client.chat(&messages, &[], &self.reasoning_field).await?;
+        let response = self
+            .client
+            .chat(&messages, &[], &self.reasoning_field)
+            .await?;
         let message = &response["choices"][0]["message"];
 
         let content = message["content"]
@@ -180,7 +215,8 @@ impl ReviewAgent {
             .ok_or_else(|| anyhow::anyhow!("No content in review response"))?
             .to_string();
 
-        let reasoning = message.get("reasoning_content")
+        let reasoning = message
+            .get("reasoning_content")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -202,7 +238,10 @@ impl ReviewAgent {
             Message::user(user_message),
         ];
 
-        let mut chat_stream = self.client.stream_chat(&messages, &[], &self.reasoning_field).await?;
+        let mut chat_stream = self
+            .client
+            .stream_chat(&messages, &[], &self.reasoning_field)
+            .await?;
         let mut full_content = String::new();
 
         // Reasoning accumulation buffer for full-vs-incremental dedup.
@@ -216,8 +255,11 @@ impl ReviewAgent {
                 let delta = &choice.delta;
 
                 // Process reasoning_content or reasoning field
-                let reasoning_text = delta.reasoning_content.as_ref()
-                    .or_else(|| delta.reasoning.as_ref());                    if let Some(rt) = reasoning_text {
+                let reasoning_text = delta
+                    .reasoning_content
+                    .as_ref()
+                    .or_else(|| delta.reasoning.as_ref());
+                if let Some(rt) = reasoning_text {
                     if !rt.is_empty() && self.thinking_display != "hidden" {
                         // Strip HTML/XML tags (e.g., <think>, </think>)
                         // with cross-chunk state tracking.
@@ -230,7 +272,8 @@ impl ReviewAgent {
                         if cleaned.starts_with(reasoning_buf.as_str()) {
                             let delta_text = &cleaned[reasoning_buf.len()..];
                             if !delta_text.is_empty() {
-                                let _ = event_tx.send(ReviewEvent::ReasoningDelta(delta_text.to_string()));
+                                let _ = event_tx
+                                    .send(ReviewEvent::ReasoningDelta(delta_text.to_string()));
                             }
                             reasoning_buf = cleaned;
                         } else {
@@ -385,8 +428,12 @@ impl ReviewAgent {
             let lower = content.to_lowercase();
 
             // Detect requirements (keywords like "need", "want", "should", "must", "require")
-            if lower.contains("need") || lower.contains("want") || lower.contains("should")
-                || lower.contains("must") || lower.contains("require") || lower.contains("please")
+            if lower.contains("need")
+                || lower.contains("want")
+                || lower.contains("should")
+                || lower.contains("must")
+                || lower.contains("require")
+                || lower.contains("please")
             {
                 let summary = truncate_content(content, 200);
                 if !summary.is_empty() {
@@ -395,8 +442,12 @@ impl ReviewAgent {
             }
 
             // Detect feature requests (keywords like "add", "implement", "create", "build")
-            if lower.contains("add") || lower.contains("implement") || lower.contains("create")
-                || lower.contains("build") || lower.contains("support") || lower.contains("feature")
+            if lower.contains("add")
+                || lower.contains("implement")
+                || lower.contains("create")
+                || lower.contains("build")
+                || lower.contains("support")
+                || lower.contains("feature")
             {
                 let summary = truncate_content(content, 150);
                 if !summary.is_empty() {
@@ -405,8 +456,12 @@ impl ReviewAgent {
             }
 
             // Detect decisions/constraints (keywords like "use", "choose", "prefer", "instead", "must not")
-            if lower.contains("use ") || lower.contains("choose") || lower.contains("prefer")
-                || lower.contains("instead") || lower.contains("must not") || lower.contains("don't")
+            if lower.contains("use ")
+                || lower.contains("choose")
+                || lower.contains("prefer")
+                || lower.contains("instead")
+                || lower.contains("must not")
+                || lower.contains("don't")
                 || lower.contains("avoid")
             {
                 let summary = truncate_content(content, 150);
@@ -464,10 +519,7 @@ impl ReviewAgent {
                 ChangeType::Deleted => "Deleted",
                 ChangeType::Renamed => "Renamed",
             };
-            summary.push_str(&format!(
-                "### {} ({})\n",
-                file.path, change_type_str,
-            ));
+            summary.push_str(&format!("### {} ({})\n", file.path, change_type_str,));
             summary.push_str(&format!(
                 "- +{} lines, -{} lines\n",
                 file.lines_added, file.lines_removed
@@ -496,8 +548,6 @@ impl ReviewAgent {
         summary
     }
 
-
-
     /// Parse review response — full pipeline: extract JSON, parse issues, build report.
     /// (Kept for backward compatibility with tests.)
     pub fn parse_review_response(
@@ -523,8 +573,12 @@ impl ReviewAgent {
         }
 
         let sanitized = sanitize_json_escapes(&json_str);
-        let parsed = parse_json_with_fallback(&sanitized)
-            .map_err(|e| anyhow::anyhow!("Failed to parse review JSON after all repair strategies: {}", e))?;
+        let parsed = parse_json_with_fallback(&sanitized).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to parse review JSON after all repair strategies: {}",
+                e
+            )
+        })?;
 
         let mut issues = Vec::new();
 
@@ -549,16 +603,43 @@ impl ReviewAgent {
                 };
 
                 issues.push(ReviewIssue {
-                    file: issue.get("file").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    line: issue.get("line").and_then(|v| v.as_u64()).map(|v| v as usize),
-                    end_line: issue.get("end_line").and_then(|v| v.as_u64()).map(|v| v as usize),
+                    file: issue
+                        .get("file")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    line: issue
+                        .get("line")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as usize),
+                    end_line: issue
+                        .get("end_line")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as usize),
                     severity,
                     category,
-                    title: issue.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    description: issue.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    suggestion: issue.get("suggestion").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    code_snippet: issue.get("code_snippet").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    fix_example: issue.get("fix_example").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    title: issue
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    description: issue
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    suggestion: issue
+                        .get("suggestion")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    code_snippet: issue
+                        .get("code_snippet")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    fix_example: issue
+                        .get("fix_example")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
                 });
             }
         }
@@ -572,20 +653,32 @@ impl ReviewAgent {
     /// This is a public wrapper used after post-processing (e.g., fingerprint
     /// deduplication) has filtered some issues. Delegates to the shared
     /// `build_report_inner` logic.
-    pub fn rebuild_report(&self, issues: &[ReviewIssue], changed_files: &[ChangedFile]) -> ReviewReport {
+    pub fn rebuild_report(
+        &self,
+        issues: &[ReviewIssue],
+        changed_files: &[ChangedFile],
+    ) -> ReviewReport {
         self.build_report_inner(issues, changed_files)
     }
 
     /// Build a complete ReviewReport from a list of issues and changed files.
     /// This wrapper exists for callers that use `?` (Result-returning).
     /// Delegates to the shared `build_report_inner` logic.
-    fn build_report(&self, issues: &[ReviewIssue], changed_files: &[ChangedFile]) -> Result<ReviewReport> {
+    fn build_report(
+        &self,
+        issues: &[ReviewIssue],
+        changed_files: &[ChangedFile],
+    ) -> Result<ReviewReport> {
         Ok(self.build_report_inner(issues, changed_files))
     }
 
     /// Shared internal logic for building a ReviewReport from issues and changed files.
     /// Calculates summary statistics, verdict, overall score, and auto-fixable list.
-    fn build_report_inner(&self, issues: &[ReviewIssue], changed_files: &[ChangedFile]) -> ReviewReport {
+    fn build_report_inner(
+        &self,
+        issues: &[ReviewIssue],
+        changed_files: &[ChangedFile],
+    ) -> ReviewReport {
         // Single-pass counting: 6 traversals → 1 for all severity levels + auto-fixable.
         let mut critical_count = 0;
         let mut high_count = 0;
@@ -641,7 +734,6 @@ impl ReviewAgent {
     fn extract_json(&self, response: &str) -> Result<String> {
         extract_json_from_response(response)
     }
-
 }
 
 /// Extract a JSON object from an LLM response string.
@@ -695,7 +787,9 @@ pub fn extract_json_from_response(response: &str) -> Result<String> {
                 in_string = !in_string;
             }
             prev_was_escape = ch == '\\' && !prev_was_escape;
-            if in_string { continue; }
+            if in_string {
+                continue;
+            }
             match ch {
                 '{' => {
                     if depth == 0 {
@@ -954,9 +1048,7 @@ fn is_known_false_positive(issue: &ReviewIssue) -> bool {
     // cause a panic in async context. In reality, `block_in_place` is a
     // valid tokio utility for running blocking code without blocking the
     // async runtime. The LLM confuses it with `block_on` in async context.
-    if desc_lower.contains("block_in_place")
-        || title_lower.contains("block_in_place")
-    {
+    if desc_lower.contains("block_in_place") || title_lower.contains("block_in_place") {
         if desc_lower.contains("async")
             || desc_lower.contains("panic")
             || desc_lower.contains("blocking")
@@ -970,9 +1062,7 @@ fn is_known_false_positive(issue: &ReviewIssue) -> bool {
     // run async code from sync contexts (e.g., startup, tests, drop guards).
     // The LLM, seeing only the diff, flags it as a "blocking in sync context"
     // issue, which is the intended usage.
-    if desc_lower.contains("block_on")
-        || title_lower.contains("block_on")
-    {
+    if desc_lower.contains("block_on") || title_lower.contains("block_on") {
         if desc_lower.contains("async")
             || desc_lower.contains("blocking")
             || desc_lower.contains(".await")
@@ -988,7 +1078,9 @@ fn is_known_false_positive(issue: &ReviewIssue) -> bool {
     // false-positive signal when paired with "fallback" or "default".
     let combined = format!("{} {}", desc_lower, title_lower);
     if (combined.contains("silent") || combined.contains("silently"))
-        && (combined.contains("fallback") || combined.contains("default") || combined.contains("swallow"))
+        && (combined.contains("fallback")
+            || combined.contains("default")
+            || combined.contains("swallow"))
     {
         return true;
     }
@@ -1152,7 +1244,9 @@ pub fn remove_trailing_commas_from_json(s: &str) -> String {
         if !in_string && ch == ',' {
             // Look ahead past whitespace for } or ]
             let mut j = i + 1;
-            while j < chars.len() && (chars[j] == ' ' || chars[j] == '\t' || chars[j] == '\n' || chars[j] == '\r') {
+            while j < chars.len()
+                && (chars[j] == ' ' || chars[j] == '\t' || chars[j] == '\n' || chars[j] == '\r')
+            {
                 j += 1;
             }
             if j < chars.len() && (chars[j] == '}' || chars[j] == ']') {
@@ -1257,6 +1351,5 @@ pub fn parse_json_with_fallback(s: &str) -> std::result::Result<serde_json::Valu
 
     // Strategy 4: Escape raw control characters in string values
     let escaped = escape_control_chars_in_strings(&no_trailing);
-    serde_json::from_str(&escaped)
-        .map_err(|e| format!("all strategies exhausted: {e}"))
+    serde_json::from_str(&escaped).map_err(|e| format!("all strategies exhausted: {e}"))
 }

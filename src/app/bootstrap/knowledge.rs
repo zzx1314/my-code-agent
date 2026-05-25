@@ -55,7 +55,8 @@ pub fn build_init_result(
             Ok(new_agent) => InitResult {
                 message: format!(
                     "✅ {} '{}' ({} bytes) with current project info.\nAgent reloaded with updated knowledge.",
-                    action, knowledge_file,
+                    action,
+                    knowledge_file,
                     new_content.len()
                 ),
                 new_agent: Some(new_agent),
@@ -278,8 +279,7 @@ fn section_conventions() -> String {
     if std::path::Path::new(".gitignore").exists() {
         conventions.push("- Project uses .gitignore for version control");
     }
-    if std::path::Path::new("clippy.toml").exists()
-        || std::path::Path::new("rustfmt.toml").exists()
+    if std::path::Path::new("clippy.toml").exists() || std::path::Path::new("rustfmt.toml").exists()
     {
         conventions.push("- Clippy/rustfmt configuration present — follow formatting rules");
     }

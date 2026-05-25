@@ -28,7 +28,8 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
     let mut lines: Vec<ratatui::text::Line> = Vec::new();
 
-    let has_inline_reasoning = !app.is_streaming && app.show_inline_reasoning && !app.last_reasoning.is_empty();
+    let has_inline_reasoning =
+        !app.is_streaming && app.show_inline_reasoning && !app.last_reasoning.is_empty();
 
     if has_inline_reasoning {
         // Render history with reasoning placed before the last assistant message (Codex-style inline)
@@ -66,7 +67,13 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
         // 1. Pre-text completed reasoning (from before any text appeared)
         if !last_reasoning.is_empty() {
-            render_reasoning_inline(&mut lines, &last_reasoning, app, "stream_last_reasoning", area_width);
+            render_reasoning_inline(
+                &mut lines,
+                &last_reasoning,
+                app,
+                "stream_last_reasoning",
+                area_width,
+            );
         }
 
         // 2. Interleave text chunks with post-text thinking segments using
@@ -85,20 +92,37 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             }
             // Render the archived thinking segment that follows this text chunk
             let section_id = format!("stream_post_text_reasoning_{}", i);
-            render_reasoning_inline(&mut lines, &archived_segments[i], app, &section_id, area_width);
+            lines.push(Line::default());
+            render_reasoning_inline(
+                &mut lines,
+                &archived_segments[i],
+                app,
+                &section_id,
+                area_width,
+            );
         }
 
         // Current post-text reasoning (follows the next text chunk)
         if !post_text.is_empty() {
             // The boundary for the current post-text segment is at
             // boundaries[archived_segments.len()] (if it exists).
-            let b = boundaries.get(archived_segments.len()).copied().unwrap_or(text.len());
+            let b = boundaries
+                .get(archived_segments.len())
+                .copied()
+                .unwrap_or(text.len());
             if b > prev && b <= text.len() {
                 let md_lines = render_streaming_markdown(&text[prev..b], width);
                 lines.extend(md_lines);
                 prev = b;
             }
-            render_reasoning_inline(&mut lines, &post_text, app, "stream_post_text_reasoning", area_width);
+            lines.push(Line::default());
+            render_reasoning_inline(
+                &mut lines,
+                &post_text,
+                app,
+                "stream_post_text_reasoning",
+                area_width,
+            );
         }
 
         // Remaining streaming text (not yet associated with any thinking segment)
@@ -108,8 +132,22 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
 
         // Active reasoning (currently streaming segment)
+        // Only add a blank line separator if there's already streaming content
+        // rendered before it (text, pre-text, or post-text reasoning). Otherwise
+        // the streaming block's leading separator line already provides spacing.
         if !active_reasoning.is_empty() {
-            render_streaming_reasoning_inline(&mut lines, &active_reasoning, app, "stream_reasoning", area_width);
+            let has_streaming_content =
+                !last_reasoning.is_empty() || prev > 0 || !post_text.is_empty();
+            if has_streaming_content {
+                lines.push(Line::default());
+            }
+            render_streaming_reasoning_inline(
+                &mut lines,
+                &active_reasoning,
+                app,
+                "stream_reasoning",
+                area_width,
+            );
         }
 
         // Streaming todos — rendered below text/reasoning when present.
@@ -125,7 +163,6 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
                 }
             }
         }
-
     }
 
     // Render review reasoning (transient — not added to chat history)
@@ -140,14 +177,26 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     render_paragraph_with_scroll(f, app, lines, area);
 }
 
-fn render_paragraph_with_scroll(f: &mut Frame, app: &mut App, lines: Vec<ratatui::text::Line>, area: Rect) {
+fn render_paragraph_with_scroll(
+    f: &mut Frame,
+    app: &mut App,
+    lines: Vec<ratatui::text::Line>,
+    area: Rect,
+) {
     // Estimate visual lines after word-wrap without cloning the entire lines vec.
     // This avoids the expensive allocation of cloning all styled spans.
     let actual_lines = if area.width > 0 {
-        lines.iter().map(|l| {
-            let w = l.width() as u16;
-            if w == 0 { 1 } else { (w + area.width - 1) / area.width }
-        }).sum::<u16>()
+        lines
+            .iter()
+            .map(|l| {
+                let w = l.width() as u16;
+                if w == 0 {
+                    1
+                } else {
+                    (w + area.width - 1) / area.width
+                }
+            })
+            .sum::<u16>()
     } else {
         lines.len() as u16
     };
@@ -178,12 +227,7 @@ fn render_paragraph_with_scroll(f: &mut Frame, app: &mut App, lines: Vec<ratatui
 
 /// Render the startup banner — bordered info panel wrapping tightly around content.
 fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
-    let model = app
-        .config
-        .llm
-        .model
-        .as_deref()
-        .unwrap_or("unknown");
+    let model = app.config.llm.model.as_deref().unwrap_or("unknown");
     let dir = {
         let cwd = std::env::current_dir().unwrap_or_default();
         if let Some(home) = dirs::home_dir() {
@@ -198,14 +242,16 @@ fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
             cwd.display().to_string()
         }
     };
-    let title_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
-    let dim = Style::default().fg(Color::LightYellow).add_modifier(Modifier::DIM);
+    let title_style = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+    let dim = Style::default()
+        .fg(Color::LightYellow)
+        .add_modifier(Modifier::DIM);
     let value_style = Style::default().fg(Color::Cyan);
 
     let lines = vec![
-        Line::from(vec![
-            Span::styled(" >_ My Code Agent", title_style),
-        ]),
+        Line::from(vec![Span::styled(" >_ My Code Agent", title_style)]),
         Line::from(""),
         Line::from(vec![
             Span::styled(" model:     ", dim),
@@ -262,10 +308,13 @@ fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(paragraph, box_area);
 }
 
-
 /// Render chat with reasoning placed before the last assistant message.
 /// Uses the new inline reasoning style (Codex-inspired: `• ` prefix, dim/italic).
-fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut App, max_width: Option<usize>) {
+fn render_chat_with_reasoning(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    app: &mut App,
+    max_width: Option<usize>,
+) {
     let last_assistant_idx = app
         .chat_history
         .iter()
@@ -276,7 +325,9 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app
     let mut prev_role: Option<String> = None;
 
     // Clone entries before the last assistant to avoid borrow conflict with &mut App
-    let before: Vec<(usize, ChatEntry)> = app.chat_history[..split_idx].iter().enumerate()
+    let before: Vec<(usize, ChatEntry)> = app.chat_history[..split_idx]
+        .iter()
+        .enumerate()
         .map(|(i, e)| (i, e.clone()))
         .collect();
     for (i, entry) in &before {
@@ -286,7 +337,15 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app
                 lines.push(Line::default());
             }
         }
-        render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
+        render_message(
+            lines,
+            entry,
+            *i,
+            app,
+            max_width,
+            show_tool_calls_in_history,
+            app.config.agent.show_tool_details,
+        );
         prev_role = Some(entry.role.clone());
     }
 
@@ -300,15 +359,30 @@ fn render_chat_with_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app
             }
         }
         let entry = app.chat_history[idx].clone();
-        render_message(lines, &entry, idx, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
+        render_message(
+            lines,
+            &entry,
+            idx,
+            app,
+            max_width,
+            show_tool_calls_in_history,
+            app.config.agent.show_tool_details,
+        );
     }
 }
 
 /// Render all chat messages in order.
-fn render_chat_messages(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut App, max_width: Option<usize>) {
+fn render_chat_messages(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    app: &mut App,
+    max_width: Option<usize>,
+) {
     let show_tool_calls_in_history = app.config.agent.show_tool_calls_in_history;
     // Clone entries to avoid borrow conflict with &mut App
-    let entries: Vec<(usize, ChatEntry)> = app.chat_history.iter().enumerate()
+    let entries: Vec<(usize, ChatEntry)> = app
+        .chat_history
+        .iter()
+        .enumerate()
         .map(|(i, e)| (i, e.clone()))
         .collect();
     let mut prev_role: Option<String> = None;
@@ -319,7 +393,15 @@ fn render_chat_messages(lines: &mut Vec<ratatui::text::Line<'static>>, app: &mut
                 lines.push(Line::default());
             }
         }
-        render_message(lines, entry, *i, app, max_width, show_tool_calls_in_history, app.config.agent.show_tool_details);
+        render_message(
+            lines,
+            entry,
+            *i,
+            app,
+            max_width,
+            show_tool_calls_in_history,
+            app.config.agent.show_tool_details,
+        );
         prev_role = Some(entry.role.clone());
     }
 }
@@ -366,10 +448,14 @@ fn render_collapsible_block<'a>(
             // Store content line count so the mouse handler can use a
             // dynamic tolerance — word-wrap discrepancies compound with
             // more lines, so larger sections need a wider search radius.
-            app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
+            app.collapsed_toggles
+                .push((vis_pos, section_id.to_string(), total));
             lines.push(ratatui::text::Line::from(vec![
                 ratatui::text::Span::styled(
-                    format!("  [+ {} more lines - click to expand]", total - COLLAPSE_THRESHOLD),
+                    format!(
+                        "  [+ {} more lines - click to expand]",
+                        total - COLLAPSE_THRESHOLD
+                    ),
                     ratatui::style::Style::default()
                         .fg(ratatui::style::Color::Yellow)
                         .add_modifier(ratatui::style::Modifier::BOLD),
@@ -383,7 +469,8 @@ fn render_collapsible_block<'a>(
             }
             // vis_pos is now the visual line index of the toggle text.
             // Store content line count for dynamic tolerance calculation.
-            app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
+            app.collapsed_toggles
+                .push((vis_pos, section_id.to_string(), total));
             lines.push(ratatui::text::Line::from(vec![
                 ratatui::text::Span::styled(
                     "  [-] click to collapse",
@@ -402,9 +489,18 @@ fn render_collapsible_block<'a>(
 }
 
 /// Render a single message with role-based styling.
-fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEntry, entry_idx: usize, app: &mut App, max_width: Option<usize>, show_tool_calls: bool, show_tool_details: bool) {
+fn render_message(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    entry: &ChatEntry,
+    entry_idx: usize,
+    app: &mut App,
+    max_width: Option<usize>,
+    show_tool_calls: bool,
+    show_tool_details: bool,
+) {
     let area_width = max_width.unwrap_or(80) as u16;
-    match entry.role.as_str() {            "user" => {
+    match entry.role.as_str() {
+        "user" => {
             // User message display with full-row background:
             // - Full-width background color across the entire terminal
             // - Top margin spacer (1 line) with background
@@ -413,9 +509,7 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
             // - Each content line is padded with spaces to fill the full terminal width
             // - Bottom margin spacer (1 line) with background
             let user_bg = app.user_message_bg;
-            let body_style = Style::default()
-                .fg(Color::Rgb(220, 220, 240))
-                .bg(user_bg);
+            let body_style = Style::default().fg(Color::Rgb(220, 220, 240)).bg(user_bg);
             let prefix_style = Style::default()
                 .add_modifier(Modifier::BOLD)
                 .add_modifier(Modifier::DIM)
@@ -449,22 +543,21 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
                         let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
                             .unwrap_or(serde_json::Value::Null);
                         lines.push(Line::from(vec![
-                            Span::styled(
-                                "⚙️ ",
-                                Style::default().fg(Color::Yellow),
-                            ),
+                            Span::styled("⚙️ ", Style::default().fg(Color::Yellow)),
                             Span::styled(
                                 tc.function.name.clone(),
-                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
                             ),
                         ]));
-                            if show_tool_details {
-                                if let Some(cmd) = args.get("command").and_then(|c| c.as_str()) {
-                                    lines.push(Line::from(format!("  {}", cmd)));
-                                } else {
-                                    lines.push(Line::from(format!("  {}", args)));
-                                }
+                        if show_tool_details {
+                            if let Some(cmd) = args.get("command").and_then(|c| c.as_str()) {
+                                lines.push(Line::from(format!("  {}", cmd)));
+                            } else {
+                                lines.push(Line::from(format!("  {}", args)));
                             }
+                        }
                     }
                     if !entry.content.is_empty() {
                         lines.push(Line::default());
@@ -479,7 +572,8 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
             // Display normal content (cached to avoid re-parsing markdown every frame)
             // Cache key includes max_width to handle terminal resizing correctly.
             if !entry.content.is_empty() {
-                let cache_key = format!("{}|{}", entry.content, max_width.map_or(0, |w| w as isize));
+                let cache_key =
+                    format!("{}|{}", entry.content, max_width.map_or(0, |w| w as isize));
                 let md = if let Some(cached) = app.rendered_cache.get(&cache_key) {
                     cached.clone()
                 } else {
@@ -493,10 +587,12 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
                 lines.push(Line::default());
             }
         }
-"tool" => {
+        "tool" => {
             // File tool results (file_write, file_update, file_delete) with git_diff
             // are ALWAYS shown — they contain substantive code changes.
-            if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true, area_width).is_some() {
+            if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true, area_width)
+                .is_some()
+            {
                 lines.push(Line::default());
                 return;
             }
@@ -513,13 +609,12 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
                 if let Ok(output) = serde_json::from_str::<serde_json::Value>(&entry.content) {
                     if let Some(cmd) = output.get("command").and_then(|c| c.as_str()) {
                         lines.push(Line::from(vec![
-                            Span::styled(
-                                "⚙️ ",
-                                Style::default().fg(Color::Yellow),
-                            ),
+                            Span::styled("⚙️ ", Style::default().fg(Color::Yellow)),
                             Span::styled(
                                 "Shell Exec",
-                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
                             ),
                         ]));
                         lines.push(Line::from(format!("  Command: {}", cmd)));
@@ -549,11 +644,18 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
                                     Style::default().fg(Color::DarkGray),
                                 )));
                                 // Collapsible stdout
-                                let stdout_lines: Vec<Line> = stdout.lines()
+                                let stdout_lines: Vec<Line> = stdout
+                                    .lines()
                                     .map(|l| Line::from(format!("  {}", l)))
                                     .collect();
                                 let section_id = format!("so_{}", entry_idx);
-                                render_collapsible_block(lines, app, &section_id, stdout_lines, area_width);
+                                render_collapsible_block(
+                                    lines,
+                                    app,
+                                    &section_id,
+                                    stdout_lines,
+                                    area_width,
+                                );
                             }
                         }
                         if let Some(stderr) = output.get("stderr").and_then(|s| s.as_str()) {
@@ -563,11 +665,18 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
                                     Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
                                 )));
                                 // Collapsible stderr
-                                let stderr_lines: Vec<Line> = stderr.lines()
+                                let stderr_lines: Vec<Line> = stderr
+                                    .lines()
                                     .map(|l| Line::from(format!("  {}", l)))
                                     .collect();
                                 let section_id = format!("se_{}", entry_idx);
-                                render_collapsible_block(lines, app, &section_id, stderr_lines, area_width);
+                                render_collapsible_block(
+                                    lines,
+                                    app,
+                                    &section_id,
+                                    stderr_lines,
+                                    area_width,
+                                );
                             }
                         }
                         lines.push(Line::default());
@@ -575,20 +684,21 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
                     }
                 }
                 // Check if it's a file_outline result
-                if try_render_file_outline(lines, &entry.content, entry_idx, app, area_width).is_some() {
+                if try_render_file_outline(lines, &entry.content, entry_idx, app, area_width)
+                    .is_some()
+                {
                     lines.push(Line::default());
                     return;
                 }
 
-
                 // Fallback: show raw content for non-shell tool results
                 if !entry.content.is_empty() {
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            "🔧 Tool Result:",
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                        ),
-                    ]));
+                    lines.push(Line::from(vec![Span::styled(
+                        "🔧 Tool Result:",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )]));
                     lines.push(Line::from(entry.content.to_string()));
                     lines.push(Line::default());
                 }
@@ -601,13 +711,17 @@ fn render_message(lines: &mut Vec<ratatui::text::Line<'static>>, entry: &ChatEnt
     }
 }
 
-
 /// Render review reasoning block — transient thinking content shown during code review.
 /// Uses a blockquote style with `│ ` prefix and a fixed height so the content below
 /// doesn't jump as reasoning streams in. Each line is pre-word-wrapped to
 /// `area_width - 2` (for the `"│ "` prefix) to prevent Paragraph re-wrapping and
 /// the resulting visual height fluctuations that cause flickering.
-fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &App, max_width: Option<usize>, max_height: u16) {
+fn render_review_reasoning(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    app: &App,
+    max_width: Option<usize>,
+    max_height: u16,
+) {
     if !app.is_reviewing {
         return;
     }
@@ -652,7 +766,9 @@ fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &
 
     // Pre-word-wrap each reasoning line to wrap_width so that after adding
     // the "│ " prefix, each content line is exactly 1 visual line (no re-wrap).
-    let reasoning_wrapped: Vec<String> = app.review_reasoning.lines()
+    let reasoning_wrapped: Vec<String> = app
+        .review_reasoning
+        .lines()
         .flat_map(|line| {
             if line.is_empty() {
                 vec![String::new()]
@@ -670,8 +786,13 @@ fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &
         // "hidden" message line also counts toward the budget
         let effective_display = max_display.saturating_sub(1).max(1);
         lines.push(Line::from(Span::styled(
-            format!("│ … {} lines hidden (showing last {}) …", skipped, effective_display),
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            format!(
+                "│ … {} lines hidden (showing last {}) …",
+                skipped, effective_display
+            ),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
         )));
         for line in &reasoning_wrapped[total - effective_display..] {
             lines.push(Line::from(vec![
@@ -710,10 +831,7 @@ fn render_review_reasoning(lines: &mut Vec<ratatui::text::Line<'static>>, app: &
 /// This returns the number of visual lines added (for the caller's positioning).
 /// Build styled reasoning lines (Codex-inspired: `• ` prefix, dim/italic, markdown).
 /// Returns `None` when reasoning is empty, so callers can skip.
-fn build_reasoning_lines(
-    reasoning: &str,
-    area_width: u16,
-) -> Option<Vec<Line<'static>>> {
+fn build_reasoning_lines(reasoning: &str, area_width: u16) -> Option<Vec<Line<'static>>> {
     if reasoning.trim().is_empty() {
         return None;
     }
@@ -782,7 +900,7 @@ fn render_reasoning_inline(
         return;
     };
     let total = styled.len();
-        let collapsed = !app.collapsed_sections.contains(section_id);
+    let collapsed = !app.collapsed_sections.contains(section_id);
 
     /// Compute how many visual lines a `Line` occupies after word-wrap at `width`.
     fn visual_lines(line: &ratatui::text::Line<'_>, width: u16) -> u16 {
@@ -795,10 +913,6 @@ fn render_reasoning_inline(
     }
 
     let vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
-
-    // Blank-line separator to visually distinguish reasoning segments
-    // (applies to BOTH large and small segments).
-    lines.push(Line::default());
 
     if total > COLLAPSE_THRESHOLD {
         // Build clickable header line
@@ -861,14 +975,12 @@ fn render_reasoning_inline(
     } else {
         // Small reasoning block: show a minimal header so even short segments
         // are visually separated from adjacent reasoning blocks.
-        lines.push(Line::from(vec![
-            Span::styled(
-                "  💭 Thinking...",
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::ITALIC),
-            ),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            "  💭 Thinking...",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
         lines.extend(styled);
     }
 }
@@ -901,12 +1013,13 @@ fn render_streaming_reasoning_inline(
         // Compute current visual line position for toggle placement
         fn visual_lines(line: &ratatui::text::Line<'_>, width: u16) -> u16 {
             let line_width = line.width() as u16;
-            if line_width == 0 || width == 0 { 1 } else { (line_width + width - 1) / width }
+            if line_width == 0 || width == 0 {
+                1
+            } else {
+                (line_width + width - 1) / width
+            }
         }
         let vis_pos: u16 = lines.iter().map(|l| visual_lines(l, area_width)).sum();
-
-        // Blank-line separator to visually distinguish from prior reasoning segment
-        lines.push(Line::default());
 
         if total > COLLAPSE_THRESHOLD {
             // Build clickable header line
@@ -949,7 +1062,8 @@ fn render_streaming_reasoning_inline(
                 ])
             };
 
-            app.collapsed_toggles.push((vis_pos, section_id.to_string(), total));
+            app.collapsed_toggles
+                .push((vis_pos, section_id.to_string(), total));
 
             lines.push(header);
 
@@ -968,14 +1082,12 @@ fn render_streaming_reasoning_inline(
         } else {
             // Small active reasoning block: show a minimal header so even short
             // streaming segments are visually separated from adjacent blocks.
-            lines.push(Line::from(vec![
-                Span::styled(
-                    "  💭 Thinking...",
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::ITALIC),
-                ),
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                "  💭 Thinking...",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
+            )]));
             lines.extend(styled);
         }
     }
@@ -1053,13 +1165,14 @@ fn try_render_file_tool_result(
         }
         git_args.push("--");
         git_args.push(path);
-        let diff = match std::process::Command::new("git")
-            .args(&git_args)
-            .output()
-        {
+        let diff = match std::process::Command::new("git").args(&git_args).output() {
             Ok(o) if o.status.success() => {
                 let s = String::from_utf8_lossy(&o.stdout);
-                if s.trim().is_empty() { git_diff_from_tool.to_string() } else { s.to_string() }
+                if s.trim().is_empty() {
+                    git_diff_from_tool.to_string()
+                } else {
+                    s.to_string()
+                }
             }
             _ => git_diff_from_tool.to_string(),
         };
@@ -1087,23 +1200,21 @@ fn try_render_file_tool_result(
 
     // Header
     lines.push(Line::from(vec![
-        Span::styled(
-            "📝 ",
-            Style::default().fg(Color::Cyan),
-        ),
+        Span::styled("📝 ", Style::default().fg(Color::Cyan)),
         Span::styled(
             action,
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
     lines.push(Line::from(vec![
-        Span::styled(
-            "  File: ",
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled("  File: ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             path.to_string(),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
 
@@ -1112,20 +1223,14 @@ fn try_render_file_tool_result(
         // Compute diff stats for display
         let (adds, dels) = count_diff_stats(git_diff);
         lines.push(Line::from(vec![
-            Span::styled(
-                "  ─── git diff ",
-                Style::default().fg(Color::Green),
-            ),
+            Span::styled("  ─── git diff ", Style::default().fg(Color::Green)),
             Span::styled(
                 format!("+{} -{}", adds, dels),
                 Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                " ───",
-                Style::default().fg(Color::Green),
-            ),
+            Span::styled(" ───", Style::default().fg(Color::Green)),
         ]));
 
         // Build styled diff lines with preserved @@ hunk headers
@@ -1146,10 +1251,16 @@ fn try_render_file_tool_result(
                     )
                 } else if line.starts_with('+') && !line.starts_with("+++") {
                     // Added lines - green
-                    (format!("  {}", display_line), Style::default().fg(Color::Green))
+                    (
+                        format!("  {}", display_line),
+                        Style::default().fg(Color::Green),
+                    )
                 } else if line.starts_with('-') && !line.starts_with("---") {
                     // Removed lines - red
-                    (format!("  {}", display_line), Style::default().fg(Color::Red))
+                    (
+                        format!("  {}", display_line),
+                        Style::default().fg(Color::Red),
+                    )
                 } else if line.starts_with("+++") || line.starts_with("---") {
                     // File header lines - gray bold
                     (
@@ -1166,10 +1277,16 @@ fn try_render_file_tool_result(
                     || line.starts_with("deleted file ")
                 {
                     // Metadata lines - gray
-                    (format!("  {}", display_line), Style::default().fg(Color::DarkGray))
+                    (
+                        format!("  {}", display_line),
+                        Style::default().fg(Color::DarkGray),
+                    )
                 } else if line.starts_with('\\') {
                     // "No newline at end of file" - gray
-                    (format!("  {}", display_line), Style::default().fg(Color::DarkGray))
+                    (
+                        format!("  {}", display_line),
+                        Style::default().fg(Color::DarkGray),
+                    )
                 } else {
                     // Context lines - default
                     (format!("  {}", display_line), Style::default())
@@ -1201,23 +1318,21 @@ fn try_render_file_outline(
 
     // Header: 📋 File Outline + path
     lines.push(Line::from(vec![
-        Span::styled(
-            "📋 ",
-            Style::default().fg(Color::Cyan),
-        ),
+        Span::styled("📋 ", Style::default().fg(Color::Cyan)),
         Span::styled(
             "File Outline",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
     lines.push(Line::from(vec![
-        Span::styled(
-            "  File: ",
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled("  File: ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             path.to_string(),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
 
@@ -1232,17 +1347,13 @@ fn try_render_file_outline(
         // Total line: "Total: N lines"
         if let Some(total) = line.strip_prefix("Total: ") {
             outline_content.push(Line::from(vec![
-                Span::styled(
-                    "  ",
-                    Style::default(),
-                ),
-                Span::styled(
-                    "── ",
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled("  ", Style::default()),
+                Span::styled("── ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     format!("Total: {}", total),
-                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
                 ),
             ]));
             continue;
@@ -1263,14 +1374,8 @@ fn try_render_file_outline(
             if let Some((range_str, rest_after_range)) = rest.split_once("] ") {
                 // Range: "── [1-10: 10 lines"
                 let range_part = format!("── {}", range_str);
-                spans.push(Span::styled(
-                    range_part,
-                    Style::default().fg(Color::Blue),
-                ));
-                spans.push(Span::styled(
-                    "] ",
-                    Style::default().fg(Color::Blue),
-                ));
+                spans.push(Span::styled(range_part, Style::default().fg(Color::Blue)));
+                spans.push(Span::styled("] ", Style::default().fg(Color::Blue)));
 
                 // Split rest into kind and name
                 let after_range = rest_after_range.trim_start();
@@ -1278,7 +1383,9 @@ fn try_render_file_outline(
                     let name = name.trim_start();
                     spans.push(Span::styled(
                         kind.to_string(),
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
                     ));
                     if !name.is_empty() {
                         spans.push(Span::styled(
@@ -1289,16 +1396,15 @@ fn try_render_file_outline(
                 } else {
                     spans.push(Span::styled(
                         after_range.to_string(),
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
                     ));
                 }
             } else {
                 // Fallback: show the rest as-is
                 let rest_display = format!("── {}", rest);
-                spans.push(Span::styled(
-                    rest_display,
-                    Style::default(),
-                ));
+                spans.push(Span::styled(rest_display, Style::default()));
             }
 
             outline_content.push(Line::from(spans));
@@ -1350,7 +1456,11 @@ fn render_status_messages(lines: &mut Vec<ratatui::text::Line<'static>>, app: &A
 /// Inspired by Codex's change summary display: shows a compact list of
 /// all files that were modified in the current turn with +X -Y stats.
 /// Only renders when not streaming, and when there are actual changes.
-fn render_file_change_summary(lines: &mut Vec<ratatui::text::Line<'static>>, app: &App, max_width: Option<usize>) {
+fn render_file_change_summary(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    app: &App,
+    max_width: Option<usize>,
+) {
     if app.is_streaming {
         return;
     }
@@ -1403,13 +1513,16 @@ fn render_file_change_summary(lines: &mut Vec<ratatui::text::Line<'static>>, app
 
     // Header: "📝 N files changed: +X -Y"
     lines.push(Line::from(vec![
+        Span::styled("📝 ", Style::default().fg(Color::Cyan)),
         Span::styled(
-            "📝 ",
-            Style::default().fg(Color::Cyan),
-        ),
-        Span::styled(
-            format!("{} file{} changed: ", per_file.len(), if per_file.len() == 1 { "" } else { "s" }),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            format!(
+                "{} file{} changed: ",
+                per_file.len(),
+                if per_file.len() == 1 { "" } else { "s" }
+            ),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("+{} -{}", total_adds, total_dels),
@@ -1430,26 +1543,14 @@ fn render_file_change_summary(lines: &mut Vec<ratatui::text::Line<'static>>, app
         };
 
         lines.push(Line::from(vec![
-            Span::styled(
-                "  ",
-                Style::default(),
-            ),
-            Span::styled(
-                path.clone(),
-                Style::default().fg(Color::Cyan),
-            ),
-            Span::styled(
-                "  ",
-                Style::default(),
-            ),
+            Span::styled("  ", Style::default()),
+            Span::styled(path.clone(), Style::default().fg(Color::Cyan)),
+            Span::styled("  ", Style::default()),
             Span::styled(
                 format!("+{}", adds),
                 Style::default().fg(add_color).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                format!(" -{}", dels),
-                Style::default().fg(del_color),
-            ),
+            Span::styled(format!(" -{}", dels), Style::default().fg(del_color)),
         ]));
     }
 

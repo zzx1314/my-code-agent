@@ -203,12 +203,23 @@ impl TokenUsage {
         let mut lines = Vec::new();
         lines.push(String::new());
         lines.push("  ──────── Token Usage (cumulative billing) ────────".to_string());
-        lines.push(format!("  → Input tokens:              {}", self.usage.input_tokens));
-        lines.push(format!("  ← Output tokens:             {}", self.usage.output_tokens));
-        lines.push(format!("  Σ Total tokens:              {}", self.usage.total_tokens));
+        lines.push(format!(
+            "  → Input tokens:              {}",
+            self.usage.input_tokens
+        ));
+        lines.push(format!(
+            "  ← Output tokens:             {}",
+            self.usage.output_tokens
+        ));
+        lines.push(format!(
+            "  Σ Total tokens:              {}",
+            self.usage.total_tokens
+        ));
 
         let pct = self.context_usage_percent();
-        let remaining = self.context_window.saturating_sub(self.last_turn_input_tokens);
+        let remaining = self
+            .context_window
+            .saturating_sub(self.last_turn_input_tokens);
         let bar_width = 20;
         let filled = ((pct as usize) * bar_width / 100).min(bar_width);
         let empty = bar_width - filled;

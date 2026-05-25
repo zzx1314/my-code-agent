@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use crate::app::App;
 use crate::core::agent::stream::rebuild_agent;
+use crate::core::context::tool_dedup::get_global_tool_dedup;
 use crate::core::session::SessionData;
 use crate::tools::infra::undo_history::set_session_id;
-use crate::core::context::tool_dedup::get_global_tool_dedup;
 
 /// Handle model picker key events. Returns true if the event was consumed.
 pub fn handle_model_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
@@ -34,13 +34,22 @@ pub fn handle_model_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
             if !app.model_options.is_empty() {
                 let selected_model = app.model_options[app.model_selected].clone();
                 app.config.llm.model = Some(selected_model.clone());
-                app.chat_history.push(crate::app::ChatEntry::user(format!("/model {}", selected_model)));
+                app.chat_history.push(crate::app::ChatEntry::user(format!(
+                    "/model {}",
+                    selected_model
+                )));
 
                 if let Ok(new_agent) = rebuild_agent(&app.config) {
                     app.agent = Arc::new(new_agent);
-                    app.chat_history.push(crate::app::ChatEntry::assistant(format!("Model switched to: {}", selected_model)));
+                    app.chat_history
+                        .push(crate::app::ChatEntry::assistant(format!(
+                            "Model switched to: {}",
+                            selected_model
+                        )));
                 } else {
-                    app.chat_history.push(crate::app::ChatEntry::assistant("Failed to switch model. Please check API key and try again.".to_string()));
+                    app.chat_history.push(crate::app::ChatEntry::assistant(
+                        "Failed to switch model. Please check API key and try again.".to_string(),
+                    ));
                 }
             }
             app.show_model_picker = false;
@@ -87,18 +96,23 @@ pub fn handle_provider_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                 // Configure API key env var, model options, and model
                 crate::app::apply_provider_config(app, &selected_provider);
 
-                app.chat_history.push(crate::app::ChatEntry::user(format!("/connect {}", selected_provider)));
+                app.chat_history.push(crate::app::ChatEntry::user(format!(
+                    "/connect {}",
+                    selected_provider
+                )));
 
                 if let Ok(new_agent) = rebuild_agent(&app.config) {
                     app.agent = Arc::new(new_agent);
-                    app.chat_history.push(crate::app::ChatEntry::assistant(format!(
-                        "Provider switched to: {} (model: {})",
-                        selected_provider,
-                        app.config.llm.model.as_deref().unwrap_or("default")
-                    )));
+                    app.chat_history
+                        .push(crate::app::ChatEntry::assistant(format!(
+                            "Provider switched to: {} (model: {})",
+                            selected_provider,
+                            app.config.llm.model.as_deref().unwrap_or("default")
+                        )));
                 } else {
                     app.chat_history.push(crate::app::ChatEntry::assistant(
-                        "Failed to switch provider. Please check API key and try again.".to_string(),
+                        "Failed to switch provider. Please check API key and try again."
+                            .to_string(),
                     ));
                 }
             }
@@ -171,19 +185,37 @@ pub fn handle_session_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                             guard.reset();
                         }
 
-                        app.chat_history.push(crate::app::ChatEntry::user(format!("/load {}", session_name)));
-                        app.chat_history.push(crate::app::ChatEntry::assistant(format!(
-                            "Session '{}' loaded ({} turns, {} tokens)",
-                            session_name, selected_session.turns, selected_session.tokens
+                        app.chat_history.push(crate::app::ChatEntry::user(format!(
+                            "/load {}",
+                            session_name
                         )));
+                        app.chat_history
+                            .push(crate::app::ChatEntry::assistant(format!(
+                                "Session '{}' loaded ({} turns, {} tokens)",
+                                session_name, selected_session.turns, selected_session.tokens
+                            )));
                     }
                     Some(Err(e)) => {
-                        app.chat_history.push(crate::app::ChatEntry::user(format!("/load {}", session_name)));
-                        app.chat_history.push(crate::app::ChatEntry::assistant(format!("Failed to load session '{}': {}", session_name, e)));
+                        app.chat_history.push(crate::app::ChatEntry::user(format!(
+                            "/load {}",
+                            session_name
+                        )));
+                        app.chat_history
+                            .push(crate::app::ChatEntry::assistant(format!(
+                                "Failed to load session '{}': {}",
+                                session_name, e
+                            )));
                     }
                     None => {
-                        app.chat_history.push(crate::app::ChatEntry::user(format!("/load {}", session_name)));
-                        app.chat_history.push(crate::app::ChatEntry::assistant(format!("Session '{}' not found", session_name)));
+                        app.chat_history.push(crate::app::ChatEntry::user(format!(
+                            "/load {}",
+                            session_name
+                        )));
+                        app.chat_history
+                            .push(crate::app::ChatEntry::assistant(format!(
+                                "Session '{}' not found",
+                                session_name
+                            )));
                     }
                 }
             }

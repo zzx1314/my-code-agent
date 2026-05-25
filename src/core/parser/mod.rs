@@ -409,7 +409,9 @@ impl ParsedFile {
     /// Get the name for a node based on the current language
     fn get_node_name(&self, node: Node) -> Option<String> {
         match self.language {
-            Language::JavaScript | Language::TypeScript => Self::get_js_node_name(node, &self.source),
+            Language::JavaScript | Language::TypeScript => {
+                Self::get_js_node_name(node, &self.source)
+            }
             Language::Vue => {
                 // For Vue SFC, elements get their tag name as the name
                 if let Some(tag) = Self::get_element_tag(node, &self.source) {
@@ -534,11 +536,15 @@ impl ParsedFile {
                 structures.extend(self.collect_structures(child, false));
             }
             // For class declarations (JS/TS), also collect methods inside
-            if matches!(self.language, Language::JavaScript | Language::TypeScript) && kind == "class" {
+            if matches!(self.language, Language::JavaScript | Language::TypeScript)
+                && kind == "class"
+            {
                 structures.extend(self.collect_structures(child, false));
             }
             // For class declarations (Java), also collect methods and constructors inside
-            if self.language == Language::Java && matches!(kind, "class" | "interface" | "enum" | "record") {
+            if self.language == Language::Java
+                && matches!(kind, "class" | "interface" | "enum" | "record")
+            {
                 structures.extend(self.collect_structures(child, false));
             }
             // For class definitions (Python), also collect methods/functions inside

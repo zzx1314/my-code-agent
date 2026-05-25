@@ -29,11 +29,7 @@ pub fn handle(app: &mut App) -> bool {
         .collect();
 
     // --- 3. Build the session payload -------------------------------------------
-    let data = SessionData::new(
-        history,
-        app.token_usage.clone(),
-        app.last_reasoning.clone(),
-    );
+    let data = SessionData::new(history, app.token_usage.clone(), app.last_reasoning.clone());
 
     // --- 4. Persist to disk & manage session file count -------------------------
     match data.save_with_name(&session_name) {
@@ -42,7 +38,8 @@ pub fn handle(app: &mut App) -> bool {
             let msg = format_saved_confirmation(&path, &data);
 
             // Echo the /save command and the confirmation message back into chat
-            app.chat_history.push(crate::app::ChatEntry::user("/save".to_string()));
+            app.chat_history
+                .push(crate::app::ChatEntry::user("/save".to_string()));
             app.chat_history.push(crate::app::ChatEntry::assistant(msg));
 
             // Prune old session files, keeping only the 5 most recent ones
@@ -54,16 +51,18 @@ pub fn handle(app: &mut App) -> bool {
         }
         Err(e) => {
             // Echo the /save command and an error message into chat
-            app.chat_history.push(crate::app::ChatEntry::user("/save".to_string()));
-            app.chat_history.push(crate::app::ChatEntry::assistant(format!(
-                "❌ Failed to save session: {}",
-                e,
-            )));
+            app.chat_history
+                .push(crate::app::ChatEntry::user("/save".to_string()));
+            app.chat_history
+                .push(crate::app::ChatEntry::assistant(format!(
+                    "❌ Failed to save session: {}",
+                    e,
+                )));
         }
     }
 
     // --- 5. UI state cleanup ----------------------------------------------------
-    app.show_banner = false;  // Don't show the welcome banner after a command
-    app.auto_scroll = true;   // Scroll to the bottom to show the response
+    app.show_banner = false; // Don't show the welcome banner after a command
+    app.auto_scroll = true; // Scroll to the bottom to show the response
     true
 }

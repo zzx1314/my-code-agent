@@ -72,7 +72,10 @@ impl ToolRegistry {
 
     /// Get a tool by name.
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
-        self.tools.iter().find(|t| t.name() == name).map(|t| t.as_ref())
+        self.tools
+            .iter()
+            .find(|t| t.name() == name)
+            .map(|t| t.as_ref())
     }
 
     /// Iterate over all registered tools.
@@ -127,7 +130,10 @@ impl ToolRegistry {
             Box::new(FileDelete::new(handle.clone())),
             Box::new(ProposeStrReplace),
             Box::new(EndTurn),
-            Box::new(ShellExec::new(config.shell.default_timeout_secs, handle.clone())),
+            Box::new(ShellExec::new(
+                config.shell.default_timeout_secs,
+                handle.clone(),
+            )),
             Box::new(CodeSearch),
             Box::new(CodeReview),
             Box::new(ExploreContext),
@@ -191,13 +197,12 @@ fn validate_output(
     output: &str,
     schema: &serde_json::Value,
 ) -> Result<(), String> {
-    let parsed: serde_json::Value =
-        serde_json::from_str(output).map_err(|_| {
-            format!(
-                "Tool {} output validation failed: output is not valid JSON",
-                tool_name
-            )
-        })?;
+    let parsed: serde_json::Value = serde_json::from_str(output).map_err(|_| {
+        format!(
+            "Tool {} output validation failed: output is not valid JSON",
+            tool_name
+        )
+    })?;
 
     // Only validate object schemas with properties
     if schema.get("type").and_then(|t| t.as_str()) != Some("object") {
@@ -212,11 +217,7 @@ fn validate_output(
     let required = schema
         .get("required")
         .and_then(|r| r.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str())
-                .collect::<Vec<_>>()
-        })
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
         .unwrap_or_default();
 
     for key in &required {

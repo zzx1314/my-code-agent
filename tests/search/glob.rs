@@ -1,5 +1,5 @@
-use my_code_agent::tools::glob::{GlobArgs, GlobOutput, GlobSearch};
 use my_code_agent::tools::Tool;
+use my_code_agent::tools::glob::{GlobArgs, GlobOutput, GlobSearch};
 use std::fs;
 use tempfile::TempDir;
 
@@ -151,5 +151,7 @@ async fn test_glob_invalid_pattern() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     println!("Actual error: {}", err);
-    assert!(err.contains("Invalid glob pattern") || err.contains("Pattern") || err.contains("invalid"));
+    assert!(
+        err.contains("Invalid glob pattern") || err.contains("Pattern") || err.contains("invalid")
+    );
 }

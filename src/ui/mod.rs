@@ -40,13 +40,13 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     let queue_height = calculate_queue_height(app);
 
     let mut constraints = vec![
-        Constraint::Min(1),                                      // chat area
+        Constraint::Min(1), // chat area
     ];
     if queue_height > 0 {
-        constraints.push(Constraint::Length(queue_height));      // queue display
+        constraints.push(Constraint::Length(queue_height)); // queue display
     }
-    constraints.push(Constraint::Length(input_height));          // input area
-    constraints.push(Constraint::Length(1));                     // status bar
+    constraints.push(Constraint::Length(input_height)); // input area
+    constraints.push(Constraint::Length(1)); // status bar
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)

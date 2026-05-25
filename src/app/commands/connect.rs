@@ -36,16 +36,19 @@ pub fn handle(app: &mut App, input: &str) -> bool {
 
     // Validate the provider name
     if !app.provider_options.contains(&provider_name) {
-        app.chat_history.push(crate::app::ChatEntry::assistant(format!(
-            "Unknown provider: '{}'. Available providers: {}",
-            provider_name,
-            app.provider_options.join(", ")
-        )));
+        app.chat_history
+            .push(crate::app::ChatEntry::assistant(format!(
+                "Unknown provider: '{}'. Available providers: {}",
+                provider_name,
+                app.provider_options.join(", ")
+            )));
         return true;
     }
 
-    app.chat_history
-        .push(crate::app::ChatEntry::user(format!("/connect {}", provider_name)));
+    app.chat_history.push(crate::app::ChatEntry::user(format!(
+        "/connect {}",
+        provider_name
+    )));
 
     // Apply the provider configuration (shared with the provider picker)
     crate::app::apply_provider_config(app, &provider_name);
@@ -59,11 +62,12 @@ pub fn handle(app: &mut App, input: &str) -> bool {
     };
 
     if succeeded {
-        app.chat_history.push(crate::app::ChatEntry::assistant(format!(
-            "Provider switched to: {} (model: {})",
-            provider_name,
-            app.config.llm.model.as_deref().unwrap_or("default")
-        )));
+        app.chat_history
+            .push(crate::app::ChatEntry::assistant(format!(
+                "Provider switched to: {} (model: {})",
+                provider_name,
+                app.config.llm.model.as_deref().unwrap_or("default")
+            )));
     } else {
         app.chat_history.push(crate::app::ChatEntry::assistant(
             "Failed to switch provider. Please check API key and try again.".to_string(),

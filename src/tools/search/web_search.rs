@@ -1,9 +1,9 @@
 use crate::core::types::ToolDefinition;
 use crate::mcp::McpHttpClient;
 use crate::tools::Tool;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use async_trait::async_trait;
 
 #[derive(Deserialize, Serialize)]
 pub struct WebSearchArgs {

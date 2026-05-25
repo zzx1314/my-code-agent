@@ -85,15 +85,36 @@ fn test_table_basic() {
     let text = "| Name  | Age | City    |\n|-------|-----|---------|\n| Alice | 30  | Beijing |\n| Bob   | 25  | Shanghai|";
     let result = render_markdown(text, None);
     // Should have: top border + header + separator + 2 data rows + bottom border = 6 lines
-    assert_eq!(result.len(), 6, "basic table should have 6 lines, got {}", result.len());
+    assert_eq!(
+        result.len(),
+        6,
+        "basic table should have 6 lines, got {}",
+        result.len()
+    );
     // Top border should contain box drawing chars
     let top_str = format!("{:?}", result[0]);
-    assert!(top_str.contains('┌'), "top border should have ┌, got: {}", top_str);
-    assert!(top_str.contains('┐'), "top border should have ┐, got: {}", top_str);
+    assert!(
+        top_str.contains('┌'),
+        "top border should have ┌, got: {}",
+        top_str
+    );
+    assert!(
+        top_str.contains('┐'),
+        "top border should have ┐, got: {}",
+        top_str
+    );
     // Bottom border
     let bottom_str = format!("{:?}", result[5]);
-    assert!(bottom_str.contains('└'), "bottom border should have └, got: {}", bottom_str);
-    assert!(bottom_str.contains('┘'), "bottom border should have ┘, got: {}", bottom_str);
+    assert!(
+        bottom_str.contains('└'),
+        "bottom border should have └, got: {}",
+        bottom_str
+    );
+    assert!(
+        bottom_str.contains('┘'),
+        "bottom border should have ┘, got: {}",
+        bottom_str
+    );
 }
 
 #[test]
@@ -105,15 +126,25 @@ fn test_table_with_alignment() {
     // Header line should contain "Left", "Center", "Right"
     let header_str = format!("{:?}", result[1]);
     assert!(header_str.contains("Left"), "header should contain 'Left'");
-    assert!(header_str.contains("Center"), "header should contain 'Center'");
-    assert!(header_str.contains("Right"), "header should contain 'Right'");
+    assert!(
+        header_str.contains("Center"),
+        "header should contain 'Center'"
+    );
+    assert!(
+        header_str.contains("Right"),
+        "header should contain 'Right'"
+    );
 }
 
 #[test]
 fn test_table_empty_cells() {
     let text = "| A | B |\n|---|---|\n|   | x |";
     let result = render_markdown(text, None);
-    assert_eq!(result.len(), 5, "table with empty cells should have 5 lines");
+    assert_eq!(
+        result.len(),
+        5,
+        "table with empty cells should have 5 lines"
+    );
 }
 
 #[test]
@@ -131,7 +162,9 @@ fn test_table_inline_formatting_in_cells() {
     // Header row (index 1) should have bold styling
     let header_spans = &result[1];
     let has_bold = header_spans.spans.iter().any(|s| {
-        s.style.add_modifier.contains(ratatui::style::Modifier::BOLD)
+        s.style
+            .add_modifier
+            .contains(ratatui::style::Modifier::BOLD)
     });
     assert!(has_bold, "header row should have bold styling");
 }
@@ -143,7 +176,10 @@ fn test_table_followed_by_paragraph() {
     // table (5) + blank + paragraph = 7
     assert_eq!(result.len(), 7, "table then blank then paragraph");
     let last_line = format!("{:?}", result[6]);
-    assert!(last_line.contains("Some text"), "last line should be paragraph");
+    assert!(
+        last_line.contains("Some text"),
+        "last line should be paragraph"
+    );
 }
 
 #[test]
@@ -181,7 +217,11 @@ fn test_table_not_confused_with_hr() {
 fn test_table_in_mixed_content() {
     let text = "# Title\n\n| Name | Value |\n|------|-------|\n| foo  | bar   |\n\n- List item";
     let result = render_markdown(text, None);
-    assert!(result.len() >= 8, "mixed content with table should have >= 8 lines, got {}", result.len());
+    assert!(
+        result.len() >= 8,
+        "mixed content with table should have >= 8 lines, got {}",
+        result.len()
+    );
     let heading_str = format!("{:?}", result[0]);
     assert!(heading_str.contains("Title"));
     let all_str = format!("{:?}", result);

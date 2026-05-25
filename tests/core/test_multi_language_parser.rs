@@ -25,7 +25,10 @@ fn test_language_from_path() {
     assert_eq!(Language::from_path("page.html"), Some(Language::Html));
     assert_eq!(Language::from_path("App.vue"), Some(Language::Vue));
     assert_eq!(Language::from_path("noext"), None);
-    assert_eq!(Language::from_path("src/file.ts"), Some(Language::TypeScript));
+    assert_eq!(
+        Language::from_path("src/file.ts"),
+        Some(Language::TypeScript)
+    );
 }
 
 // =============================================================================
@@ -163,7 +166,11 @@ class Greeter:
     let parsed = ParsedFile::parse_with_path(source.to_string(), "test.py").unwrap();
     let structures = parsed.get_all_structures();
 
-    assert_eq!(structures.len(), 3, "Should find hello(), Greeter class, and greet() method");
+    assert_eq!(
+        structures.len(),
+        3,
+        "Should find hello(), Greeter class, and greet() method"
+    );
     assert_eq!(structures[0].kind, "function");
     assert_eq!(structures[0].name, Some("hello".to_string()));
     assert_eq!(structures[1].kind, "class");
@@ -467,7 +474,6 @@ export default {
     assert!(structures.len() >= 3, "Should detect Vue SFC blocks");
 }
 
-
 // =============================================================================
 // Python parsing
 // =============================================================================
@@ -536,15 +542,24 @@ def bar():
 
     // Smart read starting at line 0 with limit 2 should extend through foo's body
     let result = parsed.smart_read(0, 2, total);
-    assert_eq!(result.adjusted_end, 3, "Should extend to include full foo()");
     assert_eq!(
-        result.extended_structure.as_ref().map(|s| s.name.as_deref()),
+        result.adjusted_end, 3,
+        "Should extend to include full foo()"
+    );
+    assert_eq!(
+        result
+            .extended_structure
+            .as_ref()
+            .map(|s| s.name.as_deref()),
         Some(Some("foo"))
     );
 
     // Smart read of entire file should NOT extend
     let result2 = parsed.smart_read(0, 10, total);
-    assert!(result2.extended_structure.is_none(), "No extension when reading full file");
+    assert!(
+        result2.extended_structure.is_none(),
+        "No extension when reading full file"
+    );
 }
 
 #[test]

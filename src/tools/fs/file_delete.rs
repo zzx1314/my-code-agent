@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::tools::exec::confirmation::ConfirmationHandle;
-use crate::tools::exec::safety::{confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion};
+use crate::tools::exec::safety::{
+    confirm_action, is_dangerous_deletion, is_dangerous_snippet_deletion,
+};
 
 #[derive(Deserialize, Serialize)]
 pub struct FileDeleteArgs {
@@ -122,7 +124,10 @@ impl Tool for FileDelete {
                 return Err(format!("Path not found: {}", args.path));
             }
             if path.is_dir() {
-                return Err(format!("Cannot use snippet mode on a directory: {}", args.path));
+                return Err(format!(
+                    "Cannot use snippet mode on a directory: {}",
+                    args.path
+                ));
             }
 
             // Safety check — skip if auto_approve is set
@@ -140,7 +145,9 @@ impl Tool for FileDelete {
                 }
             }
 
-            let content = tokio::fs::read_to_string(path).await.map_err(|e| e.to_string())?;
+            let content = tokio::fs::read_to_string(path)
+                .await
+                .map_err(|e| e.to_string())?;
 
             let count = content.matches(&snippet).count();
 
@@ -204,11 +211,15 @@ impl Tool for FileDelete {
         let (deleted_type, git_diff) = if path.is_dir() {
             if args.recursive {
                 let git_diff = super::run_git_diff(&args.path).await;
-                tokio::fs::remove_dir_all(path).await.map_err(|e| e.to_string())?;
+                tokio::fs::remove_dir_all(path)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 super::invalidate_dedup_cache(&args.path);
                 ("directory".to_string(), git_diff)
             } else {
-                tokio::fs::remove_dir(path).await.map_err(|e| e.to_string())?;
+                tokio::fs::remove_dir(path)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 super::invalidate_dedup_cache(&args.path);
                 ("directory".to_string(), None)
             }

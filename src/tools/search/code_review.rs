@@ -171,7 +171,9 @@ impl CodeReview {
             }
         } else if path.is_dir() {
             let mut files = Vec::new();
-            let mut read_dir = tokio::fs::read_dir(path).await.map_err(CodeReviewError::Io)?;
+            let mut read_dir = tokio::fs::read_dir(path)
+                .await
+                .map_err(CodeReviewError::Io)?;
             let mut entries = Vec::new();
             while let Ok(Some(entry)) = read_dir.next_entry().await {
                 entries.push(entry.path());
@@ -190,7 +192,8 @@ impl CodeReview {
                 } else if entry.is_dir() {
                     // Recursively search subdirectories
                     let sub_files =
-                        Box::pin(self.collect_files(&entry, extensions, max_files - files.len())).await?;
+                        Box::pin(self.collect_files(&entry, extensions, max_files - files.len()))
+                            .await?;
                     files.extend(sub_files);
                 }
             }
@@ -260,7 +263,10 @@ impl Tool for CodeReview {
         }
 
         let extensions = args.file_extensions.unwrap_or_default();
-        let files = self.collect_files(path, &extensions, args.max_files).await.map_err(|e| e.to_string())?;
+        let files = self
+            .collect_files(path, &extensions, args.max_files)
+            .await
+            .map_err(|e| e.to_string())?;
 
         let mut files_to_review = Vec::new();
         let mut truncated = false;

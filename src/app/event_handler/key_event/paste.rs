@@ -8,10 +8,7 @@ pub fn handle_paste_event(text: &str, app: &mut App) {
             // Insert newline directly via the textarea rather than faking a key event.
             app.input.insert_str("\n");
         } else {
-            let key = KeyEvent::new(
-                KeyCode::Char(ch),
-                KeyModifiers::NONE,
-            );
+            let key = KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE);
             app.input.input(key);
         }
     }

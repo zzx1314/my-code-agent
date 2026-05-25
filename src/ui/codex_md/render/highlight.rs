@@ -683,4 +683,3 @@ pub(crate) fn highlight_code_to_styled_spans(
 ) -> Option<Vec<Vec<Span<'static>>>> {
     highlight_to_line_spans(code, lang)
 }
-

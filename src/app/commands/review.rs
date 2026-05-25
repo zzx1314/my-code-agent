@@ -8,7 +8,7 @@
 use crate::app::App;
 use crate::core::agent::review_agent::ReviewAgent;
 use crate::core::context::context_manager::ContextManager;
-use crate::core::types::review::{ChangedFile, ChangeType};
+use crate::core::types::review::{ChangeType, ChangedFile};
 
 /// Handle `/review` command
 pub fn handle(app: &mut App, input: &str, _context_manager: &mut ContextManager) -> bool {
@@ -26,9 +26,11 @@ pub fn handle(app: &mut App, input: &str, _context_manager: &mut ContextManager)
         }
         Some(path) => {
             let path_str = path.to_string();
-            app.chat_history.push(crate::app::ChatEntry::assistant(
-                format!("🔍 Reviewing `{}`...", path_str),
-            ));
+            app.chat_history
+                .push(crate::app::ChatEntry::assistant(format!(
+                    "🔍 Reviewing `{}`...",
+                    path_str
+                )));
             spawn_review(app, Some(path_str));
             false
         }
@@ -63,10 +65,17 @@ fn toggle_auto_review(app: &mut App) {
         new_state
     };
 
-    let status = if new_state { "✅ Enabled" } else { "❌ Disabled" };
-    app.chat_history.push(crate::app::ChatEntry::assistant(
-        format!("**Auto Code Review** {} Auto-review is now {}", status, if new_state { "enabled" } else { "disabled" }),
-    ));
+    let status = if new_state {
+        "✅ Enabled"
+    } else {
+        "❌ Disabled"
+    };
+    app.chat_history
+        .push(crate::app::ChatEntry::assistant(format!(
+            "**Auto Code Review** {} Auto-review is now {}",
+            status,
+            if new_state { "enabled" } else { "disabled" }
+        )));
 }
 
 /// Show help
@@ -106,7 +115,8 @@ fn spawn_review(app: &mut App, path: Option<String>) {
     // Capture the current review baseline for incremental diff
     let baseline = app.review_baseline.clone();
 
-    let (result_tx, result_rx) = tokio::sync::mpsc::channel::<crate::core::types::review::ReviewOutcome>(1);
+    let (result_tx, result_rx) =
+        tokio::sync::mpsc::channel::<crate::core::types::review::ReviewOutcome>(1);
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<ReviewEvent>();
 
     app.review_event_rx = Some(event_rx);
@@ -138,43 +148,59 @@ fn spawn_review(app: &mut App, path: Option<String>) {
             }]
         } else {
             // Pass review baseline for incremental diff (show only changes since last review)
-            orchestrator.detect_changed_files_from_git(baseline.as_deref()).await
+            orchestrator
+                .detect_changed_files_from_git(baseline.as_deref())
+                .await
         };
 
         if changed_files.is_empty() {
             let msg = if path.is_some() {
-                "No code file found at the specified path. Please verify the path is correct.".to_string()
+                "No code file found at the specified path. Please verify the path is correct."
+                    .to_string()
             } else {
                 "No code changes detected for review. Please make changes with the main agent first, or use `/review <path>` to specify a path."
                     .to_string()
             };
-            let _ = result_tx.send(crate::core::types::review::ReviewOutcome {
-                display_text: msg.clone(),
-                verdict: crate::core::types::review::ReviewVerdict::Approved,
-                report_summary: String::new(),
-                report: None,
-                auto_trigger: false,
-                review_baseline: baseline.clone(), // preserve existing baseline
-            }).await;
-            let _ = event_tx.send(ReviewEvent::Error {
-                message: msg,
-            });
+            let _ = result_tx
+                .send(crate::core::types::review::ReviewOutcome {
+                    display_text: msg.clone(),
+                    verdict: crate::core::types::review::ReviewVerdict::Approved,
+                    report_summary: String::new(),
+                    report: None,
+                    auto_trigger: false,
+                    review_baseline: baseline.clone(), // preserve existing baseline
+                })
+                .await;
+            let _ = event_tx.send(ReviewEvent::Error { message: msg });
             return;
         }
 
         // Extract user's original request from chat history as review context
         let context = ReviewAgent::extract_context_from_history(&messages);
-        let context_opt = if context.is_empty() { None } else { Some(context) };
+        let context_opt = if context.is_empty() {
+            None
+        } else {
+            Some(context)
+        };
 
         // Extract conversation history summary for consistency checking
         let history_summary = ReviewAgent::extract_history_summary(&messages);
 
         // Use phased review with events — sends phase progress through event_tx
-        match orchestrator.review_with_events(changed_files, context_opt.as_deref(), history_summary.as_deref(), event_tx).await {
+        match orchestrator
+            .review_with_events(
+                changed_files,
+                context_opt.as_deref(),
+                history_summary.as_deref(),
+                event_tx,
+            )
+            .await
+        {
             Ok(report) => {
                 // Create a new baseline after review completes, so the next review
                 // only shows changes made after this point (incremental diff).
-                let new_baseline = crate::core::agent::orchestrator::AgentOrchestrator::create_review_baseline();
+                let new_baseline =
+                    crate::core::agent::orchestrator::AgentOrchestrator::create_review_baseline();
 
                 let display_text = orchestrator.format_review_report(&report);
                 let verdict = report.summary.verdict.clone();
@@ -183,25 +209,29 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                     verdict.label(),
                     report.summary.total_issues,
                 );
-                let _ = result_tx.send(crate::core::types::review::ReviewOutcome {
-                    display_text,
-                    verdict,
-                    report_summary,
-                    report: Some(report),
-                    auto_trigger: false, // manual review: no auto-fix loop
-                    review_baseline: new_baseline,
-                }).await;
+                let _ = result_tx
+                    .send(crate::core::types::review::ReviewOutcome {
+                        display_text,
+                        verdict,
+                        report_summary,
+                        report: Some(report),
+                        auto_trigger: false, // manual review: no auto-fix loop
+                        review_baseline: new_baseline,
+                    })
+                    .await;
             }
             Err(e) => {
                 let err_msg = format!("⚠️ Review failed: {}", e);
-                let _ = result_tx.send(crate::core::types::review::ReviewOutcome {
-                    display_text: err_msg.clone(),
-                    verdict: crate::core::types::review::ReviewVerdict::NeedsRevision,
-                    report_summary: String::new(),
-                    report: None,
-                    auto_trigger: false,
-                    review_baseline: baseline.clone(), // preserve existing baseline on error
-                }).await;
+                let _ = result_tx
+                    .send(crate::core::types::review::ReviewOutcome {
+                        display_text: err_msg.clone(),
+                        verdict: crate::core::types::review::ReviewVerdict::NeedsRevision,
+                        report_summary: String::new(),
+                        report: None,
+                        auto_trigger: false,
+                        review_baseline: baseline.clone(), // preserve existing baseline on error
+                    })
+                    .await;
             }
         }
     });

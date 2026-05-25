@@ -1,5 +1,5 @@
-use my_code_agent::tools::infra::write_todos::{TodoItem, TodoStatus, WriteTodos};
 use my_code_agent::tools::Tool;
+use my_code_agent::tools::infra::write_todos::{TodoItem, TodoStatus, WriteTodos};
 
 fn make_tool() -> WriteTodos {
     WriteTodos::default()
@@ -292,19 +292,23 @@ async fn test_invalid_missing_todos() {
 #[tokio::test]
 async fn test_invalid_wrong_type() {
     // "todos" should be an array, not a string
-    let result = make_tool().call(serde_json::json!({
-        "todos": "not an array"
-    })).await;
+    let result = make_tool()
+        .call(serde_json::json!({
+            "todos": "not an array"
+        }))
+        .await;
     assert!(result.is_err());
 }
 
 #[tokio::test]
 async fn test_invalid_status_value() {
     // Invalid status value should cause deserialization error
-    let result = make_tool().call(serde_json::json!({
-        "todos": [
-            { "task": "bad status", "status": "invalid_value" }
-        ]
-    })).await;
+    let result = make_tool()
+        .call(serde_json::json!({
+            "todos": [
+                { "task": "bad status", "status": "invalid_value" }
+            ]
+        }))
+        .await;
     assert!(result.is_err(), "invalid status should cause error");
 }

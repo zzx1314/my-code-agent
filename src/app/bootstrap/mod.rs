@@ -4,13 +4,13 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+use crate::core::agent::preamble::{Agent, build_client, build_preamble};
 use crate::core::config::Config;
 use crate::core::context::context_manager::ContextManager;
-use crate::core::agent::preamble::{Agent, build_client, build_preamble};
-use crate::core::session::SessionData;
 use crate::core::context::token_usage::TokenUsage;
-use crate::tools::exec::confirmation::{ConfirmationHandle, ConfirmationRequest};
+use crate::core::session::SessionData;
 use crate::tools::create_mcp_tools;
+use crate::tools::exec::confirmation::{ConfirmationHandle, ConfirmationRequest};
 
 pub struct InitState {
     pub config: Config,
@@ -38,8 +38,8 @@ pub async fn init_app() -> Result<InitState> {
     //   - app.log   : info+  — general application flow
     //   - error.log : error  — errors only for quick debugging
     //   - tools.log : all    — tool execution traces (target = tools::*)
-    use tracing_subscriber::prelude::*;
     use tracing_subscriber::Layer;
+    use tracing_subscriber::prelude::*;
 
     let logs_dir = crate::core::paths::app_file("logs");
     if let Err(e) = std::fs::create_dir_all(&logs_dir) {
@@ -83,7 +83,9 @@ pub async fn init_app() -> Result<InitState> {
                 eprintln!("[logging] Failed to open {primary_path:?}: {e} — falling back to /tmp");
                 let fallback_dir = std::path::Path::new("/tmp/my-code-agent-logs");
                 if let Err(dir_err) = std::fs::create_dir_all(fallback_dir) {
-                    eprintln!("[logging] Failed to create fallback directory {fallback_dir:?}: {dir_err}");
+                    eprintln!(
+                        "[logging] Failed to create fallback directory {fallback_dir:?}: {dir_err}"
+                    );
                 }
                 std::fs::OpenOptions::new()
                     .create(true)
@@ -143,9 +145,7 @@ pub async fn init_app() -> Result<InitState> {
     let mut last_reasoning = String::new();
 
     if config.session.enabled {
-        if let Some(Ok(data)) =
-            SessionData::load_default(config.session.save_file.as_deref())
-        {
+        if let Some(Ok(data)) = SessionData::load_default(config.session.save_file.as_deref()) {
             // Restore from session Messages, preserving reasoning_content
             // and tool metadata for subsequent API round-trips.
             chat_history = data
@@ -168,10 +168,8 @@ pub async fn init_app() -> Result<InitState> {
     let mcp_tools = create_mcp_tools(&config).await;
     let (confirmation_handle, confirmation_rx) = ConfirmationHandle::new();
 
-    let mut all_tools = crate::tools::ToolRegistry::from_config_and_handle(
-        &config,
-        confirmation_handle,
-    );
+    let mut all_tools =
+        crate::tools::ToolRegistry::from_config_and_handle(&config, confirmation_handle);
     for tool in mcp_tools {
         all_tools.register_boxed(tool);
     }
@@ -181,9 +179,10 @@ pub async fn init_app() -> Result<InitState> {
     let agent = Arc::new(Agent::new(client, system_prompt, all_tools));
 
     // ── 6b. Orchestrator (multi-agent coordination) ─────────────────────────
-    let orchestrator = Arc::new(
-        crate::core::agent::orchestrator::AgentOrchestrator::new(agent.clone(), &config),
-    );
+    let orchestrator = Arc::new(crate::core::agent::orchestrator::AgentOrchestrator::new(
+        agent.clone(),
+        &config,
+    ));
 
     // ── 7. Context manager & interrupt channel ──────────────────────────────
     let context_manager = ContextManager::new(&config);

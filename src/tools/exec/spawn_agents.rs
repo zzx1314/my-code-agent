@@ -28,7 +28,10 @@ pub struct SpawnAgents {
 
 impl SpawnAgents {
     pub fn new(client: LlmClient, reasoning_field: String) -> Self {
-        Self { client, reasoning_field }
+        Self {
+            client,
+            reasoning_field,
+        }
     }
 
     fn system_prompt_for_type(agent_type: &str) -> String {
@@ -119,11 +122,16 @@ impl Tool for SpawnAgents {
         let args: SpawnAgentsArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         if args.agents.is_empty() {
-            return Err("No agents specified. Provide at least one agent with agent_type and prompt.".to_string());
+            return Err(
+                "No agents specified. Provide at least one agent with agent_type and prompt."
+                    .to_string(),
+            );
         }
 
         if args.agents.len() > 10 {
-            return Err("Too many agents (max 10). Reduce the number of parallel agents.".to_string());
+            return Err(
+                "Too many agents (max 10). Reduce the number of parallel agents.".to_string(),
+            );
         }
 
         let tasks: Vec<_> = args

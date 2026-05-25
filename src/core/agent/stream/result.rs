@@ -22,11 +22,15 @@ pub fn process_review_events(app: &mut App) {
                     details,
                 }) => {
                     let prefix = if issues_found > 0 {
-                        format!("⚠️ **Phase {}/{} — {}** ({} issue(s))\n",
-                            phase_index, total_phases, phase_name, issues_found)
+                        format!(
+                            "⚠️ **Phase {}/{} — {}** ({} issue(s))\n",
+                            phase_index, total_phases, phase_name, issues_found
+                        )
                     } else {
-                        format!("✅ **Phase {}/{} — {}** (passed)\n",
-                            phase_index, total_phases, phase_name)
+                        format!(
+                            "✅ **Phase {}/{} — {}** (passed)\n",
+                            phase_index, total_phases, phase_name
+                        )
                     };
                     let msg = format!("{}   {}", prefix, details);
                     app.chat_history.push(ChatEntry::assistant(msg));
@@ -59,7 +63,8 @@ pub fn process_review_events(app: &mut App) {
                     // Handled by check_review_result — it sends the final display_text
                 }
                 Ok(ReviewEvent::Error { message }) => {
-                    app.chat_history.push(ChatEntry::assistant(format!("❌ {}", message)));
+                    app.chat_history
+                        .push(ChatEntry::assistant(format!("❌ {}", message)));
                     app.auto_scroll = true;
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
@@ -83,7 +88,8 @@ pub fn check_review_result(app: &mut App) {
                 app.review_baseline = outcome.review_baseline;
 
                 // Add the display text to chat history
-                app.chat_history.push(crate::app::ChatEntry::assistant(outcome.display_text));
+                app.chat_history
+                    .push(crate::app::ChatEntry::assistant(outcome.display_text));
                 app.auto_scroll = true;
 
                 // Set the completion message for status bar display (~3 seconds)
@@ -140,7 +146,8 @@ pub fn check_review_result(app: &mut App) {
 
                     // Save current issues as previous_review_issues for fingerprint
                     // deduplication in the next iteration.
-                    app.previous_review_issues = outcome.report
+                    app.previous_review_issues = outcome
+                        .report
                         .as_ref()
                         .map(|r| r.issues.clone())
                         .unwrap_or_default();
@@ -159,7 +166,8 @@ pub fn check_review_result(app: &mut App) {
                             max_iterations,
                         )
                     };
-                    app.chat_history.push(crate::app::ChatEntry::assistant(iteration_status));
+                    app.chat_history
+                        .push(crate::app::ChatEntry::assistant(iteration_status));
                     app.auto_scroll = true;
 
                     // Push the fix prompt to message queue so the event loop picks it up
@@ -275,7 +283,9 @@ pub fn trigger_auto_review(app: &mut App) {
                     })
                     .collect();
 
-                let changed_files = orchestrator.detect_changed_files_from_git(baseline.as_deref()).await;
+                let changed_files = orchestrator
+                    .detect_changed_files_from_git(baseline.as_deref())
+                    .await;
 
                 if changed_files.is_empty() {
                     tracing::info!("Auto-review: no changed files detected");
@@ -283,7 +293,8 @@ pub fn trigger_auto_review(app: &mut App) {
                         message: "No code changes detected.".to_string(),
                     });
                     let outcome = ReviewOutcome {
-                        display_text: "ℹ️ **Auto-Review Complete** — No code changes detected.".to_string(),
+                        display_text: "ℹ️ **Auto-Review Complete** — No code changes detected."
+                            .to_string(),
                         verdict: ReviewVerdict::Approved,
                         report_summary: String::new(),
                         report: None,
@@ -298,13 +309,25 @@ pub fn trigger_auto_review(app: &mut App) {
 
                 // Extract user's original request from chat history as review context
                 let context = ReviewAgent::extract_context_from_history(&messages);
-                let context_opt = if context.is_empty() { None } else { Some(context) };
+                let context_opt = if context.is_empty() {
+                    None
+                } else {
+                    Some(context)
+                };
 
                 // Extract conversation history summary for consistency checking
                 let history_summary = ReviewAgent::extract_history_summary(&messages);
 
                 // Use phased review with events — sends phase progress through event_tx
-                match orchestrator.review_with_events(changed_files, context_opt.as_deref(), history_summary.as_deref(), event_tx).await {
+                match orchestrator
+                    .review_with_events(
+                        changed_files,
+                        context_opt.as_deref(),
+                        history_summary.as_deref(),
+                        event_tx,
+                    )
+                    .await
+                {
                     Ok(mut report) => {
                         // ── Fingerprint-based deduplication ─────────────────────
                         // Filter out issues that have the same fingerprint as
@@ -314,11 +337,12 @@ pub fn trigger_auto_review(app: &mut App) {
                         // auto-review loop (e.g., language nits that the main
                         // agent chose to ignore).
                         let before = report.issues.len();
-                        report.issues = crate::core::types::review::ReviewIssue::deduplicate_against(
-                            report.issues,
-                            &previous_issues,
-                            &report.changed_files,
-                        );
+                        report.issues =
+                            crate::core::types::review::ReviewIssue::deduplicate_against(
+                                report.issues,
+                                &previous_issues,
+                                &report.changed_files,
+                            );
                         let dedup_count = before.saturating_sub(report.issues.len());
                         if dedup_count > 0 {
                             tracing::info!(
@@ -327,10 +351,9 @@ pub fn trigger_auto_review(app: &mut App) {
                             );
                             // Rebuild the report with the filtered issues
                             // (summary, metrics, verdict all need to be recalculated)
-                            report = orchestrator.review_agent.rebuild_report(
-                                &report.issues,
-                                &report.changed_files,
-                            );
+                            report = orchestrator
+                                .review_agent
+                                .rebuild_report(&report.issues, &report.changed_files);
                         }
 
                         let display_text = orchestrator.format_review_report(&report);
@@ -343,36 +366,37 @@ pub fn trigger_auto_review(app: &mut App) {
                             report.summary.medium_count,
                             report.summary.low_count,
                         );
-                        let verdict = report.summary.verdict.clone();                            tracing::info!(
-                                issues = report.summary.total_issues,
-                                verdict = ?verdict,
-                                "Auto-review completed"
-                            );
+                        let verdict = report.summary.verdict.clone();
+                        tracing::info!(
+                            issues = report.summary.total_issues,
+                            verdict = ?verdict,
+                            "Auto-review completed"
+                        );
 
-                            // Create a new baseline after review completes, so the next
-                            // review (e.g. after fix iteration) only shows incremental changes.
-                            let new_baseline = crate::core::agent::orchestrator::AgentOrchestrator::create_review_baseline();
+                        // Create a new baseline after review completes, so the next
+                        // review (e.g. after fix iteration) only shows incremental changes.
+                        let new_baseline = crate::core::agent::orchestrator::AgentOrchestrator::create_review_baseline();
 
-                            let outcome = ReviewOutcome {
-                                display_text,
-                                verdict,
-                                report_summary,
-                                report: Some(report),
-                                auto_trigger: true, // auto-review triggers iterative fix loop
-                                review_baseline: new_baseline,
-                            };
-                            let _ = result_tx.send(outcome).await;
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "Auto-review failed");
-                            let outcome = ReviewOutcome {
-                                display_text: format!("⚠️ **Auto-Review Failed** — {e}"),
-                                verdict: ReviewVerdict::NeedsRevision,
-                                report_summary: String::new(),
-                                report: None,
-                                auto_trigger: false, // don't loop on errors
-                                review_baseline: baseline, // preserve existing baseline on error
-                            };
+                        let outcome = ReviewOutcome {
+                            display_text,
+                            verdict,
+                            report_summary,
+                            report: Some(report),
+                            auto_trigger: true, // auto-review triggers iterative fix loop
+                            review_baseline: new_baseline,
+                        };
+                        let _ = result_tx.send(outcome).await;
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Auto-review failed");
+                        let outcome = ReviewOutcome {
+                            display_text: format!("⚠️ **Auto-Review Failed** — {e}"),
+                            verdict: ReviewVerdict::NeedsRevision,
+                            report_summary: String::new(),
+                            report: None,
+                            auto_trigger: false,       // don't loop on errors
+                            review_baseline: baseline, // preserve existing baseline on error
+                        };
                         let _ = result_tx.send(outcome).await;
                     }
                 }
@@ -441,7 +465,10 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
             .into_iter()
             .filter(|m| {
                 m.role != "system"
-                    && (!m.content.is_empty() || m.reasoning_content.is_some() || m.tool_calls.is_some() || m.tool_call_id.is_some())
+                    && (!m.content.is_empty()
+                        || m.reasoning_content.is_some()
+                        || m.tool_calls.is_some()
+                        || m.tool_call_id.is_some())
             })
             .map(crate::app::ChatEntry::from_message)
             .collect();
@@ -453,13 +480,16 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     // Hide auto-fix prompts from chat display — they contain the full review report
     // which is too verbose for the user. Replace with a concise status message.
     if app.review_iteration > 0 {
-        if let Some(idx) = app.chat_history.iter().rposition(|e| e.role == "user" && is_auto_fix_prompt(&e.content)) {
+        if let Some(idx) = app
+            .chat_history
+            .iter()
+            .rposition(|e| e.role == "user" && is_auto_fix_prompt(&e.content))
+        {
             let max_iterations = app.config.review.max_review_iterations;
             let iteration = app.review_iteration.min(max_iterations);
             app.chat_history[idx].content = format!(
                 "🔄 Fixing issues (auto-review iteration {}/{})...",
-                iteration,
-                max_iterations,
+                iteration, max_iterations,
             );
         }
     }
@@ -477,22 +507,24 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         let display_text = build_response_display(&result.full_response, &app.last_reasoning);
         if !display_text.is_empty() {
             if !app.last_reasoning.is_empty() {
-                app.chat_history.push(crate::app::ChatEntry::assistant_with_reasoning(
-                    display_text,
-                    &app.last_reasoning,
-                ));
+                app.chat_history
+                    .push(crate::app::ChatEntry::assistant_with_reasoning(
+                        display_text,
+                        &app.last_reasoning,
+                    ));
             } else {
-                app.chat_history.push(crate::app::ChatEntry::assistant(display_text));
+                app.chat_history
+                    .push(crate::app::ChatEntry::assistant(display_text));
             }
         } else if !app.last_reasoning.is_empty() {
-            app.chat_history.push(crate::app::ChatEntry::assistant_with_reasoning(
-                "",
-                &app.last_reasoning,
-            ));
+            app.chat_history
+                .push(crate::app::ChatEntry::assistant_with_reasoning(
+                    "",
+                    &app.last_reasoning,
+                ));
         } else {
-            app.chat_history.push(crate::app::ChatEntry::assistant(
-                "_(no response)_",
-            ));
+            app.chat_history
+                .push(crate::app::ChatEntry::assistant("_(no response)_"));
         }
     }
     app.show_inline_reasoning = !app.last_reasoning.is_empty();
@@ -535,7 +567,6 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     // ── Auto-review: trigger after main agent completes file changes ──────────
     trigger_auto_review(app);
 }
-
 
 /// Strip reasoning_content prefix from the response text if it was duplicated.
 fn build_response_display(full_response: &str, last_reasoning: &str) -> String {

@@ -6,7 +6,6 @@ pub use enter::handle_enter_key;
 use crate::app::App;
 use crate::ui::textarea::TextArea;
 
-
 /// Reset the input textarea to default state (Codex-style: no block/borders).
 pub fn reset_input(app: &mut App) {
     let mut ta = TextArea::default();

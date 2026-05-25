@@ -1,4 +1,4 @@
-use my_code_agent::tools::search::{build_clusters, extract_terms, lang_tag, RawMatch};
+use my_code_agent::tools::search::{RawMatch, build_clusters, extract_terms, lang_tag};
 
 #[test]
 fn test_extract_terms_filters_common_words() {
@@ -20,9 +20,18 @@ fn test_extract_terms_keeps_identifiers() {
 #[test]
 fn test_build_clusters_merges_nearby() {
     let ms = vec![
-        RawMatch { file: "x.rs".into(), line: 10 },
-        RawMatch { file: "x.rs".into(), line: 12 },
-        RawMatch { file: "x.rs".into(), line: 50 },
+        RawMatch {
+            file: "x.rs".into(),
+            line: 10,
+        },
+        RawMatch {
+            file: "x.rs".into(),
+            line: 12,
+        },
+        RawMatch {
+            file: "x.rs".into(),
+            line: 50,
+        },
     ];
     let clusters = build_clusters(&ms);
     assert_eq!(clusters.len(), 2);

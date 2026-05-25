@@ -87,7 +87,11 @@ fn resolve_api_key(config: &Config) -> String {
 /// Resolve the timeout for translation (default: 15 seconds).
 fn resolve_timeout(config: &Config) -> u64 {
     let cfg = &config.translation;
-    if cfg.timeout_secs > 0 { cfg.timeout_secs } else { 15 }
+    if cfg.timeout_secs > 0 {
+        cfg.timeout_secs
+    } else {
+        15
+    }
 }
 
 /// Returns true if the input text contains any CJK (Chinese) characters.
@@ -156,7 +160,11 @@ pub async fn translate_chinese_to_english(config: &Config, text: &str) -> String
                 .as_str()
                 .unwrap_or(text);
             let trimmed = translated.trim();
-            if trimmed.is_empty() { text.to_string() } else { trimmed.to_string() }
+            if trimmed.is_empty() {
+                text.to_string()
+            } else {
+                trimmed.to_string()
+            }
         }
         Err(e) => {
             tracing::warn!(error = %e, "Translation failed, falling back to original text");

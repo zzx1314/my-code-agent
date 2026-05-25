@@ -1,6 +1,5 @@
 pub mod apply_patch;
 pub mod file_delete;
-pub mod propose_str_replace;
 pub mod file_outline;
 pub mod file_read;
 pub mod file_undo;
@@ -8,6 +7,7 @@ pub mod file_update;
 pub mod file_write;
 pub mod glob;
 pub mod list_dir;
+pub mod propose_str_replace;
 
 pub use apply_patch::ApplyPatch;
 pub use file_delete::FileDelete;
@@ -56,7 +56,9 @@ pub async fn fs_write_with_tracking(
 
     // Write file
     let bytes = content.len();
-    tokio::fs::write(path, content).await.map_err(|e| e.to_string())?;
+    tokio::fs::write(path, content)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Invalidate dedup cache
     invalidate_dedup_cache(path);
@@ -84,7 +86,9 @@ pub async fn fs_delete_with_tracking(path: &str) -> Result<Option<String>, Strin
     let _ = undo_history::record_change(path, old_content, None, "file_delete");
 
     // Delete file
-    tokio::fs::remove_file(path).await.map_err(|e| e.to_string())?;
+    tokio::fs::remove_file(path)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Invalidate dedup cache
     invalidate_dedup_cache(path);

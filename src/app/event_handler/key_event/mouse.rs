@@ -1,5 +1,5 @@
-use ratatui::crossterm::event::MouseEventKind;
 use crate::app::App;
+use ratatui::crossterm::event::MouseEventKind;
 
 /// Handle mouse events — scroll wheel and click events.
 ///

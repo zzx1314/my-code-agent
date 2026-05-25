@@ -40,7 +40,9 @@ pub fn handle(app: &mut App, input: &str, context_manager: &ContextManager) -> b
         s if s.starts_with("--preview") => {
             // /compact --preview 50
             let rest = s.strip_prefix("--preview").unwrap().trim();
-            let pct = rest.parse::<u64>().unwrap_or(app.config.context.compact_retain_percent);
+            let pct = rest
+                .parse::<u64>()
+                .unwrap_or(app.config.context.compact_retain_percent);
             (pct.clamp(1, 99), true)
         }
         s => match s.parse::<u64>() {
@@ -73,12 +75,10 @@ pub fn handle(app: &mut App, input: &str, context_manager: &ContextManager) -> b
 
     // Need at least 6 messages to make compaction worthwhile
     if messages.len() < 6 {
-        app.status_messages.push(
-            format!(
-                "ℹ Only {} message(s) — nothing to compact (need at least 6)",
-                messages.len()
-            ),
-        );
+        app.status_messages.push(format!(
+            "ℹ Only {} message(s) — nothing to compact (need at least 6)",
+            messages.len()
+        ));
         return true;
     }
 
@@ -216,7 +216,9 @@ fn generate_fallback_summary(old_messages: &[crate::core::types::Message]) -> St
 
         // Extract file paths mentioned in any message
         for word in msg.content.split_whitespace() {
-            let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-');
+            let clean = word.trim_matches(|c: char| {
+                !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-'
+            });
             if (clean.starts_with("src/") || clean.starts_with("./") || clean.contains("/"))
                 && (clean.ends_with(".rs")
                     || clean.ends_with(".ts")

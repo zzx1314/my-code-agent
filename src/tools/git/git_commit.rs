@@ -140,7 +140,11 @@ impl Tool for GitCommit {
             }
         }
 
-        if !args.all && !Self::has_staged_changes(cwd).await.map_err(|e| e.to_string())? {
+        if !args.all
+            && !Self::has_staged_changes(cwd)
+                .await
+                .map_err(|e| e.to_string())?
+        {
             return Err("No changes staged for commit".to_string());
         }
 

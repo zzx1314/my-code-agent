@@ -147,7 +147,10 @@ fn test_message_queue_not_processed_during_cooldown() {
 
     // Try to process the queue — should NOT process due to cooldown
     let processed = process_message_queue(&mut app, &mut ctx);
-    assert!(!processed, "message queue should not process during cooldown");
+    assert!(
+        !processed,
+        "message queue should not process during cooldown"
+    );
     assert_eq!(
         app.message_queue.len(),
         1,
@@ -172,12 +175,18 @@ async fn test_message_queue_processed_after_cooldown_expires() {
 
     // Try to process the queue — SHOULD process (cooldown expired)
     let processed = process_message_queue(&mut app, &mut ctx);
-    assert!(processed, "message queue should process after cooldown expires");
+    assert!(
+        processed,
+        "message queue should process after cooldown expires"
+    );
     assert!(
         app.message_queue.is_empty(),
         "queue should be empty after processing"
     );
-    assert!(app.is_streaming, "should start streaming after cooldown expires");
+    assert!(
+        app.is_streaming,
+        "should start streaming after cooldown expires"
+    );
 }
 
 #[tokio::test]
@@ -192,7 +201,10 @@ async fn test_message_queue_processed_when_no_cooldown_configured() {
 
     // Try to process the queue — SHOULD process (no cooldown)
     let processed = process_message_queue(&mut app, &mut ctx);
-    assert!(processed, "message queue should process when no cooldown configured");
+    assert!(
+        processed,
+        "message queue should process when no cooldown configured"
+    );
     assert!(app.is_streaming);
 }
 

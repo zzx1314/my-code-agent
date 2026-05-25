@@ -11,7 +11,6 @@ const MIN_INPUT_HEIGHT: u16 = 3;
 const MAX_INPUT_HEIGHT: u16 = 12;
 const MAX_QUEUE_DISPLAY_LINES: usize = 4;
 
-
 /// Update the input textarea's visual style based on the current app state.
 ///
 /// Codex-style: no borders, just a subtle cursor-line highlight.
@@ -69,10 +68,10 @@ const QUEUE_SPINNER: &[char] = &['▰', '▱', '◉', '○'];
 
 /// Color palette for the queue badge numbering — cycles through these per item.
 const QUEUE_BADGE_COLORS: [Color; 4] = [
-    Color::Rgb(255, 160, 50),   // warm orange
-    Color::Rgb(255, 100, 100),  // coral red
-    Color::Rgb(100, 200, 255),  // sky blue
-    Color::Rgb(180, 130, 255),  // lavender
+    Color::Rgb(255, 160, 50),  // warm orange
+    Color::Rgb(255, 100, 100), // coral red
+    Color::Rgb(100, 200, 255), // sky blue
+    Color::Rgb(180, 130, 255), // lavender
 ];
 
 /// Render a single queue line with styled badge and message preview.
@@ -97,10 +96,7 @@ fn render_queue_line(index: usize, msg: &str) -> ratatui::text::Line<'static> {
                 .add_modifier(Modifier::BOLD),
         ),
         // Separator dot
-        ratatui::text::Span::styled(
-            " ▶ ",
-            Style::default().fg(Color::DarkGray),
-        ),
+        ratatui::text::Span::styled(" ▶ ", Style::default().fg(Color::DarkGray)),
         // Message text — bright white for emphasis
         ratatui::text::Span::styled(
             display_text,
@@ -137,7 +133,10 @@ pub fn render_queue_display(f: &mut Frame, app: &App, area: Rect) {
 
     if queue_count > MAX_QUEUE_DISPLAY_LINES {
         lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
-            format!("  … and {} more in queue", queue_count - MAX_QUEUE_DISPLAY_LINES),
+            format!(
+                "  … and {} more in queue",
+                queue_count - MAX_QUEUE_DISPLAY_LINES
+            ),
             Style::default()
                 .fg(Color::Rgb(150, 150, 180))
                 .add_modifier(Modifier::ITALIC),
@@ -146,9 +145,9 @@ pub fn render_queue_display(f: &mut Frame, app: &App, area: Rect) {
 
     // Vibrant gradient border: top/left in warm orange, bottom/right in purple
     let border_color = if app.is_streaming {
-        Color::Rgb(255, 130, 40)  // bright orange when streaming
+        Color::Rgb(255, 130, 40) // bright orange when streaming
     } else {
-        Color::Rgb(230, 100, 60)  // warm amber when idle with queue
+        Color::Rgb(230, 100, 60) // warm amber when idle with queue
     };
 
     let block = Block::default()
@@ -179,8 +178,7 @@ pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         app.input_bg_color
     };
-    let bg_paragraph = Paragraph::new("")
-        .style(Style::default().bg(bg));
+    let bg_paragraph = Paragraph::new("").style(Style::default().bg(bg));
     f.render_widget(bg_paragraph, area);
 
     f.render_widget(&app.input, area);

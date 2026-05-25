@@ -13,13 +13,13 @@
 use std::cell::RefCell;
 use std::ops::Range;
 
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::Style,
     widgets::{Block, Widget},
 };
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthChar;
 use unicode_width::UnicodeWidthStr;
@@ -141,8 +141,6 @@ pub(crate) fn compute_wrapped_ranges(text: &str, max_width: usize) -> Vec<Range<
     }
     ranges
 }
-
-
 
 // ---------------------------------------------------------------------------
 // TextArea
@@ -291,10 +289,7 @@ impl TextArea {
 
     fn beginning_of_line(&self, pos: usize) -> usize {
         let p = pos.min(self.text.len());
-        self.text[..p]
-            .rfind('\n')
-            .map(|i| i + 1)
-            .unwrap_or(0)
+        self.text[..p].rfind('\n').map(|i| i + 1).unwrap_or(0)
     }
 
     fn end_of_line(&self, pos: usize) -> usize {
@@ -396,8 +391,7 @@ impl TextArea {
             end = next;
         }
         if end > self.cursor_pos {
-            self.text
-                .replace_range(self.cursor_pos..end, "");
+            self.text.replace_range(self.cursor_pos..end, "");
             self.clear_wrap_cache();
             self.preferred_col = None;
         }
@@ -424,8 +418,7 @@ impl TextArea {
         if end > self.cursor_pos {
             let killed = self.text[self.cursor_pos..end].to_string();
             self.kill(&killed);
-            self.text
-                .replace_range(self.cursor_pos..end, "");
+            self.text.replace_range(self.cursor_pos..end, "");
             self.clear_wrap_cache();
             self.preferred_col = None;
         }
@@ -448,8 +441,7 @@ impl TextArea {
         if eol > self.cursor_pos {
             let killed = self.text[self.cursor_pos..eol].to_string();
             self.kill(&killed);
-            self.text
-                .replace_range(self.cursor_pos..eol, "");
+            self.text.replace_range(self.cursor_pos..eol, "");
             self.clear_wrap_cache();
             self.preferred_col = None;
         }
@@ -562,10 +554,7 @@ impl TextArea {
         } else {
             // Smart home: first non‑whitespace, then absolute start.
             let line_text = self.current_line_text();
-            let indent = line_text
-                .chars()
-                .take_while(|c| c.is_whitespace())
-                .count();
+            let indent = line_text.chars().take_while(|c| c.is_whitespace()).count();
             let indent_end = bol + line_text[..indent].len();
             if self.cursor_pos > indent_end {
                 self.cursor_pos = indent_end;
@@ -612,7 +601,12 @@ impl TextArea {
         // Unless the piece just before the cursor is already a non-separator,
         // skip separators, then skip one word.
         let mut i = idx;
-        if i > 0 && pieces[i.saturating_sub(1)].1.chars().all(|c| is_word_separator(c)) {
+        if i > 0
+            && pieces[i.saturating_sub(1)]
+                .1
+                .chars()
+                .all(|c| is_word_separator(c))
+        {
             i = i.saturating_sub(1);
         }
         if i > 0 {
@@ -651,8 +645,10 @@ impl TextArea {
             }
         }
         let lines = compute_wrapped_ranges(&self.text, content_width);
-        self.wrap_cache
-            .replace(Some(WrapCache { width, lines: lines.clone() }));
+        self.wrap_cache.replace(Some(WrapCache {
+            width,
+            lines: lines.clone(),
+        }));
         lines
     }
 
@@ -673,11 +669,7 @@ impl TextArea {
     }
 
     /// Screen (x, y) of the cursor given `area` and scroll state.
-    pub fn cursor_pos_with_state(
-        &self,
-        area: Rect,
-        state: TextAreaState,
-    ) -> Option<(u16, u16)> {
+    pub fn cursor_pos_with_state(&self, area: Rect, state: TextAreaState) -> Option<(u16, u16)> {
         let has_block = self.block.is_some();
         let (padding, inner_width) = if has_block {
             (1u16, area.width.saturating_sub(2).max(1))
@@ -700,7 +692,11 @@ impl TextArea {
                 .min(lines.len().saturating_sub(area.height as usize) as u16)
         };
         let screen_row = line_idx.saturating_sub(effective_scroll as usize) as u16;
-        let border_adjust: u16 = if has_block { 2 } else { self.top_pad + self.bot_pad };
+        let border_adjust: u16 = if has_block {
+            2
+        } else {
+            self.top_pad + self.bot_pad
+        };
         if screen_row >= area.height.saturating_sub(border_adjust) {
             return None;
         }
@@ -767,8 +763,7 @@ impl TextArea {
             | (KeyCode::Backspace, KeyModifiers::ALT) => {
                 self.delete_backward_word();
             }
-            (KeyCode::Delete, KeyModifiers::CONTROL)
-            | (KeyCode::Delete, KeyModifiers::ALT) => {
+            (KeyCode::Delete, KeyModifiers::CONTROL) | (KeyCode::Delete, KeyModifiers::ALT) => {
                 self.delete_forward_word();
             }
 
@@ -790,7 +785,6 @@ impl TextArea {
         }
     }
 }
-
 
 // ===== From impls =====
 
@@ -844,7 +838,11 @@ impl Widget for &TextArea {
         }
 
         // Y offset for text: top_pad (no-block) or 1 (block).
-        let y_origin = if has_block { area.y + 1 } else { area.y + self.top_pad };
+        let y_origin = if has_block {
+            area.y + 1
+        } else {
+            area.y + self.top_pad
+        };
 
         // Render text lines.
         for i in 0..view_height {
@@ -909,6 +907,3 @@ impl Widget for &TextArea {
         }
     }
 }
-
-
-

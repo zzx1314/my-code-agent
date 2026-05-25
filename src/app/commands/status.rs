@@ -5,15 +5,14 @@ use crate::app::App;
 /// chat history.
 pub fn handle(app: &mut App) -> bool {
     // Determine the current streaming state.
-    let status = if app.is_streaming { "🔄 Streaming" } else { "⏸️ Idle" };
+    let status = if app.is_streaming {
+        "🔄 Streaming"
+    } else {
+        "⏸️ Idle"
+    };
 
     // Retrieve the configured model name (fall back to "not set").
-    let model = app
-        .config
-        .llm
-        .model
-        .as_deref()
-        .unwrap_or("not set");
+    let model = app.config.llm.model.as_deref().unwrap_or("not set");
 
     // Read the provider name.
     let provider = &app.config.llm.provider;
@@ -23,15 +22,16 @@ pub fn handle(app: &mut App) -> bool {
     let token_count = app.token_usage.total_tokens();
 
     // Format and append a status report as an assistant message.
-    app.chat_history.push(crate::app::ChatEntry::assistant(format!(
-        "**Status**\n\
+    app.chat_history
+        .push(crate::app::ChatEntry::assistant(format!(
+            "**Status**\n\
          - Status: {}\n\
          - Provider: {}\n\
          - Model: {}\n\
          - Messages: {}\n\
          - Tokens: {}",
-        status, provider, model, chat_count, token_count,
-    )));
+            status, provider, model, chat_count, token_count,
+        )));
 
     // Suppress the banner on the next render (status was already shown inline).
     app.show_banner = false;

@@ -1,7 +1,9 @@
 use my_code_agent::app::App;
 use my_code_agent::core::agent::client::LlmClient;
 use my_code_agent::core::agent::preamble::{Agent, build_preamble};
-use my_code_agent::core::agent::stream::{cleanup_stream_state, process_streaming_events, reset_streaming_state};
+use my_code_agent::core::agent::stream::{
+    cleanup_stream_state, process_streaming_events, reset_streaming_state,
+};
 use my_code_agent::core::agent::stream_response::StreamEvent;
 use my_code_agent::core::config::Config;
 use my_code_agent::core::context::token_usage::TokenUsage;
@@ -37,7 +39,9 @@ fn make_app(event_rx: mpsc::UnboundedReceiver<StreamEvent>) -> App {
 fn sample_todo(completed: usize, total: usize) -> String {
     format!(
         "## 📋 Todos ({}/{})\n\n{} pending\n\n- [ ] Step 1\n- [ ] Step 2\n- [ ] Step 3\n",
-        completed, total, total - completed
+        completed,
+        total,
+        total - completed
     )
 }
 
@@ -121,7 +125,10 @@ fn test_new_text_preserves_streaming_todos() {
     })
     .unwrap();
     process_streaming_events(&mut app);
-    assert!(app.streaming_todos.is_some(), "precondition: streaming_todos should be set");
+    assert!(
+        app.streaming_todos.is_some(),
+        "precondition: streaming_todos should be set"
+    );
 
     // Now send streaming text (model responds after tool call)
     tx.send(StreamEvent::Text("Here is the result...".to_string()))
@@ -224,7 +231,10 @@ fn test_reset_streaming_state_clears_streaming_todos() {
     })
     .unwrap();
     process_streaming_events(&mut app);
-    assert!(app.streaming_todos.is_some(), "precondition: streaming_todos should be set");
+    assert!(
+        app.streaming_todos.is_some(),
+        "precondition: streaming_todos should be set"
+    );
 
     // Reset streaming state (happens when a new LLM response starts)
     reset_streaming_state(&mut app);
@@ -251,7 +261,10 @@ fn test_cleanup_stream_state_clears_streaming_todos() {
     })
     .unwrap();
     process_streaming_events(&mut app);
-    assert!(app.streaming_todos.is_some(), "precondition: streaming_todos should be set");
+    assert!(
+        app.streaming_todos.is_some(),
+        "precondition: streaming_todos should be set"
+    );
 
     // Clean up stream state (happens on disconnect/error)
     cleanup_stream_state(&mut app);
@@ -278,14 +291,19 @@ fn test_status_event_does_not_clear_streaming_todos() {
     })
     .unwrap();
     process_streaming_events(&mut app);
-    assert!(app.streaming_todos.is_some(), "precondition: streaming_todos should be set");
+    assert!(
+        app.streaming_todos.is_some(),
+        "precondition: streaming_todos should be set"
+    );
 
     // Clear the tool result (it was consumed by .take() in the renderer)
     app.streaming_tool_result = None;
 
     // Now send a status event (inter-turn waiting period)
-    tx.send(StreamEvent::Status("⏳ Waiting for model response...".to_string()))
-        .unwrap();
+    tx.send(StreamEvent::Status(
+        "⏳ Waiting for model response...".to_string(),
+    ))
+    .unwrap();
     process_streaming_events(&mut app);
 
     assert!(
@@ -310,11 +328,16 @@ fn test_reasoning_delta_does_not_clear_streaming_todos() {
     })
     .unwrap();
     process_streaming_events(&mut app);
-    assert!(app.streaming_todos.is_some(), "precondition: streaming_todos should be set");
+    assert!(
+        app.streaming_todos.is_some(),
+        "precondition: streaming_todos should be set"
+    );
 
     // Reasoning delta events should NOT clear streaming_todos
-    tx.send(StreamEvent::ReasoningDelta("thinking about the code...".to_string()))
-        .unwrap();
+    tx.send(StreamEvent::ReasoningDelta(
+        "thinking about the code...".to_string(),
+    ))
+    .unwrap();
     process_streaming_events(&mut app);
 
     assert!(
@@ -338,7 +361,10 @@ fn test_tool_call_event_does_not_clear_streaming_todos() {
     })
     .unwrap();
     process_streaming_events(&mut app);
-    assert!(app.streaming_todos.is_some(), "precondition: streaming_todos should be set");
+    assert!(
+        app.streaming_todos.is_some(),
+        "precondition: streaming_todos should be set"
+    );
 
     // A new tool call event should NOT clear streaming_todos
     // (the todos stay visible while the next tool executes)
@@ -370,7 +396,10 @@ fn test_streaming_todos_persists_after_tool_result_consumed() {
     })
     .unwrap();
     process_streaming_events(&mut app);
-    assert!(app.streaming_todos.is_some(), "precondition: streaming_todos should be set");
+    assert!(
+        app.streaming_todos.is_some(),
+        "precondition: streaming_todos should be set"
+    );
 
     // Simulate the renderer consuming streaming_tool_result (via .take())
     app.streaming_tool_result = None;

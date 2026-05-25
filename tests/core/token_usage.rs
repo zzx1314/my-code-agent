@@ -228,10 +228,10 @@ fn test_context_usage_uses_input_tokens_only() {
     // including cached portions. No additional adjustment needed.
     let mut tu = TokenUsage::with_context_window(1000);
     let usage = Usage {
-        input_tokens: 550,              // full prompt (includes cached parts)
+        input_tokens: 550, // full prompt (includes cached parts)
         output_tokens: 50,
         total_tokens: 600,
-        cached_input_tokens: 400,       // cache hit info (subset of input_tokens)
+        cached_input_tokens: 400, // cache hit info (subset of input_tokens)
         cache_creation_input_tokens: 50,
     };
     tu.add(usage);
@@ -259,12 +259,12 @@ fn test_context_usage_grows_with_more_turns() {
     // Turn 2: 400 tokens read from cache, 200 new tokens = 600 total prompt
     // DeepSeek reports input_tokens = 600 (full prompt including cached portion)
     tu.add(Usage {
-        input_tokens: 600,          // full prompt (200 new + 400 from cache)
+        input_tokens: 600, // full prompt (200 new + 400 from cache)
         output_tokens: 80,
         total_tokens: 680,
-        cached_input_tokens: 400,   // cache hits (subset of input_tokens)
+        cached_input_tokens: 400, // cache hits (subset of input_tokens)
         cache_creation_input_tokens: 0,
     });
     assert_eq!(tu.last_turn_input_tokens(), 600); // just input_tokens
-    assert!((tu.context_usage_percent() - 60.0).abs() < 0.01);    // 600/1000 = 60%
+    assert!((tu.context_usage_percent() - 60.0).abs() < 0.01); // 600/1000 = 60%
 }

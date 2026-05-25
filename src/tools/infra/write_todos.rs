@@ -84,7 +84,12 @@ struct TodoStats {
 }
 
 fn compute_stats(todos: &[TodoItem]) -> TodoStats {
-    let mut s = TodoStats { completed: 0, pending: 0, in_progress: 0, failed: 0 };
+    let mut s = TodoStats {
+        completed: 0,
+        pending: 0,
+        in_progress: 0,
+        failed: 0,
+    };
     for t in todos {
         match t.status {
             TodoStatus::Completed => s.completed += 1,
@@ -124,10 +129,18 @@ fn format_todos_markdown(todos: &[TodoItem]) -> String {
         format!("{} / {} completed", stats.completed, total)
     } else {
         let mut parts = Vec::new();
-        if stats.completed > 0 { parts.push(format!("{} completed", stats.completed)); }
-        if stats.pending > 0 { parts.push(format!("{} pending", stats.pending)); }
-        if stats.in_progress > 0 { parts.push(format!("{} in progress", stats.in_progress)); }
-        if stats.failed > 0 { parts.push(format!("{} failed", stats.failed)); }
+        if stats.completed > 0 {
+            parts.push(format!("{} completed", stats.completed));
+        }
+        if stats.pending > 0 {
+            parts.push(format!("{} pending", stats.pending));
+        }
+        if stats.in_progress > 0 {
+            parts.push(format!("{} in progress", stats.in_progress));
+        }
+        if stats.failed > 0 {
+            parts.push(format!("{} failed", stats.failed));
+        }
         parts.join(" · ")
     };
 
@@ -153,11 +166,10 @@ impl Tool for WriteTodos {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: self.name().to_string(),
-            description:
-                "Write a todo list to track tasks for multi-step implementations. \
+            description: "Write a todo list to track tasks for multi-step implementations. \
                  Call this after gathering context to plan steps, and after completing each step \
                  to update progress. Rewrite ALL todos each time with current status."
-                    .to_string(),
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

@@ -70,8 +70,19 @@ pub fn apply_completion(app: &mut App) {
 
         // Replace content from the trigger position to the cursor position
         // Auto-add a trailing space after '@' file path completions
-        let extra = if trigger_char == '@' && !line[pos..].starts_with(' ') { added_trailing_space = true; " " } else { "" };
-        let new_line = format!("{}{}{}{}", &line[..trigger_pos], selected, extra, &line[pos..]);
+        let extra = if trigger_char == '@' && !line[pos..].starts_with(' ') {
+            added_trailing_space = true;
+            " "
+        } else {
+            ""
+        };
+        let new_line = format!(
+            "{}{}{}{}",
+            &line[..trigger_pos],
+            selected,
+            extra,
+            &line[pos..]
+        );
         lines[cursor.0] = new_line;
     }
 
@@ -83,8 +94,10 @@ pub fn apply_completion(app: &mut App) {
     // Set cursor position to the end of the completion
     let completion_len = selected.len();
     let cursor = app.input.cursor();
-    let new_cursor_col = app.completion_trigger_pos + completion_len + if added_trailing_space { 1 } else { 0 };
-    app.input.move_cursor(cursor.0 as u16, new_cursor_col as u16);
+    let new_cursor_col =
+        app.completion_trigger_pos + completion_len + if added_trailing_space { 1 } else { 0 };
+    app.input
+        .move_cursor(cursor.0 as u16, new_cursor_col as u16);
 
     hide_completion(app);
 }
@@ -114,7 +127,8 @@ pub fn update_completion_query(app: &mut App) {
     if app.completion_query.is_empty() {
         app.completion_items = app.completion_all_items.clone();
     } else {
-        app.completion_items = app.completion_all_items
+        app.completion_items = app
+            .completion_all_items
             .iter()
             .filter(|item| {
                 item.to_lowercase()

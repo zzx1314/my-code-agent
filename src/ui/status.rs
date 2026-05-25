@@ -45,7 +45,9 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             let dots = ".".repeat(dot_cycle as usize);
             spans.push(Span::styled(
                 format!(" | ⚙️ {} {}", tool_call.name, dots),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ));
         } else if let Some((ref name, _)) = app.streaming_tool_result {
             // Briefly show the completed tool result while tool result is set
@@ -68,7 +70,9 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             if let Some(ref header) = app.streaming_reasoning_header {
                 spans.push(Span::styled(
                     format!(" | 💭 {}", header),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ));
             } else {
                 let dot_cycle = (app.marquee_frame / 4) % 4;
@@ -78,12 +82,16 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
                     Style::default().fg(Color::Yellow),
                 ));
             }
-        } else if app.is_reasoning_active || (!app.streaming_reasoning.is_empty() && app.streaming_text.is_empty()) {
+        } else if app.is_reasoning_active
+            || (!app.streaming_reasoning.is_empty() && app.streaming_text.is_empty())
+        {
             // Model is thinking/reasoning — show the extracted header or a fallback
             if let Some(ref header) = app.streaming_reasoning_header {
                 spans.push(Span::styled(
                     format!(" | 💭 {}", header),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ));
             } else {
                 let dot_cycle = (app.marquee_frame / 4) % 4;
@@ -110,7 +118,8 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
         ));
     } else if let Some(ref msg) = app.review_complete_message {
         if app.review_complete_timer > 0 {
-            let verdict_color = app.review_complete_verdict
+            let verdict_color = app
+                .review_complete_verdict
                 .as_ref()
                 .map(|v| match v {
                     crate::core::types::review::ReviewVerdict::Approved => Color::Green,

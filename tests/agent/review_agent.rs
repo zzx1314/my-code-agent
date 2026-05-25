@@ -85,15 +85,13 @@ fn test_review_report_creation() {
                 fix_example: None,
             },
         ],
-        changed_files: vec![
-            ChangedFile {
-                path: "src/main.rs".to_string(),
-                change_type: ChangeType::Modified,
-                lines_added: 15,
-                lines_removed: 3,
-                diff: "+ fn main() {".to_string(),
-            },
-        ],
+        changed_files: vec![ChangedFile {
+            path: "src/main.rs".to_string(),
+            change_type: ChangeType::Modified,
+            lines_added: 15,
+            lines_removed: 3,
+            diff: "+ fn main() {".to_string(),
+        }],
         metrics: CodeMetrics {
             files_changed: 1,
             total_lines_added: 15,
@@ -216,9 +214,12 @@ fn test_review_event_creation() {
 // =============================================================================
 
 use my_code_agent::app::App;
-use my_code_agent::core::context::token_usage::TokenUsage;
-use my_code_agent::core::agent::review_agent::{extract_json_from_response, repair_truncated_json, sanitize_json_escapes, escape_control_chars_in_strings, remove_trailing_commas_from_json};
+use my_code_agent::core::agent::review_agent::{
+    escape_control_chars_in_strings, extract_json_from_response, remove_trailing_commas_from_json,
+    repair_truncated_json, sanitize_json_escapes,
+};
 use my_code_agent::core::agent::stream::{check_review_result, process_review_events};
+use my_code_agent::core::context::token_usage::TokenUsage;
 
 const VALID_JSON: &str = r#"{"issues":[],"summary":{"verdict":"approved"}}"#;
 
@@ -241,7 +242,10 @@ fn test_extract_json_from_plain_code_block() {
 /// Test extracting raw JSON with explanatory text before/after
 #[test]
 fn test_extract_json_raw_with_surrounding_text() {
-    let response = format!("Here is the review result: {} I hope this helps!", VALID_JSON);
+    let response = format!(
+        "Here is the review result: {} I hope this helps!",
+        VALID_JSON
+    );
     let result = extract_json_from_response(&response).unwrap();
     assert_eq!(result, VALID_JSON);
 }
@@ -364,7 +368,10 @@ fn test_extract_json_chinese_in_plain_code_block() {
 fn test_extract_json_empty_json_code_block() {
     let response = "```json\n\n```";
     let result = extract_json_from_response(&response).unwrap();
-    assert!(result.trim().is_empty(), "Empty code block should produce empty string");
+    assert!(
+        result.trim().is_empty(),
+        "Empty code block should produce empty string"
+    );
 }
 
 /// Only whitespace in code block.
@@ -372,7 +379,10 @@ fn test_extract_json_empty_json_code_block() {
 fn test_extract_json_whitespace_only_code_block() {
     let response = "```json\n   \n```";
     let result = extract_json_from_response(&response).unwrap();
-    assert!(result.trim().is_empty(), "Whitespace-only code block should produce empty string");
+    assert!(
+        result.trim().is_empty(),
+        "Whitespace-only code block should produce empty string"
+    );
 }
 
 /// Tab characters (not just spaces) in code block.
@@ -380,7 +390,10 @@ fn test_extract_json_whitespace_only_code_block() {
 fn test_extract_json_tab_only_code_block() {
     let response = "```json\n\t\n```";
     let result = extract_json_from_response(&response).unwrap();
-    assert!(result.trim().is_empty(), "Tab-only code block should produce empty string");
+    assert!(
+        result.trim().is_empty(),
+        "Tab-only code block should produce empty string"
+    );
 }
 
 /// Response with only Chinese text and no JSON at all.
@@ -438,33 +451,44 @@ fn test_repair_truncated_already_valid() {
 #[test]
 fn test_repair_truncated_unclosed_string() {
     let result = repair_truncated_json(r#"{"key": "value"#);
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON, got: {result}");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON, got: {result}"
+    );
 }
 
 /// Unclosed nested brace should be closed
 #[test]
 fn test_repair_truncated_unclosed_brace() {
     let result = repair_truncated_json(r#"{"a": {"b": 1}"#);
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON, got: {result}");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON, got: {result}"
+    );
 }
 
 /// Unclosed array bracket should be closed
 #[test]
 fn test_repair_truncated_unclosed_bracket() {
     let result = repair_truncated_json(r#"{"items": [1, 2, 3"#);
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON, got: {result}");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON, got: {result}"
+    );
 }
 
 /// Trailing comma should be removed
 #[test]
 fn test_repair_truncated_trailing_comma() {
     let result = repair_truncated_json(r#"{"a": 1,}"#);
-    assert!(!result.contains(",}"), "unexpected trailing comma in: {result}");
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON, got: {result}");
+    assert!(
+        !result.contains(",}"),
+        "unexpected trailing comma in: {result}"
+    );
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON, got: {result}"
+    );
 }
 
 /// Full truncated review JSON should be repairable
@@ -474,8 +498,10 @@ fn test_repair_truncated_full_review() {
     let truncated = r#"{"issues":[{"file":"src/main.rs","line":42,"severity":"high","title":"Issue","description":"Found a bug in C:\Users\test"}"#;
     let sanitized = sanitize_json_escapes(truncated);
     let result = repair_truncated_json(&sanitized);
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON after sanitize+repair, got: {result}");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "expected valid JSON after sanitize+repair, got: {result}"
+    );
 }
 
 /// String with escaped quotes inside should not break repair
@@ -512,8 +538,10 @@ line2"}"#;
     let result = escape_control_chars_in_strings(json);
     assert!(!result.contains("\n"), "should escape raw newlines");
     assert!(result.contains("\\n"), "should replace with \\n");
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "escaped result should be valid JSON");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "escaped result should be valid JSON"
+    );
 }
 
 /// Raw tabs in JSON strings should be escaped
@@ -535,8 +563,10 @@ fn test_escape_control_chars_mixed() {
     let result = escape_control_chars_in_strings(json);
     assert!(!result.contains("\n"), "should escape all raw newlines");
     assert!(!result.contains("\t"), "should escape all raw tabs");
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "escaped result should be valid JSON");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "escaped result should be valid JSON"
+    );
 }
 
 /// Valid JSON without control chars should pass through unchanged
@@ -562,7 +592,10 @@ fn test_escape_control_chars_outside_string() {
     let json = "before\n{\"key\": \"value\"}";
     let result = escape_control_chars_in_strings(json);
     // The newline before the JSON is outside a string, so it stays
-    assert!(result.contains('\n'), "newlines outside strings should remain");
+    assert!(
+        result.contains('\n'),
+        "newlines outside strings should remain"
+    );
 }
 
 // =============================================================================
@@ -574,9 +607,14 @@ fn test_escape_control_chars_outside_string() {
 fn test_remove_trailing_commas_nested() {
     let json = r#"{"issues": [{"file": "x.rs", "line": 42,}], "summary": {"score": 85}}"#;
     let result = remove_trailing_commas_from_json(json);
-    assert!(!result.contains(",}"), "should remove nested trailing comma");
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "result should be valid JSON");
+    assert!(
+        !result.contains(",}"),
+        "should remove nested trailing comma"
+    );
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "result should be valid JSON"
+    );
 }
 
 /// Multiple nested trailing commas at different levels
@@ -584,8 +622,14 @@ fn test_remove_trailing_commas_nested() {
 fn test_remove_trailing_commas_multi_nested() {
     let json = r#"{"issues": [{"a": 1, "b": 2,}, {"c": 3,}], "summary": {"score": 85,}}"#;
     let result = remove_trailing_commas_from_json(json);
-    assert!(!result.contains(",}"), "should remove all nested trailing commas");
-    assert!(!result.contains(",]"), "should remove array trailing commas");
+    assert!(
+        !result.contains(",}"),
+        "should remove all nested trailing commas"
+    );
+    assert!(
+        !result.contains(",]"),
+        "should remove array trailing commas"
+    );
     assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
 }
 
@@ -637,8 +681,10 @@ fn test_remove_trailing_commas_realistic_review() {
 }"#;
     let result = remove_trailing_commas_from_json(json);
     assert!(!result.contains(",}"), "should remove all trailing commas");
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "result should be valid JSON");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
+        "result should be valid JSON"
+    );
 }
 
 /// Combined test: trailing comma + raw newlines in same JSON
@@ -665,8 +711,10 @@ multi-line description",
     // First remove trailing commas, then escape control chars
     let step1 = remove_trailing_commas_from_json(json);
     let step2 = escape_control_chars_in_strings(&step1);
-    assert!(serde_json::from_str::<serde_json::Value>(&step2).is_ok(),
-        "combined repair should produce valid JSON");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&step2).is_ok(),
+        "combined repair should produce valid JSON"
+    );
 }
 
 // =============================================================================
@@ -775,7 +823,7 @@ fn test_iteration_reset_after_approved() {
 
 use my_code_agent::app::commands::review::ReviewEvent;
 use my_code_agent::core::types::review::ReviewOutcome;
-use tokio::sync::{mpsc, broadcast};
+use tokio::sync::{broadcast, mpsc};
 
 /// Helper: create a minimal App for review event processing tests.
 fn make_review_test_app() -> App {
@@ -807,7 +855,10 @@ fn test_review_reasoning_cleared_on_progress() {
 
     // Simulate accumulated reasoning from a phase
     app.review_reasoning = "Previous phase reasoning content...".to_string();
-    assert!(!app.review_reasoning.is_empty(), "Reasoning should be non-empty before Progress");
+    assert!(
+        !app.review_reasoning.is_empty(),
+        "Reasoning should be non-empty before Progress"
+    );
 
     // Send Progress event (indicating new phase starting)
     tx.send(ReviewEvent::Progress {
@@ -817,9 +868,11 @@ fn test_review_reasoning_cleared_on_progress() {
 
     process_review_events(&mut app);
 
-    assert!(app.review_reasoning.is_empty(),
+    assert!(
+        app.review_reasoning.is_empty(),
         "review_reasoning should be cleared after Progress event (new phase started), got: {:?}",
-        app.review_reasoning);
+        app.review_reasoning
+    );
 }
 
 /// ReasoningDelta accumulates correctly without clearing.
@@ -840,8 +893,10 @@ fn test_review_reasoning_accumulates_delta() {
 
     process_review_events(&mut app);
 
-    assert_eq!(app.review_reasoning, "First chunk second chunk third chunk",
-        "ReasoningDelta events should accumulate");
+    assert_eq!(
+        app.review_reasoning, "First chunk second chunk third chunk",
+        "ReasoningDelta events should accumulate"
+    );
 }
 
 /// Progress event clears reasoning between phases, then new phase's reasoning accumulates.
@@ -852,10 +907,15 @@ fn test_review_reasoning_cleared_between_phases() {
     app.review_event_rx = Some(rx);
 
     // Phase 1: accumulate reasoning
-    tx.send(ReviewEvent::ReasoningDelta("Phase 1 reasoning... ".to_string()))
-        .expect("Failed to send delta");
+    tx.send(ReviewEvent::ReasoningDelta(
+        "Phase 1 reasoning... ".to_string(),
+    ))
+    .expect("Failed to send delta");
     process_review_events(&mut app);
-    assert_eq!(app.review_reasoning, "Phase 1 reasoning... ", "Phase 1 reasoning should accumulate");
+    assert_eq!(
+        app.review_reasoning, "Phase 1 reasoning... ",
+        "Phase 1 reasoning should accumulate"
+    );
 
     // Phase 1 → Phase 2 transition: Progress clears reasoning
     tx.send(ReviewEvent::Progress {
@@ -863,14 +923,21 @@ fn test_review_reasoning_cleared_between_phases() {
     })
     .expect("Failed to send Progress");
     process_review_events(&mut app);
-    assert!(app.review_reasoning.is_empty(), "Reasoning should be cleared between phases");
+    assert!(
+        app.review_reasoning.is_empty(),
+        "Reasoning should be cleared between phases"
+    );
 
     // Phase 2: new reasoning starts fresh
-    tx.send(ReviewEvent::ReasoningDelta("Phase 2 reasoning...".to_string()))
-        .expect("Failed to send delta");
+    tx.send(ReviewEvent::ReasoningDelta(
+        "Phase 2 reasoning...".to_string(),
+    ))
+    .expect("Failed to send delta");
     process_review_events(&mut app);
-    assert_eq!(app.review_reasoning, "Phase 2 reasoning...",
-        "Phase 2 reasoning should start fresh after Progress");
+    assert_eq!(
+        app.review_reasoning, "Phase 2 reasoning...",
+        "Phase 2 reasoning should start fresh after Progress"
+    );
 }
 
 /// check_review_result clears review_reasoning when a completed outcome arrives.
@@ -900,10 +967,15 @@ fn test_check_review_result_clears_reasoning_on_completed() {
 
     check_review_result(&mut app);
 
-    assert!(app.review_reasoning.is_empty(),
+    assert!(
+        app.review_reasoning.is_empty(),
         "review_reasoning should be cleared when review completes, got: {:?}",
-        app.review_reasoning);
-    assert!(!app.is_reviewing, "is_reviewing should be false after completed");
+        app.review_reasoning
+    );
+    assert!(
+        !app.is_reviewing,
+        "is_reviewing should be false after completed"
+    );
 }
 
 /// check_review_result clears review_reasoning when the channel disconnects.
@@ -921,10 +993,15 @@ fn test_check_review_result_clears_reasoning_on_disconnect() {
     drop(_tx);
     check_review_result(&mut app);
 
-    assert!(app.review_reasoning.is_empty(),
+    assert!(
+        app.review_reasoning.is_empty(),
         "review_reasoning should be cleared on disconnect, got: {:?}",
-        app.review_reasoning);
-    assert!(!app.is_reviewing, "is_reviewing should be false after disconnect");
+        app.review_reasoning
+    );
+    assert!(
+        !app.is_reviewing,
+        "is_reviewing should be false after disconnect"
+    );
 }
 
 /// check_review_result clears review_reasoning on max iterations reached.
@@ -957,10 +1034,15 @@ fn test_check_review_result_clears_reasoning_on_max_iterations() {
 
     check_review_result(&mut app);
 
-    assert!(app.review_reasoning.is_empty(),
+    assert!(
+        app.review_reasoning.is_empty(),
         "review_reasoning should be cleared when max iterations reached, got: {:?}",
-        app.review_reasoning);
-    assert!(!app.is_reviewing, "is_reviewing should be false after max iterations");
+        app.review_reasoning
+    );
+    assert!(
+        !app.is_reviewing,
+        "is_reviewing should be false after max iterations"
+    );
 }
 
 /// Test build_fix_prompt format (verify it contains expected sections)
@@ -988,7 +1070,11 @@ fn test_build_fix_prompt_format() {
     assert_eq!(prompt3, "Iteration 3/3");
 
     // Verify verdict line format
-    let verdict = format!("Verdict: {} (Score: {:.0}/100)", ReviewVerdict::NeedsRevision.label(), 60.0);
+    let verdict = format!(
+        "Verdict: {} (Score: {:.0}/100)",
+        ReviewVerdict::NeedsRevision.label(),
+        60.0
+    );
     assert_eq!(verdict, "Verdict: Needs Revision (Score: 60/100)");
 }
 
@@ -1003,9 +1089,14 @@ fn test_fix_prompt_includes_issues() {
 
     let critical_count = 1;
     let high_count = 1;
-    let issue_line = format!("Focus on Critical ({}) and High ({}) severity issues first.",
-        critical_count, high_count);
-    assert_eq!(issue_line, "Focus on Critical (1) and High (1) severity issues first.");
+    let issue_line = format!(
+        "Focus on Critical ({}) and High ({}) severity issues first.",
+        critical_count, high_count
+    );
+    assert_eq!(
+        issue_line,
+        "Focus on Critical (1) and High (1) severity issues first."
+    );
 }
 
 /// Test complete decision logic combining verdict, auto_trigger, and iteration
@@ -1019,24 +1110,28 @@ fn test_complete_iterative_loop_logic() {
     let auto_trigger = true;
 
     // First iteration: should fix
-    let should_fix = auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    let should_fix =
+        auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
     assert!(should_fix);
     review_iteration += 1; // now = 1
 
     // Second iteration: still needs revision, should fix
-    let should_fix = auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    let should_fix =
+        auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
     assert!(should_fix);
     review_iteration += 1; // now = 2
 
     // Third iteration: still needs revision, should fix (last chance)
-    let should_fix = auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    let should_fix =
+        auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
     assert!(should_fix);
     assert_eq!(review_iteration, 2);
     assert!(review_iteration + 1 >= max_iterations); // last iteration flag
     review_iteration += 1; // now = 3
 
     // Fourth iteration: max reached, should NOT fix
-    let should_fix = auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    let should_fix =
+        auto_trigger && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
     assert!(!should_fix);
 
     // After max iterations, should show "max reached" message
@@ -1061,7 +1156,8 @@ fn test_new_review_cycle_starts_fresh() {
 
     // Now user sends a new message → new cycle starts
     let verdict = ReviewVerdict::NeedsRevision;
-    let should_fix = true && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
+    let should_fix =
+        true && verdict != ReviewVerdict::Approved && review_iteration < max_iterations;
     assert!(should_fix, "New cycle should start fresh with iteration 0");
 }
 
@@ -1073,24 +1169,42 @@ fn test_iteration_status_messages() {
     // First iteration (iteration=0, will become 1): "Issues found, fixing..."
     let iteration = 0_usize;
     let status = if iteration + 1 >= max_iterations {
-        format!("🔄 **Auto-Review Iteration {}/{}** — Last chance! Fixing issues...",
-            iteration + 1, max_iterations)
+        format!(
+            "🔄 **Auto-Review Iteration {}/{}** — Last chance! Fixing issues...",
+            iteration + 1,
+            max_iterations
+        )
     } else {
-        format!("🔄 **Auto-Review Iteration {}/{}** — Issues found, fixing...",
-            iteration + 1, max_iterations)
+        format!(
+            "🔄 **Auto-Review Iteration {}/{}** — Issues found, fixing...",
+            iteration + 1,
+            max_iterations
+        )
     };
-    assert_eq!(status, "🔄 **Auto-Review Iteration 1/3** — Issues found, fixing...");
+    assert_eq!(
+        status,
+        "🔄 **Auto-Review Iteration 1/3** — Issues found, fixing..."
+    );
 
     // Last iteration (iteration=2, will become 3): "Last chance!"
     let iteration = 2_usize;
     let status = if iteration + 1 >= max_iterations {
-        format!("🔄 **Auto-Review Iteration {}/{}** — Last chance! Fixing issues...",
-            iteration + 1, max_iterations)
+        format!(
+            "🔄 **Auto-Review Iteration {}/{}** — Last chance! Fixing issues...",
+            iteration + 1,
+            max_iterations
+        )
     } else {
-        format!("🔄 **Auto-Review Iteration {}/{}** — Issues found, fixing...",
-            iteration + 1, max_iterations)
+        format!(
+            "🔄 **Auto-Review Iteration {}/{}** — Issues found, fixing...",
+            iteration + 1,
+            max_iterations
+        )
     };
-    assert_eq!(status, "🔄 **Auto-Review Iteration 3/3** — Last chance! Fixing issues...");
+    assert_eq!(
+        status,
+        "🔄 **Auto-Review Iteration 3/3** — Last chance! Fixing issues..."
+    );
 }
 
 // =============================================================================
@@ -1110,24 +1224,47 @@ fn test_extract_context_from_history_includes_agent_feedback() {
         Message::tool("call_1", "file_write result"),
         // Simulated fix prompt from auto-review loop - content should be filtered
         Message::user("fix the issues found in the code review (iteration 1/3)"),
-        Message::assistant("The README language issue is not a real problem — the project uses English by convention. I'll fix the actual bugs though."),
+        Message::assistant(
+            "The README language issue is not a real problem — the project uses English by convention. I'll fix the actual bugs though.",
+        ),
         // Another fix prompt
         Message::user("Auto-Review Iteration 2/3 - Fix Required"),
     ];
 
     let context = ReviewAgent::extract_context_from_history(&history);
-    
+
     // Should contain the original user request
-    assert!(context.contains("Add a CSV parser"), "Should keep original user request");
+    assert!(
+        context.contains("Add a CSV parser"),
+        "Should keep original user request"
+    );
     // Should NOT contain fix prompt content
-    assert!(!context.contains("fix the issues found"), "Should filter out fix prompts");
-    assert!(!context.contains("Auto-Review Iteration"), "Should filter out iteration messages");
-    assert!(!context.contains("Fix Required"), "Should filter out fix required messages");
+    assert!(
+        !context.contains("fix the issues found"),
+        "Should filter out fix prompts"
+    );
+    assert!(
+        !context.contains("Auto-Review Iteration"),
+        "Should filter out iteration messages"
+    );
+    assert!(
+        !context.contains("Fix Required"),
+        "Should filter out fix required messages"
+    );
     // Should include the main agent's response as Previous Iteration Feedback
-    assert!(context.contains("Previous Iteration Feedback"), "Should include feedback section");
-    assert!(context.contains("README language issue is not a real problem"), "Should include agent's response to review");
+    assert!(
+        context.contains("Previous Iteration Feedback"),
+        "Should include feedback section"
+    );
+    assert!(
+        context.contains("README language issue is not a real problem"),
+        "Should include agent's response to review"
+    );
     // Should NOT contain "What Was Implemented" since last assistant follows a fix prompt
-    assert!(!context.contains("What Was Implemented"), "Should skip What Was Implemented for fix responses");
+    assert!(
+        !context.contains("What Was Implemented"),
+        "Should skip What Was Implemented for fix responses"
+    );
 }
 
 /// Test extract_context_from_history: returns empty string when all messages are
@@ -1140,7 +1277,10 @@ fn test_extract_context_from_history_only_fix_prompts() {
     ];
 
     let context = ReviewAgent::extract_context_from_history(&history);
-    assert!(context.is_empty(), "Should return empty when only fix prompts with no agent responses");
+    assert!(
+        context.is_empty(),
+        "Should return empty when only fix prompts with no agent responses"
+    );
 }
 
 /// Test extract_context_from_history: includes original request + recent follow-up
@@ -1156,15 +1296,27 @@ fn test_extract_context_from_history_includes_original_and_recent() {
     ];
 
     let context = ReviewAgent::extract_context_from_history(&history);
-    
+
     // Should contain the original request (always included)
-    assert!(context.contains("First question"), "Should contain original request");
+    assert!(
+        context.contains("First question"),
+        "Should contain original request"
+    );
     // Should contain the follow-up (between first user and last assistant)
-    assert!(context.contains("Second question"), "Should contain follow-up message");
+    assert!(
+        context.contains("Second question"),
+        "Should contain follow-up message"
+    );
     // Messages after last assistant are not included
-    assert!(!context.contains("Third question"), "Should NOT contain message after last assistant");
+    assert!(
+        !context.contains("Third question"),
+        "Should NOT contain message after last assistant"
+    );
     // No fix prompts → no Previous Iteration Feedback
-    assert!(!context.contains("Previous Iteration Feedback"), "Should not have feedback section when no fix prompts");
+    assert!(
+        !context.contains("Previous Iteration Feedback"),
+        "Should not have feedback section when no fix prompts"
+    );
 }
 
 // =============================================================================
@@ -1181,7 +1333,8 @@ fn test_functional_completeness_category() {
         severity: Severity::Critical,
         category: ReviewCategory::FunctionalCompleteness,
         title: "Missing sorting implementation".to_string(),
-        description: "User requested sorting by first column, but no sort function is called.".to_string(),
+        description: "User requested sorting by first column, but no sort function is called."
+            .to_string(),
         suggestion: Some("Add a sort step before writing output".to_string()),
         code_snippet: None,
         fix_example: None,
@@ -1206,9 +1359,13 @@ fn test_review_issue_with_functional_completeness() {
         severity: Severity::High,
         category: ReviewCategory::FunctionalCompleteness,
         title: "Partial implementation".to_string(),
-        description: "Only file reading is implemented, sorting and writing are missing".to_string(),
+        description: "Only file reading is implemented, sorting and writing are missing"
+            .to_string(),
         suggestion: Some("Implement the missing sort and write functions".to_string()),
-        code_snippet: Some("fn process(path: &str) { let data = fs::read(path); } \n    // TODO: sort and write".to_string()),
+        code_snippet: Some(
+            "fn process(path: &str) { let data = fs::read(path); } \n    // TODO: sort and write"
+                .to_string(),
+        ),
         fix_example: None,
     };
 
@@ -1231,20 +1388,18 @@ fn test_verdict_with_functional_completeness_issue_is_needs_revision() {
             info_count: 0,
             verdict: ReviewVerdict::NeedsRevision,
         },
-        issues: vec![
-            ReviewIssue {
-                file: "src/main.rs".to_string(),
-                line: Some(1),
-                end_line: None,
-                severity: Severity::High,
-                category: ReviewCategory::FunctionalCompleteness,
-                title: "Missing feature".to_string(),
-                description: "Sorting not implemented".to_string(),
-                suggestion: None,
-                code_snippet: None,
-                fix_example: None,
-            },
-        ],
+        issues: vec![ReviewIssue {
+            file: "src/main.rs".to_string(),
+            line: Some(1),
+            end_line: None,
+            severity: Severity::High,
+            category: ReviewCategory::FunctionalCompleteness,
+            title: "Missing feature".to_string(),
+            description: "Sorting not implemented".to_string(),
+            suggestion: None,
+            code_snippet: None,
+            fix_example: None,
+        }],
         changed_files: vec![],
         metrics: CodeMetrics {
             files_changed: 0,
@@ -1257,7 +1412,10 @@ fn test_verdict_with_functional_completeness_issue_is_needs_revision() {
 
     // NeedsRevision should trigger fix loop
     let should_fix = true && report.summary.verdict != ReviewVerdict::Approved;
-    assert!(should_fix, "Functional completeness issue should trigger fix loop");
+    assert!(
+        should_fix,
+        "Functional completeness issue should trigger fix loop"
+    );
 }
 
 /// Test that a report with LLM saying 'approved' but with issues is downgraded
@@ -1289,8 +1447,11 @@ fn test_verdict_downgrade_from_approved_when_issues_exist() {
         ReviewVerdict::NeedsRevision
     };
 
-    assert_eq!(actual_verdict, ReviewVerdict::NeedsRevision,
-        "Should downgrade approved to needs_revision when functional_completeness issues exist");
+    assert_eq!(
+        actual_verdict,
+        ReviewVerdict::NeedsRevision,
+        "Should downgrade approved to needs_revision when functional_completeness issues exist"
+    );
 }
 
 // =============================================================================
@@ -1365,7 +1526,8 @@ fn test_scenario_half_implementation() {
 /// Simulate scenario: user asks for feature with wiring/configuration
 #[test]
 fn test_scenario_missing_configuration() {
-    let _user_request = "Add a new middleware that logs all HTTP requests and register it in the app router.";
+    let _user_request =
+        "Add a new middleware that logs all HTTP requests and register it in the app router.";
     let code_diff = "+ pub struct RequestLogger;\n+ impl Middleware for RequestLogger {\n+     fn handle(&self, req: &Request) -> Response {\n+         println!(\"Request: {} {}\", req.method(), req.path());\n+         req.next()\n+     }\n+ }";
 
     // Middleware is defined but NOT registered in the router
@@ -1452,16 +1614,51 @@ fn test_review_coverage_table_format() {
     assert!(output.contains("🔍 Review Coverage"));
 
     // Calculate per-category counts (mirrors the real implementation)
-    let func_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::FunctionalCompleteness)).count();
-    let sec_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::Security)).count();
-    let bug_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::BugRisk)).count();
-    let perf_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::Performance)).count();
-    let err_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::ErrorHandling)).count();
-    let maint_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::Maintainability)).count();
-    let style_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::Style)).count();
-    let conc_count = report.issues.iter().filter(|i| matches!(i.category, ReviewCategory::Concurrency)).count();
+    let func_count = report
+        .issues
+        .iter()
+        .filter(|i| matches!(i.category, ReviewCategory::FunctionalCompleteness))
+        .count();
+    let sec_count = report
+        .issues
+        .iter()
+        .filter(|i| matches!(i.category, ReviewCategory::Security))
+        .count();
+    let bug_count = report
+        .issues
+        .iter()
+        .filter(|i| matches!(i.category, ReviewCategory::BugRisk))
+        .count();
+    let perf_count = report
+        .issues
+        .iter()
+        .filter(|i| matches!(i.category, ReviewCategory::Performance))
+        .count();
+    let err_count = report
+        .issues
+        .iter()
+        .filter(|i| matches!(i.category, ReviewCategory::ErrorHandling))
+        .count();
+    let maint_count = report
+        .issues
+        .iter()
+        .filter(|i| matches!(i.category, ReviewCategory::Maintainability))
+        .count();
+    let style_count = report
+        .issues
+        .iter()
+        .filter(|i| matches!(i.category, ReviewCategory::Style))
+        .count();
+    let conc_count = report
+        .issues
+        .iter()
+        .filter(|i| matches!(i.category, ReviewCategory::Concurrency))
+        .count();
 
-    assert_eq!(func_count, 2, "Functional Completeness should have 2 issues");
+    assert_eq!(
+        func_count, 2,
+        "Functional Completeness should have 2 issues"
+    );
     assert_eq!(sec_count, 1, "Security should have 1 issue");
     assert_eq!(bug_count, 0, "BugRisk should have 0 issues");
     assert_eq!(perf_count, 0, "Performance should have 0 issues");
@@ -1475,7 +1672,11 @@ fn test_review_coverage_table_format() {
     for issue in &report.issues {
         seen_categories.insert(std::mem::discriminant(&issue.category));
     }
-    assert_eq!(seen_categories.len(), 2, "Should have 2 categories with issues");
+    assert_eq!(
+        seen_categories.len(),
+        2,
+        "Should have 2 categories with issues"
+    );
 }
 
 /// Test that the fix prompt contains the Review Coverage section
@@ -1559,8 +1760,16 @@ fn test_review_coverage_empty_report() {
         ReviewCategory::Style,
         ReviewCategory::Concurrency,
     ] {
-        let count = report.issues.iter().filter(|i| i.category == *category).count();
-        assert_eq!(count, 0, "Category {:?} should have 0 issues in empty report", category);
+        let count = report
+            .issues
+            .iter()
+            .filter(|i| i.category == *category)
+            .count();
+        assert_eq!(
+            count, 0,
+            "Category {:?} should have 0 issues in empty report",
+            category
+        );
     }
 }
 
@@ -1572,24 +1781,40 @@ use my_code_agent::core::agent::stream::is_auto_fix_prompt;
 
 #[test]
 fn test_is_auto_fix_prompt_build_fix_prompt() {
-    assert!(is_auto_fix_prompt("## 🔄 Code Review - Iteration 1/3 — Fix Required\n\nSome issues found..."));
-    assert!(is_auto_fix_prompt("## 🔄 Code Review - Iteration 2/3 — Fix Required\n\nMore issues..."));
-    assert!(is_auto_fix_prompt("## 🔄 Code Review - Iteration 3/3 — Last chance!\n\nFinal fixes..."));
+    assert!(is_auto_fix_prompt(
+        "## 🔄 Code Review - Iteration 1/3 — Fix Required\n\nSome issues found..."
+    ));
+    assert!(is_auto_fix_prompt(
+        "## 🔄 Code Review - Iteration 2/3 — Fix Required\n\nMore issues..."
+    ));
+    assert!(is_auto_fix_prompt(
+        "## 🔄 Code Review - Iteration 3/3 — Last chance!\n\nFinal fixes..."
+    ));
 }
 
 #[test]
 fn test_is_auto_fix_prompt_fallback_format() {
-    assert!(is_auto_fix_prompt("Please fix the issues found in the code review (iteration 1/3). The review needs revision."));
-    assert!(is_auto_fix_prompt("Please fix the issues found in the code review (iteration 2/3) so the code passes review."));
+    assert!(is_auto_fix_prompt(
+        "Please fix the issues found in the code review (iteration 1/3). The review needs revision."
+    ));
+    assert!(is_auto_fix_prompt(
+        "Please fix the issues found in the code review (iteration 2/3) so the code passes review."
+    ));
 }
 
 #[test]
 fn test_is_auto_fix_prompt_negative_cases() {
-    assert!(!is_auto_fix_prompt("Add a CSV parser that reads a file and sorts by column"));
-    assert!(!is_auto_fix_prompt("Here's the implementation of the sort function"));
+    assert!(!is_auto_fix_prompt(
+        "Add a CSV parser that reads a file and sorts by column"
+    ));
+    assert!(!is_auto_fix_prompt(
+        "Here's the implementation of the sort function"
+    ));
     assert!(!is_auto_fix_prompt(""));
     assert!(!is_auto_fix_prompt("Code Review - Iteration"));
-    assert!(!is_auto_fix_prompt("Please fix the issues found in the linter"));
+    assert!(!is_auto_fix_prompt(
+        "Please fix the issues found in the linter"
+    ));
     assert!(!is_auto_fix_prompt("## Code Review - Iteration 1/3")); // missing 🔄
 }
 
@@ -1601,19 +1826,17 @@ fn test_is_auto_fix_prompt_edge_cases() {
     assert!(!is_auto_fix_prompt("Please fix the issues")); // incomplete match
 }
 
-
-
 // =============================================================================
 // Tests for should_auto_review
 // =============================================================================
 
-use std::sync::Arc;
 use my_code_agent::core::agent::client::LlmClient;
 use my_code_agent::core::agent::orchestrator::AgentOrchestrator;
 use my_code_agent::core::agent::preamble::Agent;
 use my_code_agent::core::config::Config;
 use my_code_agent::core::types::{ToolCall, ToolCallFunction};
 use my_code_agent::tools::ToolRegistry;
+use std::sync::Arc;
 
 /// Helper: create a minimal AgentOrchestrator with auto-review set to the given value
 fn make_orchestrator(auto_review_enabled: bool) -> AgentOrchestrator {
@@ -1625,7 +1848,12 @@ fn make_orchestrator(auto_review_enabled: bool) -> AgentOrchestrator {
         ToolRegistry::new(),
     ));
     let rcfg = my_code_agent::core::types::review::ReviewConfig::from_app_config(&config.review);
-    let review_agent = Arc::new(ReviewAgent::new(client, rcfg.clone(), "reasoning_content".to_string(), "collapsed".to_string()));
+    let review_agent = Arc::new(ReviewAgent::new(
+        client,
+        rcfg.clone(),
+        "reasoning_content".to_string(),
+        "collapsed".to_string(),
+    ));
 
     AgentOrchestrator {
         main_agent: agent,
@@ -1640,7 +1868,10 @@ fn write_tc(id: &str) -> ToolCall {
     ToolCall {
         id: id.to_string(),
         type_: "function".to_string(),
-        function: ToolCallFunction { name: "file_write".into(), arguments: "{}".into() },
+        function: ToolCallFunction {
+            name: "file_write".into(),
+            arguments: "{}".into(),
+        },
     }
 }
 
@@ -1649,7 +1880,10 @@ fn update_tc(id: &str) -> ToolCall {
     ToolCall {
         id: id.to_string(),
         type_: "function".to_string(),
-        function: ToolCallFunction { name: "file_update".into(), arguments: "{}".into() },
+        function: ToolCallFunction {
+            name: "file_update".into(),
+            arguments: "{}".into(),
+        },
     }
 }
 
@@ -1658,7 +1892,10 @@ fn delete_tc(id: &str) -> ToolCall {
     ToolCall {
         id: id.to_string(),
         type_: "function".to_string(),
-        function: ToolCallFunction { name: "file_delete".into(), arguments: "{}".into() },
+        function: ToolCallFunction {
+            name: "file_delete".into(),
+            arguments: "{}".into(),
+        },
     }
 }
 
@@ -1667,7 +1904,10 @@ fn patch_tc(id: &str) -> ToolCall {
     ToolCall {
         id: id.to_string(),
         type_: "function".to_string(),
-        function: ToolCallFunction { name: "apply_patch".into(), arguments: "{}".into() },
+        function: ToolCallFunction {
+            name: "apply_patch".into(),
+            arguments: "{}".into(),
+        },
     }
 }
 
@@ -1676,13 +1916,19 @@ fn read_tc(id: &str) -> ToolCall {
     ToolCall {
         id: id.to_string(),
         type_: "function".to_string(),
-        function: ToolCallFunction { name: "file_read".into(), arguments: "{}".into() },
+        function: ToolCallFunction {
+            name: "file_read".into(),
+            arguments: "{}".into(),
+        },
     }
 }
 
 /// Helper: create a tool result message for a file write operation
 fn tool_result(id: &str, path: &str) -> Message {
-    Message::tool(id, serde_json::json!({"path": path, "bytes_written": 100}).to_string())
+    Message::tool(
+        id,
+        serde_json::json!({"path": path, "bytes_written": 100}).to_string(),
+    )
 }
 
 /// Test 1: Latest assistant turn has a file_write tool call → should return true
@@ -1700,9 +1946,7 @@ fn test_should_auto_review_recent_write_returns_true() {
 #[test]
 fn test_should_auto_review_no_tool_calls_returns_false() {
     let orch = make_orchestrator(true);
-    let history = vec![
-        Message::assistant("Here's my analysis."),
-    ];
+    let history = vec![Message::assistant("Here's my analysis.")];
     assert!(!orch.should_auto_review(&history));
 }
 
@@ -1712,7 +1956,10 @@ fn test_should_auto_review_read_only_returns_false() {
     let orch = make_orchestrator(true);
     let history = vec![
         Message::assistant_with_tool_calls("Reading...", vec![read_tc("call_1")]),
-        Message::tool("call_1", serde_json::json!({"path": "src/main.rs", "lines": 10, "total_lines": 100}).to_string()),
+        Message::tool(
+            "call_1",
+            serde_json::json!({"path": "src/main.rs", "lines": 10, "total_lines": 100}).to_string(),
+        ),
     ];
     assert!(!orch.should_auto_review(&history));
 }
@@ -1878,11 +2125,8 @@ fn test_review_baseline_incremental_diff() {
     run_git(&["config", "user.name", "Test"]);
 
     // 初始提交：file_a.rs 包含 main 函数
-    std::fs::write(
-        "lib.rs",
-        "fn main() {\n    println!(\"v1\");\n}\n",
-    )
-    .expect("Failed to write lib.rs");
+    std::fs::write("lib.rs", "fn main() {\n    println!(\"v1\");\n}\n")
+        .expect("Failed to write lib.rs");
     run_git(&["add", "lib.rs"]);
     run_git(&["commit", "-m", "Initial"]);
 
@@ -1902,8 +2146,8 @@ fn test_review_baseline_incremental_diff() {
     assert!(r1_added > 0);
 
     // 创建基线
-    let baseline_sha = AgentOrchestrator::create_review_baseline()
-        .expect("Should create baseline after round 1");
+    let baseline_sha =
+        AgentOrchestrator::create_review_baseline().expect("Should create baseline after round 1");
     assert!(!baseline_sha.is_empty());
 
     // 基线精确捕获当前状态
@@ -1937,9 +2181,11 @@ fn test_review_baseline_incremental_diff() {
     );
     // 增量行数应恰好等于第 2 轮新增的行
     let round2_added = cum_added - r1_added;
-    assert_eq!(inc_added, round2_added,
+    assert_eq!(
+        inc_added, round2_added,
         "incremental ({}) should equal round2 only ({})",
-        inc_added, round2_added);
+        inc_added, round2_added
+    );
 }
 
 #[test]
@@ -1977,7 +2223,8 @@ fn test_detect_changed_files_non_git_directory() {
     assert!(changes.is_empty());
 
     // 无效基线也不 panic
-    let changes_with_baseline = rt.block_on(orch.detect_changed_files_from_git(Some("invalid-sha")));
+    let changes_with_baseline =
+        rt.block_on(orch.detect_changed_files_from_git(Some("invalid-sha")));
     assert!(changes_with_baseline.is_empty());
 }
 
@@ -2002,9 +2249,16 @@ fn test_review_baseline_full_lifecycle() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
     // ---- Round 1 ----
-    std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x\"\n}\n").expect("Failed");
+    std::fs::write(
+        "lib.rs",
+        "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x\"\n}\n",
+    )
+    .expect("Failed");
     let sha1 = AgentOrchestrator::create_review_baseline().expect("Round 1 baseline");
-    assert!(rt.block_on(orch.detect_changed_files_from_git(Some(&sha1))).is_empty());
+    assert!(
+        rt.block_on(orch.detect_changed_files_from_git(Some(&sha1)))
+            .is_empty()
+    );
 
     // ---- Round 2 ----
     std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x\"\n}\n\npub fn feature_y() -> &'static str {\n    \"feature_y\"\n}\n").expect("Failed");
@@ -2021,7 +2275,10 @@ fn test_review_baseline_full_lifecycle() {
     // 第 2 次基线
     let sha2 = AgentOrchestrator::create_review_baseline().expect("Round 2 baseline");
     assert_ne!(sha1, sha2);
-    assert!(rt.block_on(orch.detect_changed_files_from_git(Some(&sha2))).is_empty());
+    assert!(
+        rt.block_on(orch.detect_changed_files_from_git(Some(&sha2)))
+            .is_empty()
+    );
 
     // ---- Round 3 ----
     std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x_updated\"\n}\n\npub fn feature_y() -> &'static str {\n    \"feature_y\"\n}\n").expect("Failed");

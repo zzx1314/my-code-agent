@@ -3,8 +3,10 @@ use crate::app::App;
 /// Generate help text
 pub fn handle(app: &mut App) -> bool {
     let help_text = generate_help_text();
-    app.chat_history.push(crate::app::ChatEntry::user("/help".to_string()));
-    app.chat_history.push(crate::app::ChatEntry::assistant(help_text));
+    app.chat_history
+        .push(crate::app::ChatEntry::user("/help".to_string()));
+    app.chat_history
+        .push(crate::app::ChatEntry::assistant(help_text));
     app.show_banner = false;
     app.auto_scroll = true;
     app.scroll = u16::MAX;

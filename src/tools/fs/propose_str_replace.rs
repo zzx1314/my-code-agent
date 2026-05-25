@@ -32,11 +32,10 @@ impl Tool for ProposeStrReplace {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: self.name().to_string(),
-            description:
-                "Preview a string replacement without writing to disk. Returns the diff \
+            description: "Preview a string replacement without writing to disk. Returns the diff \
                  that would result from the change. Use this to verify changes before \
                  applying them. Works identically to str_replace but does NOT modify the file."
-                    .to_string(),
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -67,8 +66,9 @@ impl Tool for ProposeStrReplace {
         let args: ProposeStrReplaceArgs =
             serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        let content =
-            tokio::fs::read_to_string(&args.path).await.map_err(|e| e.to_string())?;
+        let content = tokio::fs::read_to_string(&args.path)
+            .await
+            .map_err(|e| e.to_string())?;
 
         let count = content.matches(&args.old_string).count();
 
@@ -94,8 +94,16 @@ impl Tool for ProposeStrReplace {
 
         let old_lines = content.lines().count();
         let new_lines = new_content.lines().count();
-        let lines_added = if new_lines > old_lines { new_lines - old_lines } else { 0 };
-        let lines_removed = if old_lines > new_lines { old_lines - new_lines } else { 0 };
+        let lines_added = if new_lines > old_lines {
+            new_lines - old_lines
+        } else {
+            0
+        };
+        let lines_removed = if old_lines > new_lines {
+            old_lines - new_lines
+        } else {
+            0
+        };
 
         serde_json::to_string(&ProposeStrReplaceOutput {
             path: args.path,
@@ -180,13 +188,18 @@ fn generate_diff(old_content: &str, new_content: &str, path: &str) -> String {
 }
 
 fn content_line_at(content: &str, byte_offset: usize) -> usize {
-    content[..byte_offset.min(content.len())].lines().count().saturating_sub(1)
+    content[..byte_offset.min(content.len())]
+        .lines()
+        .count()
+        .saturating_sub(1)
 }
 
 fn minimal_hdiff(old_content: &str, new_content: &str, path: &str, line: usize) -> String {
     let old_lines: Vec<&str> = old_content.lines().collect();
     let new_lines: Vec<&str> = new_content.lines().collect();
-    let line = line.min(old_lines.len().saturating_sub(1)).min(new_lines.len().saturating_sub(1));
+    let line = line
+        .min(old_lines.len().saturating_sub(1))
+        .min(new_lines.len().saturating_sub(1));
 
     let mut diff = String::new();
     diff.push_str(&format!("--- a/{path}\n"));

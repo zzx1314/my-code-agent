@@ -39,10 +39,10 @@
 use crate::ui::codex_md::render::highlight::highlight_code_to_lines;
 use crate::ui::codex_md::render::line_utils::line_to_static;
 use crate::ui::codex_md::render::line_utils::push_owned_lines;
+use crate::ui::codex_md::string_util::normalize_markdown_hash_location_suffix;
 use crate::ui::codex_md::wrapping::RtOptions;
 use crate::ui::codex_md::wrapping::adaptive_wrap_line;
 use crate::ui::codex_md::wrapping::word_wrap_line;
-use crate::ui::codex_md::string_util::normalize_markdown_hash_location_suffix;
 use dirs::home_dir;
 use pulldown_cmark::Alignment;
 use pulldown_cmark::CodeBlockKind;
@@ -1964,4 +1964,3 @@ fn display_local_link_path(path_text: &str, cwd: Option<&Path>) -> String {
 
     path_text
 }
-

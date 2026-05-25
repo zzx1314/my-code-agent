@@ -62,13 +62,16 @@ impl Tool for FileOutline {
                         path: args.path,
                         total_lines: info.total_lines,
                         outline: info.format_message(),
-                    }).map_err(|e| e.to_string());
+                    })
+                    .map_err(|e| e.to_string());
                 }
                 crate::core::context::tool_dedup::DedupAction::Allow => {}
             }
         }
 
-        let content = tokio::fs::read_to_string(&args.path).await.map_err(|e| e.to_string())?;
+        let content = tokio::fs::read_to_string(&args.path)
+            .await
+            .map_err(|e| e.to_string())?;
         let total_lines = content.lines().count();
 
         let outline = if let Some(parsed) = ParsedFile::parse_with_path(content, &args.path) {
@@ -92,5 +95,3 @@ impl Tool for FileOutline {
         .map_err(|e| e.to_string())
     }
 }
-
-

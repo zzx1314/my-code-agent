@@ -2,10 +2,7 @@ use my_code_agent::tools::FileDelete;
 use my_code_agent::tools::Tool;
 use std::fs;
 
-async fn call_delete(
-    path: &str,
-    recursive: bool,
-) -> Result<String, String> {
+async fn call_delete(path: &str, recursive: bool) -> Result<String, String> {
     let args = serde_json::to_value(my_code_agent::tools::file_delete::FileDeleteArgs {
         path: path.to_string(),
         recursive,

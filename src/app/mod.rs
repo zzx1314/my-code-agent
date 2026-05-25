@@ -1,14 +1,14 @@
-use crate::core::config::Config;
 use crate::core::agent::preamble::Agent;
 use crate::core::agent::stream_response::{StreamEvent, StreamResult};
+use crate::core::config::Config;
 use crate::core::context::token_usage::TokenUsage;
 use crate::tools::exec::confirmation::ConfirmationRequest;
+use crate::ui::textarea::TextArea;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Instant;
 use tokio::sync::mpsc;
-use crate::ui::textarea::TextArea;
 
 // App initialization & project knowledge (/init command)
 pub mod bootstrap;
@@ -73,7 +73,10 @@ impl ChatEntry {
         }
     }
 
-    pub fn assistant_with_reasoning(content: impl Into<String>, reasoning: impl Into<String>) -> Self {
+    pub fn assistant_with_reasoning(
+        content: impl Into<String>,
+        reasoning: impl Into<String>,
+    ) -> Self {
         let r = reasoning.into();
         Self {
             role: "assistant".into(),
@@ -242,9 +245,11 @@ pub struct App {
     /// Whether a review is in progress
     pub is_reviewing: bool,
     /// Receiver for review events (progress updates)
-    pub review_event_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::commands::review::ReviewEvent>>,
+    pub review_event_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::commands::review::ReviewEvent>>,
     /// Receiver for review result
-    pub review_result_rx: Option<tokio::sync::mpsc::Receiver<crate::core::types::review::ReviewOutcome>>,
+    pub review_result_rx:
+        Option<tokio::sync::mpsc::Receiver<crate::core::types::review::ReviewOutcome>>,
     /// Current auto-review iteration count (0 = first review cycle)
     pub review_iteration: usize,
     /// Transient message to show in status bar after review completes
@@ -362,7 +367,11 @@ impl App {
                 let opts = get_model_options_for_provider(&config.llm.provider);
                 if config.llm.provider == "custom" {
                     // For custom provider, use the model from config
-                    let model = config.llm.model.clone().unwrap_or_else(|| "custom-model".to_string());
+                    let model = config
+                        .llm
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| "custom-model".to_string());
                     vec![model]
                 } else {
                     opts
@@ -373,7 +382,12 @@ impl App {
             selection_mode: false,
             // Provider picker initialization
             show_provider_picker: false,
-            provider_options: vec!["deepseek".to_string(), "openrouter".to_string(), "ollama".to_string(), "custom".to_string()],
+            provider_options: vec![
+                "deepseek".to_string(),
+                "openrouter".to_string(),
+                "ollama".to_string(),
+                "custom".to_string(),
+            ],
             provider_selected: {
                 let p = config.llm.provider.as_str();
                 match p {
@@ -452,7 +466,10 @@ impl App {
 /// falls back to a small set of common model names.
 pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
     match provider {
-        "deepseek" => vec!["deepseek-v4-flash".to_string(), "deepseek-v4-pro".to_string()],
+        "deepseek" => vec![
+            "deepseek-v4-flash".to_string(),
+            "deepseek-v4-pro".to_string(),
+        ],
         "openrouter" => vec![
             // ── DeepSeek V4 ──────────────────────────────────────────────
             "deepseek/deepseek-v4-flash".to_string(),
@@ -461,7 +478,10 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
         ],
         "ollama" => fetch_ollama_models(),
         "custom" => vec!["custom-model".to_string()],
-        _ => vec!["deepseek-v4-flash".to_string(), "deepseek-v4-pro".to_string()],
+        _ => vec![
+            "deepseek-v4-flash".to_string(),
+            "deepseek-v4-pro".to_string(),
+        ],
     }
 }
 /// Apply provider configuration (API key env var, model options, model).
@@ -536,7 +556,11 @@ fn compute_user_message_bg() -> ratatui::style::Color {
 }
 
 fn fetch_ollama_models() -> Vec<String> {
-    let fallback = vec!["llama3.2".to_string(), "llama3.1".to_string(), "codellama".to_string()];
+    let fallback = vec![
+        "llama3.2".to_string(),
+        "llama3.1".to_string(),
+        "codellama".to_string(),
+    ];
 
     let client = HTTP_CLIENT.get_or_init(|| {
         reqwest::Client::builder()

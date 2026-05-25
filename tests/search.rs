@@ -1,8 +1,8 @@
 #[path = "search/code_search.rs"]
 mod code_search;
+#[path = "search/explore_context.rs"]
+mod explore_context;
 #[path = "search/glob.rs"]
 mod glob;
 #[path = "search/list_dir.rs"]
 mod list_dir;
-#[path = "search/explore_context.rs"]
-mod explore_context;

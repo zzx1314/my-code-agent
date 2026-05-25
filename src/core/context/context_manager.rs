@@ -186,7 +186,10 @@ impl ContextManager {
         }
         for msg in messages.iter_mut() {
             if msg.role == "tool" {
-                let is_orphan = msg.tool_call_id.as_ref().map_or(true, |id| !valid_ids.contains(id));
+                let is_orphan = msg
+                    .tool_call_id
+                    .as_ref()
+                    .map_or(true, |id| !valid_ids.contains(id));
                 if is_orphan {
                     *msg = Message::user("[tool content removed]");
                 }
@@ -216,7 +219,11 @@ impl ContextManager {
     /// `retain_percent` specifies the percentage of the context window to retain (1-99).
     ///
     /// Returns `None` if all messages fit within the retention budget.
-    pub fn find_compact_point_percent(&self, messages: &[Message], retain_percent: u64) -> Option<usize> {
+    pub fn find_compact_point_percent(
+        &self,
+        messages: &[Message],
+        retain_percent: u64,
+    ) -> Option<usize> {
         let retain_tokens = self.config.context.window_size * retain_percent / 100;
         let mut token_count = 0;
         for (i, msg) in messages.iter().enumerate().rev() {
@@ -260,8 +267,15 @@ impl ContextManager {
     /// Estimates the total token count for a list of messages, optionally
     /// including the preamble tokens.
     pub fn estimate_messages_tokens(&self, messages: &[Message], include_preamble: bool) -> u64 {
-        let preamble = if include_preamble { PREAMBLE_ESTIMATED_TOKENS } else { 0 };
-        let msgs: u64 = messages.iter().map(|m| Self::estimate_message_tokens(m)).sum();
+        let preamble = if include_preamble {
+            PREAMBLE_ESTIMATED_TOKENS
+        } else {
+            0
+        };
+        let msgs: u64 = messages
+            .iter()
+            .map(|m| Self::estimate_message_tokens(m))
+            .sum();
         preamble + msgs
     }
 

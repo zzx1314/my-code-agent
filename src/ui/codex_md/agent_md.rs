@@ -67,8 +67,11 @@ pub fn append_markdown_agent_with_cwd(
     lines: &mut Vec<Line<'static>>,
 ) {
     let normalized = unwrap_markdown_fences(markdown_source);
-    let rendered =
-        crate::ui::codex_md::markdown_render::render_markdown_text_with_width_and_cwd(&normalized, width, cwd);
+    let rendered = crate::ui::codex_md::markdown_render::render_markdown_text_with_width_and_cwd(
+        &normalized,
+        width,
+        cwd,
+    );
     crate::ui::codex_md::render::line_utils::push_owned_lines(&rendered.lines, lines);
 }
 
@@ -290,4 +293,3 @@ fn unwrap_markdown_fences<'a>(markdown_source: &'a str) -> Cow<'a, str> {
 
     Cow::Owned(out)
 }
-

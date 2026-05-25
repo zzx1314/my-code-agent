@@ -70,9 +70,7 @@ async fn test_delete_lines() {
     let path = dir.path().join("test.txt");
     fs::write(&path, "delete_me\nkeep_me").unwrap();
 
-    let result = call_update(path.to_str().unwrap(), 1, 1, "")
-        .await
-        .unwrap();
+    let result = call_update(path.to_str().unwrap(), 1, 1, "").await.unwrap();
     let output = parse_output(&result);
     assert_eq!(fs::read_to_string(&path).unwrap(), "keep_me");
     assert_eq!(output.replacements, 1);
@@ -162,9 +160,7 @@ async fn test_delete_with_trailing_newline() {
     let path = dir.path().join("test.txt");
     fs::write(&path, "delete_me\nkeep_me\n").unwrap();
 
-    let result = call_update(path.to_str().unwrap(), 1, 1, "")
-        .await
-        .unwrap();
+    let result = call_update(path.to_str().unwrap(), 1, 1, "").await.unwrap();
     let output = parse_output(&result);
     assert_eq!(fs::read_to_string(&path).unwrap(), "keep_me\n");
     assert_eq!(output.replacements, 1);
@@ -243,7 +239,10 @@ async fn test_new_content_with_leading_newline_in_replace_mode() {
         .unwrap();
     let output = parse_output(&result);
     // Should NOT have an extra blank line above "new_line2"
-    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nnew_line2\nline3");
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "line1\nnew_line2\nline3"
+    );
     assert_eq!(output.replacements, 1);
 }
 
@@ -258,7 +257,10 @@ async fn test_new_content_with_leading_newline_in_insert_mode() {
         .await
         .unwrap();
     let output = parse_output(&result);
-    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nnew_line2\nline3");
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "line1\nnew_line2\nline3"
+    );
     assert_eq!(output.replacements, 0);
 }
 
@@ -292,7 +294,10 @@ async fn test_new_content_with_trailing_newline() {
         .await
         .unwrap();
     let output = parse_output(&result);
-    assert_eq!(fs::read_to_string(&path).unwrap(), "line1\nreplacement\nline3");
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "line1\nreplacement\nline3"
+    );
     assert_eq!(output.replacements, 1);
 }
 
@@ -301,11 +306,7 @@ async fn test_new_content_with_brackets_and_trailing_newline() {
     // This simulates replacing a Rust function body — brackets {} and trailing newline
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.txt");
-    fs::write(
-        &path,
-        "fn old() {\n    old_stuff();\n}",
-    )
-    .unwrap();
+    fs::write(&path, "fn old() {\n    old_stuff();\n}").unwrap();
 
     // new_content with brackets and trailing \n
     let new_content = "fn new() {\n    new_stuff();\n}\n";
@@ -371,11 +372,7 @@ async fn test_closing_bracket_indent_mismatch() {
     // Without bracket-aware dedup, this produces "}}\n    }" → double bracket.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.rs");
-    fs::write(
-        &path,
-        "fn foo() {\n    body();\n}",
-    )
-    .unwrap();
+    fs::write(&path, "fn foo() {\n    body();\n}").unwrap();
 
     // LLM replaces body but includes "}" without indent; preserved line is "}"
     let result = call_update(path.to_str().unwrap(), 2, 1, "    new_body();\n}")
@@ -394,11 +391,7 @@ async fn test_closing_bracket_with_punctuation() {
     // LLM sends "};" but preserved line is "    };" — should still dedup.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.rs");
-    fs::write(
-        &path,
-        "struct Foo {\n    x: i32,\n};",
-    )
-    .unwrap();
+    fs::write(&path, "struct Foo {\n    x: i32,\n};").unwrap();
 
     let result = call_update(path.to_str().unwrap(), 2, 1, "    y: i32,\n};")
         .await
@@ -490,9 +483,14 @@ async fn test_insert_duplicate_first_line_dedup() {
     fs::write(&path, "prefix_line\n").unwrap();
 
     // Insert after line 1, but new_content INCORRECTLY includes "prefix_line"
-    let result = call_update(path.to_str().unwrap(), 2, 0, "prefix_line\nnew_line1\nnew_line2")
-        .await
-        .unwrap();
+    let result = call_update(
+        path.to_str().unwrap(),
+        2,
+        0,
+        "prefix_line\nnew_line1\nnew_line2",
+    )
+    .await
+    .unwrap();
     let output = parse_output(&result);
     // Should dedup the duplicate "prefix_line"
     assert_eq!(
@@ -551,11 +549,7 @@ async fn test_replace_mode_dedups_preceding_context_line() {
     // so bracket dedup also applies. This tests both dedups working together.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.rs");
-    fs::write(
-        &path,
-        "fn foo() {\n    let x = 1;\n    let y = 2;\n}",
-    )
-    .unwrap();
+    fs::write(&path, "fn foo() {\n    let x = 1;\n    let y = 2;\n}").unwrap();
 
     // Replace lines 2-3, new_content starts with "fn foo() {" (same as line 1)
     // The preceding line (line 1) matches first new_line → dedup removes it.
@@ -621,9 +615,7 @@ async fn test_insert_empty_new_content_no_dedup() {
     let path = dir.path().join("test.txt");
     fs::write(&path, "some_line\n").unwrap();
 
-    let result = call_update(path.to_str().unwrap(), 2, 0, "")
-        .await
-        .unwrap();
+    let result = call_update(path.to_str().unwrap(), 2, 0, "").await.unwrap();
     let output = parse_output(&result);
     assert_eq!(fs::read_to_string(&path).unwrap(), "some_line\n");
     assert_eq!(output.replacements, 0);

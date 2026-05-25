@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 /// Review severity level
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
-    Critical,  // Must fix
-    High,      // Should fix
-    Medium,    // Recommended to fix
-    Low,       // Could be improved
-    Info,      // For reference only
+    Critical, // Must fix
+    High,     // Should fix
+    Medium,   // Recommended to fix
+    Low,      // Could be improved
+    Info,     // For reference only
 }
 
 impl Severity {
@@ -188,8 +188,8 @@ pub struct ReviewSummary {
 /// Review verdict
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ReviewVerdict {
-    Approved,        // OK to merge
-    NeedsRevision,   // Needs changes
+    Approved,      // OK to merge
+    NeedsRevision, // Needs changes
 }
 
 impl ReviewVerdict {
@@ -217,7 +217,12 @@ impl ReviewReport {
                 self.changed_files.len(),
             )
         } else {
-            let top_issues: Vec<&str> = self.issues.iter().take(3).map(|i| i.title.as_str()).collect();
+            let top_issues: Vec<&str> = self
+                .issues
+                .iter()
+                .take(3)
+                .map(|i| i.title.as_str())
+                .collect();
             format!(
                 "⚠️ Found {} issues ({} critical, {} high) across {} files. Verdict: {}. Key concerns: {}.",
                 self.summary.total_issues,
@@ -244,12 +249,12 @@ pub struct CodeMetrics {
 #[derive(Debug, Clone)]
 pub struct ReviewConfig {
     pub enabled: bool,
-    pub auto_review: bool,                // Whether to auto-review
-    pub severity_threshold: Severity,     // Only report issues at or above this level
-    pub categories: Vec<ReviewCategory>,  // Categories to check
-    pub max_issues: usize,                // Maximum number of issues
-    pub include_suggestions: bool,        // Whether to include fix suggestions
-    pub max_review_iterations: usize,     // Maximum auto-review iterations (default 3)
+    pub auto_review: bool,               // Whether to auto-review
+    pub severity_threshold: Severity,    // Only report issues at or above this level
+    pub categories: Vec<ReviewCategory>, // Categories to check
+    pub max_issues: usize,               // Maximum number of issues
+    pub include_suggestions: bool,       // Whether to include fix suggestions
+    pub max_review_iterations: usize,    // Maximum auto-review iterations (default 3)
 }
 
 impl ReviewConfig {

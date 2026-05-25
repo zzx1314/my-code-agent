@@ -1,7 +1,7 @@
 use my_code_agent::app::App;
-use my_code_agent::core::config::Config;
 use my_code_agent::core::agent::client::LlmClient;
 use my_code_agent::core::agent::preamble::{Agent, build_preamble};
+use my_code_agent::core::config::Config;
 use my_code_agent::core::context::token_usage::TokenUsage;
 use my_code_agent::tools::ToolRegistry;
 use std::sync::Arc;

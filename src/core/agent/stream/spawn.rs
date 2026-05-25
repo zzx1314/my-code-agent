@@ -1,8 +1,8 @@
 use tokio::sync::mpsc;
 
 use crate::app::App;
-use crate::core::context::context_manager::ContextManager;
 use crate::core::agent::preamble::Agent;
+use crate::core::context::context_manager::ContextManager;
 
 use super::result::is_auto_fix_prompt;
 use super::state::reset_streaming_state;
@@ -26,7 +26,8 @@ pub fn send_message_to_llm(
     } else {
         input_text.clone()
     };
-    app.chat_history.push(crate::app::ChatEntry::user(display_text));
+    app.chat_history
+        .push(crate::app::ChatEntry::user(display_text));
     app.input = {
         let mut ta = TextArea::default();
         ta.set_cursor_line_style(ratatui::style::Style::default());
@@ -38,8 +39,8 @@ pub fn send_message_to_llm(
 
 /// Spawn an LLM streaming response
 pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, prompt: &str) {
-    use crate::core::context::expand_file_refs;
     use crate::core::agent::stream_response::{StreamResult, stream_response};
+    use crate::core::context::expand_file_refs;
     use crate::core::types::Message;
 
     let expanded = expand_file_refs(prompt, &app.config);
@@ -61,7 +62,8 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
     let mut token_usage_clone = app.token_usage.clone();
     let interrupt_rx = app.interrupt_tx.subscribe();
     let (response_tx, response_rx) = mpsc::channel::<StreamResult>(1);
-    let (event_tx, event_rx) = mpsc::unbounded_channel::<crate::core::agent::stream_response::StreamEvent>();
+    let (event_tx, event_rx) =
+        mpsc::unbounded_channel::<crate::core::agent::stream_response::StreamEvent>();
 
     let mut ctx_mgr = context_manager.clone();
     let prompt_owned = prompt.to_string();
@@ -101,7 +103,11 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
         // LLM, but chat_history syncs this back to the display, which should
         // show the user's original @reference, not raw file text.
         let mut result = result;
-        if let Some(last_user) = result.updated_history.iter_mut().rfind(|m| m.role == "user") {
+        if let Some(last_user) = result
+            .updated_history
+            .iter_mut()
+            .rfind(|m| m.role == "user")
+        {
             last_user.content = prompt_owned;
         }
 
@@ -110,9 +116,7 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
 }
 
 /// Rebuild the Agent from config (client, system prompt, tools)
-pub fn rebuild_agent(
-    config: &crate::core::config::Config,
-) -> anyhow::Result<Agent> {
+pub fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> {
     use crate::core::agent::preamble::build_client;
     use crate::core::agent::preamble::build_preamble;
     use crate::tools::create_mcp_tools;
@@ -120,7 +124,10 @@ pub fn rebuild_agent(
     let client = build_client(config);
     let system_prompt = build_preamble();
     let mut tools = crate::tools::ToolRegistry::from_config(config);
-    tools.register(crate::tools::SpawnAgents::new(client.clone(), config.llm.reasoning_field.clone()));
+    tools.register(crate::tools::SpawnAgents::new(
+        client.clone(),
+        config.llm.reasoning_field.clone(),
+    ));
     let mcp_tools = futures::executor::block_on(create_mcp_tools(config));
     for tool in mcp_tools {
         tools.register_boxed(tool);

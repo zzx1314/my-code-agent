@@ -1,5 +1,5 @@
-use my_code_agent::tools::code_search::{CodeSearch, CodeSearchArgs, CodeSearchOutput};
 use my_code_agent::tools::Tool;
+use my_code_agent::tools::code_search::{CodeSearch, CodeSearchArgs, CodeSearchOutput};
 use tempfile::TempDir;
 
 async fn search(

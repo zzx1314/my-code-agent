@@ -1,12 +1,8 @@
-use my_code_agent::tools::file_write::{FileWrite, FileWriteArgs, FileWriteOutput};
 use my_code_agent::tools::Tool;
+use my_code_agent::tools::file_write::{FileWrite, FileWriteArgs, FileWriteOutput};
 use tempfile::TempDir;
 
-async fn write_file(
-    path: &str,
-    content: &str,
-    create_dirs: bool,
-) -> Result<String, String> {
+async fn write_file(path: &str, content: &str, create_dirs: bool) -> Result<String, String> {
     let args = serde_json::to_value(FileWriteArgs {
         path: path.to_string(),
         content: content.to_string(),

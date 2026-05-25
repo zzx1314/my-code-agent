@@ -1,7 +1,7 @@
 use crate::core::config::Config;
 use crate::core::context::file_cache::get_global_file_cache;
-use crate::core::parser::ParsedFile;
 use crate::core::context::tool_dedup::get_global_tool_dedup;
+use crate::core::parser::ParsedFile;
 use crate::core::types::ToolDefinition;
 use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
@@ -135,7 +135,8 @@ impl Tool for FileRead {
                         start: info.start,
                         end: info.end,
                         truncated: false,
-                    }).map_err(|e| e.to_string());
+                    })
+                    .map_err(|e| e.to_string());
                 }
                 crate::core::context::tool_dedup::DedupAction::Allow => {}
             }
@@ -147,14 +148,18 @@ impl Tool for FileRead {
             // Check cache first (sync, under lock — lock is dropped before `.await`)
             let cached = {
                 let mut cache_guard = cache.lock().unwrap();
-                cache_guard.get(&args.path).map(|entry| entry.content.clone())
+                cache_guard
+                    .get(&args.path)
+                    .map(|entry| entry.content.clone())
             };
 
             if let Some(cached_content) = cached {
                 cached_content
             } else {
                 // Cache miss — read from disk asynchronously
-                let content = tokio::fs::read_to_string(&args.path).await.map_err(|e| e.to_string())?;
+                let content = tokio::fs::read_to_string(&args.path)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 // Update cache
                 let mut cache_guard = cache.lock().unwrap();
                 cache_guard.insert(&args.path, content.clone());
@@ -198,7 +203,12 @@ impl Tool for FileRead {
                 adjusted_end,
                 total_lines
             ));
-            for (i, line) in content.lines().skip(start).take(adjusted_end - start).enumerate() {
+            for (i, line) in content
+                .lines()
+                .skip(start)
+                .take(adjusted_end - start)
+                .enumerate()
+            {
                 if i > 0 {
                     output.push('\n');
                 }

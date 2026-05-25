@@ -63,17 +63,14 @@ impl Tool for FileWrite {
         if args.create_dirs
             && let Some(parent) = std::path::Path::new(&args.path).parent()
         {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| e.to_string())?;
         }
 
         // Use the shared tracking utility: write + undo + dedup invalidation + git diff
-        let (bytes_written, git_diff) = super::fs_write_with_tracking(
-            &args.path,
-            &args.content,
-            "file_write",
-            None,
-        )
-        .await?;
+        let (bytes_written, git_diff) =
+            super::fs_write_with_tracking(&args.path, &args.content, "file_write", None).await?;
 
         serde_json::to_string(&FileWriteOutput {
             path: args.path,

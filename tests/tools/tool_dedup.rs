@@ -16,7 +16,10 @@ fn test_dedup_first_read_is_allow() {
     let mut dedup = ToolCallDedup::new();
 
     let action = dedup_check(&mut dedup, &path, 0, 200);
-    assert!(matches!(action, DedupAction::Allow), "First read should be Allow");
+    assert!(
+        matches!(action, DedupAction::Allow),
+        "First read should be Allow"
+    );
 }
 
 #[test]
@@ -46,7 +49,10 @@ fn test_dedup_third_read_allows_full_re_read() {
     let _ = dedup_check(&mut dedup, &path, 0, 200);
     // Second hit → allow (model may have lost context)
     let action = dedup_check(&mut dedup, &path, 0, 200);
-    assert!(matches!(action, DedupAction::Allow), "Third read should Allow");
+    assert!(
+        matches!(action, DedupAction::Allow),
+        "Third read should Allow"
+    );
 }
 
 #[test]
@@ -59,9 +65,15 @@ fn test_dedup_short_circuit_message_format() {
     let action = dedup_check(&mut dedup, &path, 0, 200);
     if let DedupAction::ShortCircuit(info) = action {
         let msg = info.format_message();
-        assert!(msg.contains("[DEDUP]"), "Message should contain [DEDUP] prefix");
+        assert!(
+            msg.contains("[DEDUP]"),
+            "Message should contain [DEDUP] prefix"
+        );
         assert!(msg.contains(&path), "Message should contain file path");
-        assert!(msg.contains("conversation history"), "Message should reference conversation history");
+        assert!(
+            msg.contains("conversation history"),
+            "Message should reference conversation history"
+        );
     } else {
         panic!("Expected ShortCircuit");
     }
@@ -76,7 +88,10 @@ fn test_dedup_different_offset_not_duplicate() {
 
     // Different offset → not a duplicate
     let action = dedup_check(&mut dedup, &path, 1, 200);
-    assert!(matches!(action, DedupAction::Allow), "Different offset should be Allow");
+    assert!(
+        matches!(action, DedupAction::Allow),
+        "Different offset should be Allow"
+    );
 }
 
 #[test]
@@ -88,7 +103,10 @@ fn test_dedup_different_limit_not_duplicate() {
 
     // Different limit → not a duplicate
     let action = dedup_check(&mut dedup, &path, 0, 50);
-    assert!(matches!(action, DedupAction::Allow), "Different limit should be Allow");
+    assert!(
+        matches!(action, DedupAction::Allow),
+        "Different limit should be Allow"
+    );
 }
 
 #[test]
@@ -101,7 +119,10 @@ fn test_dedup_different_path_not_duplicate() {
 
     // Different path → not a duplicate
     let action = dedup_check(&mut dedup, &path2, 0, 200);
-    assert!(matches!(action, DedupAction::Allow), "Different path should be Allow");
+    assert!(
+        matches!(action, DedupAction::Allow),
+        "Different path should be Allow"
+    );
 }
 
 #[test]
@@ -116,7 +137,10 @@ fn test_dedup_invalidate_path_causes_re_read() {
 
     // Should be Allow again
     let action = dedup_check(&mut dedup, &path, 0, 200);
-    assert!(matches!(action, DedupAction::Allow), "After invalidation should be Allow");
+    assert!(
+        matches!(action, DedupAction::Allow),
+        "After invalidation should be Allow"
+    );
 }
 
 #[test]
@@ -131,7 +155,10 @@ fn test_dedup_reset_clears_all() {
 
     // Should be Allow again
     let action = dedup_check(&mut dedup, &path, 0, 200);
-    assert!(matches!(action, DedupAction::Allow), "After reset should be Allow");
+    assert!(
+        matches!(action, DedupAction::Allow),
+        "After reset should be Allow"
+    );
 }
 
 #[test]
@@ -147,7 +174,10 @@ fn test_dedup_modified_file_not_short_circuited() {
 
     // Should be Allow because file was modified
     let action = dedup_check(&mut dedup, &path, 0, 200);
-    assert!(matches!(action, DedupAction::Allow), "Modified file should be Allow");
+    assert!(
+        matches!(action, DedupAction::Allow),
+        "Modified file should be Allow"
+    );
 }
 
 #[test]

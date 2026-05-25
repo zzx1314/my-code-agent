@@ -80,7 +80,9 @@ impl Tool for FileUpdate {
     async fn call(&self, args: serde_json::Value) -> Result<String, String> {
         let args: FileUpdateArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        let content = tokio::fs::read_to_string(&args.path).await.map_err(|e| e.to_string())?;
+        let content = tokio::fs::read_to_string(&args.path)
+            .await
+            .map_err(|e| e.to_string())?;
         let has_trailing_newline = content.ends_with('\n');
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
@@ -123,7 +125,8 @@ impl Tool for FileUpdate {
 
         // 1. Preceding-line dedup: if the first line of new_content
         //    matches the line immediately before the edit point, remove it.
-        if !new_lines.is_empty() && args.start_line > 1
+        if !new_lines.is_empty()
+            && args.start_line > 1
             && new_lines[0] == lines[args.start_line - 2]
         {
             new_lines.remove(0);
@@ -133,15 +136,15 @@ impl Tool for FileUpdate {
         //    matches the first preserved line after the deletion range,
         //    remove it.
         let preserved_idx = args.start_line - 1 + args.delete_count;
-        if !new_lines.is_empty() && preserved_idx < total_lines
+        if !new_lines.is_empty()
+            && preserved_idx < total_lines
             && new_lines.last() == Some(&lines[preserved_idx])
         {
             new_lines.pop();
         }
 
-        let mut result_lines: Vec<&str> = Vec::with_capacity(
-            total_lines - args.delete_count + new_lines.len(),
-        );
+        let mut result_lines: Vec<&str> =
+            Vec::with_capacity(total_lines - args.delete_count + new_lines.len());
 
         result_lines.extend_from_slice(&lines[..args.start_line - 1]);
         result_lines.extend_from_slice(&new_lines);
@@ -164,7 +167,12 @@ impl Tool for FileUpdate {
         .await?;
 
         // Build a diff showing the line-level change
-        let diff = build_line_diff(args.start_line, args.delete_count, &args.new_content, &lines);
+        let diff = build_line_diff(
+            args.start_line,
+            args.delete_count,
+            &args.new_content,
+            &lines,
+        );
 
         serde_json::to_string(&FileUpdateOutput {
             path: args.path,

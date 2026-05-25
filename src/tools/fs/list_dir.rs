@@ -127,8 +127,12 @@ async fn list_dir_recursive(
     dir_entries.sort_by(|a, b| {
         // Directories first, then files; alphabetically within each group
         // Use blocking metadata lookup since we need sync sort
-        let a_is_dir = std::fs::metadata(a.path()).map(|m| m.is_dir()).unwrap_or(false);
-        let b_is_dir = std::fs::metadata(b.path()).map(|m| m.is_dir()).unwrap_or(false);
+        let a_is_dir = std::fs::metadata(a.path())
+            .map(|m| m.is_dir())
+            .unwrap_or(false);
+        let b_is_dir = std::fs::metadata(b.path())
+            .map(|m| m.is_dir())
+            .unwrap_or(false);
         match (a_is_dir, b_is_dir) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
@@ -138,7 +142,9 @@ async fn list_dir_recursive(
 
     for entry in dir_entries {
         let name = entry.file_name().to_string_lossy().to_string();
-        let is_dir = std::fs::metadata(entry.path()).map(|m| m.is_dir()).unwrap_or(false);
+        let is_dir = std::fs::metadata(entry.path())
+            .map(|m| m.is_dir())
+            .unwrap_or(false);
 
         if is_dir {
             *total_dirs += 1;
@@ -149,7 +155,8 @@ async fn list_dir_recursive(
                     current_depth + 1,
                     total_files,
                     total_dirs,
-                )).await;
+                ))
+                .await;
                 if kids.is_empty() { None } else { Some(kids) }
             } else {
                 None

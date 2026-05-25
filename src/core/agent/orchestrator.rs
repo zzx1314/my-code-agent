@@ -10,10 +10,10 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use super::preamble::Agent;
-use super::review_agent::{ReviewAgent, ReviewRequest, ReviewEvent};
+use super::review_agent::{ReviewAgent, ReviewEvent, ReviewRequest};
 use crate::core::config::Config;
-use crate::core::types::review::*;
 use crate::core::types::Message;
+use crate::core::types::review::*;
 
 /// Multi-Agent Coordinator
 pub struct AgentOrchestrator {
@@ -101,7 +101,10 @@ impl AgentOrchestrator {
                 false
             }
             Err(e) => {
-                tracing::warn!("detect_changed_files_from_git: failed to run git diff: {}", e);
+                tracing::warn!(
+                    "detect_changed_files_from_git: failed to run git diff: {}",
+                    e
+                );
                 false
             }
         };
@@ -117,18 +120,25 @@ impl AgentOrchestrator {
         {
             Ok(o) if o.status.success() => {
                 let output = String::from_utf8_lossy(&o.stdout);
-                output.lines()
+                output
+                    .lines()
                     .map(|l| l.trim().to_string())
                     .filter(|l| !l.is_empty())
                     .collect::<Vec<_>>()
             }
             Ok(o) => {
                 let stderr = String::from_utf8_lossy(&o.stderr);
-                tracing::warn!("detect_changed_files_from_git: git ls-files failed: {}", stderr);
+                tracing::warn!(
+                    "detect_changed_files_from_git: git ls-files failed: {}",
+                    stderr
+                );
                 Vec::new()
             }
             Err(e) => {
-                tracing::warn!("detect_changed_files_from_git: failed to run git ls-files: {}", e);
+                tracing::warn!(
+                    "detect_changed_files_from_git: failed to run git ls-files: {}",
+                    e
+                );
                 Vec::new()
             }
         };
@@ -196,14 +206,20 @@ impl AgentOrchestrator {
         {
             Ok(o) => o,
             Err(e) => {
-                tracing::warn!("create_review_baseline: failed to run git stash create: {}", e);
+                tracing::warn!(
+                    "create_review_baseline: failed to run git stash create: {}",
+                    e
+                );
                 return None;
             }
         };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            tracing::warn!("create_review_baseline: git stash create failed: {}", stderr);
+            tracing::warn!(
+                "create_review_baseline: git stash create failed: {}",
+                stderr
+            );
             return None;
         }
 
@@ -307,7 +323,9 @@ impl AgentOrchestrator {
             history_summary: history_summary.map(|s| s.to_string()),
         };
 
-        self.review_agent.review_with_events(&request, event_tx).await
+        self.review_agent
+            .review_with_events(&request, event_tx)
+            .await
     }
 
     /// Format a review coverage summary list showing what categories were checked
@@ -317,7 +335,10 @@ impl AgentOrchestrator {
         // Other ReviewCategory variants exist for config/extensibility
         // but are not produced by the current review pipeline.
         let all_categories: Vec<(ReviewCategory, &str)> = vec![
-            (ReviewCategory::FunctionalCompleteness, "Functional Completeness"),
+            (
+                ReviewCategory::FunctionalCompleteness,
+                "Functional Completeness",
+            ),
             (ReviewCategory::BugRisk, "Bug Risk"),
         ];
 
@@ -325,7 +346,11 @@ impl AgentOrchestrator {
         output.push_str("### 🔍 Review Coverage\n\n");
 
         for (category, label) in &all_categories {
-            let count = report.issues.iter().filter(|i| i.category == *category).count();
+            let count = report
+                .issues
+                .iter()
+                .filter(|i| i.category == *category)
+                .count();
             let icon = category.icon();
             let (status, status_icon) = if count > 0 {
                 ("Needs Attention", "⚠️")
@@ -376,11 +401,17 @@ impl AgentOrchestrator {
             "- Total Changes: +{} / -{} lines\n",
             report.metrics.total_lines_added, report.metrics.total_lines_removed
         ));
-        output.push_str(&format!("- Total Issues: {}\n\n", report.summary.total_issues));
+        output.push_str(&format!(
+            "- Total Issues: {}\n\n",
+            report.summary.total_issues
+        ));
 
         // Severity Distribution
         output.push_str("### Severity Distribution\n\n");
-        output.push_str(&format!("- 🔴 Critical: {}\n", report.summary.critical_count));
+        output.push_str(&format!(
+            "- 🔴 Critical: {}\n",
+            report.summary.critical_count
+        ));
         output.push_str(&format!("- 🟠 High: {}\n", report.summary.high_count));
         output.push_str(&format!("- 🟡 Medium: {}\n", report.summary.medium_count));
         output.push_str(&format!("- 🔵 Low: {}\n", report.summary.low_count));
@@ -469,7 +500,12 @@ impl AgentOrchestrator {
     }
 
     /// Build a fix prompt from a review report, asking the main agent to fix the issues.
-    pub fn build_fix_prompt(&self, report: &ReviewReport, iteration: usize, max_iterations: usize) -> String {
+    pub fn build_fix_prompt(
+        &self,
+        report: &ReviewReport,
+        iteration: usize,
+        max_iterations: usize,
+    ) -> String {
         let mut prompt = format!(
             "## 🔄 Code Review - Iteration {}/{} — Fix Required\n\n",
             iteration + 1,
@@ -477,10 +513,7 @@ impl AgentOrchestrator {
         );
 
         prompt.push_str("The code review has identified issues that need to be fixed. ");
-        prompt.push_str(&format!(
-            "Verdict: {}\n\n",
-            report.summary.verdict.label(),
-        ));
+        prompt.push_str(&format!("Verdict: {}\n\n", report.summary.verdict.label(),));
 
         // Inject review coverage summary — shows what was checked and what was found
         prompt.push_str(&self.format_review_coverage(report));
@@ -490,7 +523,10 @@ impl AgentOrchestrator {
                 "### Found {} Issues\n\n",
                 report.summary.total_issues
             ));
-            prompt.push_str(&format!("- 🔴 Critical: {}\n", report.summary.critical_count));
+            prompt.push_str(&format!(
+                "- 🔴 Critical: {}\n",
+                report.summary.critical_count
+            ));
             prompt.push_str(&format!("- 🟠 High: {}\n", report.summary.high_count));
             prompt.push_str(&format!("- 🟡 Medium: {}\n", report.summary.medium_count));
             prompt.push_str(&format!("- 🔵 Low: {}\n\n", report.summary.low_count));
@@ -512,7 +548,10 @@ impl AgentOrchestrator {
                     prompt.push_str(&format!("   - Suggestion: {}\n", suggestion));
                 }
                 if let Some(ref fix) = issue.fix_example {
-                    prompt.push_str(&format!("   - Fix example: `{}`\n", fix.lines().next().unwrap_or("").trim()));
+                    prompt.push_str(&format!(
+                        "   - Fix example: `{}`\n",
+                        fix.lines().next().unwrap_or("").trim()
+                    ));
                 }
                 prompt.push_str("\n");
             }
@@ -520,10 +559,11 @@ impl AgentOrchestrator {
             prompt.push_str("\nPlease fix ALL of the above issues. ");
             prompt.push_str(&format!(
                 "Focus on Critical ({}) and High ({}) severity issues first. ",
-                report.summary.critical_count,
-                report.summary.high_count,
+                report.summary.critical_count, report.summary.high_count,
             ));
-            prompt.push_str("After making the fixes, the code will be automatically reviewed again.\n");
+            prompt.push_str(
+                "After making the fixes, the code will be automatically reviewed again.\n",
+            );
         } else {
             prompt.push_str("No specific issues were listed. Please review the code carefully and make any necessary improvements.\n");
         }
@@ -573,8 +613,14 @@ impl AgentOrchestrator {
 
 /// Count added/removed lines from a unified diff string.
 fn count_diff_lines(diff: &str) -> (usize, usize) {
-    let added = diff.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
-    let removed = diff.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
+    let added = diff
+        .lines()
+        .filter(|l| l.starts_with('+') && !l.starts_with("+++"))
+        .count();
+    let removed = diff
+        .lines()
+        .filter(|l| l.starts_with('-') && !l.starts_with("---"))
+        .count();
     (added, removed)
 }
 

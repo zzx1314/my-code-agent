@@ -14,7 +14,11 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(client: LlmClient, system_prompt: String, tools: ToolRegistry) -> Self {
-        Self { client, system_prompt, tools }
+        Self {
+            client,
+            system_prompt,
+            tools,
+        }
     }
 }
 
@@ -246,14 +250,10 @@ pub fn build_client(config: &Config) -> LlmClient {
             .base_url
             .as_deref()
             .unwrap_or("http://localhost:11434/v1"),
-        Provider::Custom => config
-            .llm
-            .base_url
-            .as_deref()
-            .unwrap_or_else(|| {
-                tracing::error!("Custom provider requires base_url in config.toml");
-                std::process::exit(1);
-            }),
+        Provider::Custom => config.llm.base_url.as_deref().unwrap_or_else(|| {
+            tracing::error!("Custom provider requires base_url in config.toml");
+            std::process::exit(1);
+        }),
         _ => {
             tracing::warn!(provider = %provider.display_name(), "Provider not fully implemented, using DeepSeek endpoint");
             "https://api.deepseek.com/v1"

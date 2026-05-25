@@ -52,7 +52,8 @@ pub fn handle_enter_key(app: &mut App, context_manager: &mut ContextManager) {
             reset_input(app);
 
             tokio::spawn(async move {
-                let translated = translate::translate_chinese_to_english(&config, &input_text).await;
+                let translated =
+                    translate::translate_chinese_to_english(&config, &input_text).await;
                 let _ = tx.send(Ok(translated));
             });
             return;

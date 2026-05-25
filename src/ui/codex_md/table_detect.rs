@@ -238,4 +238,3 @@ pub(crate) fn strip_blockquote_prefix(line: &str) -> &str {
         rest = stripped.strip_prefix(' ').unwrap_or(stripped).trim_start();
     }
 }
-

@@ -49,7 +49,10 @@ pub fn process_streaming_events(app: &mut App) {
                     app.streaming_status.clear();
                     app.streaming_text.push_str(&delta);
                 }
-                Ok(crate::core::agent::stream_response::StreamEvent::ToolCall { name, arguments }) => {
+                Ok(crate::core::agent::stream_response::StreamEvent::ToolCall {
+                    name,
+                    arguments,
+                }) => {
                     // Don't clear or add newline here — ToolCall events for the same
                     // tool may arrive in multiple chunks with progressively more complete
                     // arguments. Just update the current tool call info.
@@ -58,7 +61,10 @@ pub fn process_streaming_events(app: &mut App) {
                     app.streaming_tool_result = None;
                     app.streaming_status.clear();
                 }
-                Ok(crate::core::agent::stream_response::StreamEvent::ToolResult { name, content }) => {
+                Ok(crate::core::agent::stream_response::StreamEvent::ToolResult {
+                    name,
+                    content,
+                }) => {
                     // Store the completed tool result for display during streaming
                     app.current_tool_call = None;
                     // If this is a todos result, also persist it in streaming_todos

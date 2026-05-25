@@ -78,7 +78,9 @@ impl Tool for ExploreContext {
 
         let terms = extract_terms(&args.query);
         if terms.is_empty() {
-            return Err("Could not extract meaningful search terms. Try a more specific query.".into());
+            return Err(
+                "Could not extract meaningful search terms. Try a more specific query.".into(),
+            );
         }
 
         let all_matches = run_rg_search(&terms).await?;
@@ -123,11 +125,7 @@ impl Tool for ExploreContext {
             let total_lines = content.lines().count();
             let parsed = ParsedFile::parse_with_path(content.clone(), path);
 
-            out.push_str(&format!(
-                "\n---\n\n### `{}` ({} matches)\n",
-                path,
-                ms.len()
-            ));
+            out.push_str(&format!("\n---\n\n### `{}` ({} matches)\n", path, ms.len()));
 
             if let Some(ref p) = parsed {
                 let structs = p.get_all_structures();
@@ -204,15 +202,13 @@ impl Tool for ExploreContext {
 
 pub fn extract_terms(query: &str) -> Vec<String> {
     let common: HashSet<&str> = [
-        "the", "and", "for", "are", "was", "were", "has", "had", "but",
-        "not", "all", "any", "can", "how", "what", "when", "where", "which",
-        "who", "why", "this", "that", "with", "from", "have", "been", "will",
-        "would", "could", "should", "does", "done", "make", "made", "use",
-        "used", "using", "work", "works", "find", "found", "show", "call",
-        "called", "get", "set", "add", "also", "than", "then", "them",
-        "each", "other", "some", "such", "only", "same", "about", "more",
-        "most", "very", "just", "does", "into", "over", "too", "need",
-        "like", "look", "code", "data", "file", "line", "does",
+        "the", "and", "for", "are", "was", "were", "has", "had", "but", "not", "all", "any", "can",
+        "how", "what", "when", "where", "which", "who", "why", "this", "that", "with", "from",
+        "have", "been", "will", "would", "could", "should", "does", "done", "make", "made", "use",
+        "used", "using", "work", "works", "find", "found", "show", "call", "called", "get", "set",
+        "add", "also", "than", "then", "them", "each", "other", "some", "such", "only", "same",
+        "about", "more", "most", "very", "just", "does", "into", "over", "too", "need", "like",
+        "look", "code", "data", "file", "line", "does",
     ]
     .iter()
     .copied()

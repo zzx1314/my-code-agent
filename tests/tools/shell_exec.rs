@@ -1,6 +1,6 @@
 use my_code_agent::core::config::Config;
-use my_code_agent::tools::shell_exec::{ShellExec, ShellExecArgs, ShellExecOutput};
 use my_code_agent::tools::Tool;
+use my_code_agent::tools::shell_exec::{ShellExec, ShellExecArgs, ShellExecOutput};
 
 fn make_exec() -> ShellExec {
     let config = Config::default();

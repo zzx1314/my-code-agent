@@ -16,12 +16,11 @@ impl Tool for EndTurn {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: self.name().to_string(),
-            description:
-                "End your turn immediately and return control to the user. \
+            description: "End your turn immediately and return control to the user. \
                  Use this when you have completed a meaningful chunk of work \
                  and want to hand control back. \
                  Do NOT use as a stop token mid-work or between tool calls."
-                    .to_string(),
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {},

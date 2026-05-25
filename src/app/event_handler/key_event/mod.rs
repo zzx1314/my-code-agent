@@ -6,8 +6,11 @@ mod paste;
 
 use ratatui::crossterm::event::{self, KeyCode, KeyModifiers};
 
-use crate::app::terminal;
 use crate::app::App;
+use crate::app::event_handler::picker::{
+    handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key,
+};
+use crate::app::terminal;
 use crate::core::context::context_manager::ContextManager;
 use completion::{
     apply_completion, get_cursor_position, hide_completion, trigger_completion,
@@ -16,7 +19,6 @@ use completion::{
 use input::handle_enter_key;
 use input::{history_down, history_up};
 pub use paste::handle_paste_event;
-use crate::app::event_handler::picker::{handle_model_picker_key, handle_provider_picker_key, handle_session_picker_key};
 
 /// Handle key events
 pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &mut ContextManager) {
@@ -209,7 +211,8 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                         trigger_completion(app, '/');
                     } else {
                         // Check if '/' continues an '@' file path (e.g., '@src/')
-                        let lines: Vec<String> = app.input.lines().iter().map(|s| s.to_string()).collect();
+                        let lines: Vec<String> =
+                            app.input.lines().iter().map(|s| s.to_string()).collect();
                         if cursor.0 < lines.len() {
                             let line = &lines[cursor.0];
                             let byte_pos = line

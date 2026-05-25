@@ -1,5 +1,5 @@
-use crate::core::paths;
 use crate::core::context::token_usage::TokenUsage;
+use crate::core::paths;
 use crate::core::types::Message;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -130,8 +130,7 @@ impl SessionData {
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("create dir: {}", e))?;
         }
-        let json =
-            serde_json::to_string_pretty(self).map_err(|e| format!("serialize: {}", e))?;
+        let json = serde_json::to_string_pretty(self).map_err(|e| format!("serialize: {}", e))?;
         std::fs::write(path, json).map_err(|e| format!("write {}: {}", path, e))
     }
 
@@ -144,8 +143,7 @@ impl SessionData {
             Ok(c) => c,
             Err(_) => return None,
         };
-        let result =
-            serde_json::from_str(&content).map_err(|e| format!("parse {}: {}", path, e));
+        let result = serde_json::from_str(&content).map_err(|e| format!("parse {}: {}", path, e));
         Some(result)
     }
 
@@ -212,9 +210,7 @@ impl SessionData {
                 if path.extension().map(|e| e == "json").unwrap_or(false) {
                     if let Some(name) = path.file_stem() {
                         let name_str = name.to_string_lossy().to_string();
-                        if let Some(data) =
-                            Self::load_from_file(&path.to_string_lossy())
-                        {
+                        if let Some(data) = Self::load_from_file(&path.to_string_lossy()) {
                             if let Ok(data) = data {
                                 sessions.push(SessionInfo {
                                     name: name_str,
@@ -356,8 +352,7 @@ pub fn search_sessions(keyword: &str) -> Vec<SearchResult> {
             if path.extension().map(|e| e == "json").unwrap_or(false) {
                 if let Some(name) = path.file_stem() {
                     let name_str = name.to_string_lossy().to_string();
-                    if let Some(load_result) =
-                        SessionData::load_from_file(&path.to_string_lossy())
+                    if let Some(load_result) = SessionData::load_from_file(&path.to_string_lossy())
                     {
                         if let Ok(session_data) = load_result {
                             let matches = session_data.search_in_session(keyword);
@@ -399,8 +394,8 @@ fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String 
             })
             .unwrap_or(0);
         let char_start = char_pos.saturating_sub(context_size / 2);
-        let char_end = (char_pos + keyword.chars().count() + context_size / 2)
-            .min(content.chars().count());
+        let char_end =
+            (char_pos + keyword.chars().count() + context_size / 2).min(content.chars().count());
         let start_byte = content
             .char_indices()
             .nth(char_start)

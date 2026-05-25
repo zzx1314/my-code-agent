@@ -1,6 +1,6 @@
 use my_code_agent::core::config::Config;
-use my_code_agent::tools::file_read::{FileRead, FileReadArgs, FileReadOutput};
 use my_code_agent::tools::Tool;
+use my_code_agent::tools::file_read::{FileRead, FileReadArgs, FileReadOutput};
 use tempfile::TempDir;
 
 fn make_reader() -> FileRead {

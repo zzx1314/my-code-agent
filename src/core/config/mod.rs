@@ -55,7 +55,6 @@ fn default_true() -> bool {
     true
 }
 
-
 /// Configuration file name (looked up in the application base directory).
 pub const CONFIG_FILE: &str = "config.toml";
 

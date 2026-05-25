@@ -83,12 +83,7 @@ impl ToolCallDedup {
     /// and the file hasn't been modified since.
     ///
     /// Returns `DedupAction` indicating whether to short-circuit or proceed.
-    pub fn check_file_read(
-        &mut self,
-        path: &str,
-        offset: usize,
-        limit: usize,
-    ) -> DedupAction {
+    pub fn check_file_read(&mut self, path: &str, offset: usize, limit: usize) -> DedupAction {
         let path_buf = PathBuf::from(path);
         let key = ReadKey {
             path: path_buf,
@@ -270,7 +265,10 @@ impl DedupInfo {
                 "[DEDUP] File \"{}\" (lines {}-{}, total {} lines) was already read and is in the conversation history above. \
                  No need to re-read. If you need a different range, use different offset/limit values. \
                  If the content is no longer in context (was pruned), call file_read again to get a fresh copy.",
-                self.path, self.start + 1, self.end, self.total_lines,
+                self.path,
+                self.start + 1,
+                self.end,
+                self.total_lines,
             )
         }
     }

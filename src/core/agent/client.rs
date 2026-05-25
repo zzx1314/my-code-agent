@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use futures::StreamExt;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use std::time::Duration;
 use tracing::{debug, warn};
 
@@ -68,8 +68,14 @@ impl LlmClient {
             headers.insert(AUTHORIZATION, auth_value);
         }
 
-        headers.insert("HTTP-Referer", HeaderValue::from_static("https://github.com/my-code-agent"));
-        headers.insert("X-OpenRouter-Title", HeaderValue::from_static("My Code Agent"));
+        headers.insert(
+            "HTTP-Referer",
+            HeaderValue::from_static("https://github.com/my-code-agent"),
+        );
+        headers.insert(
+            "X-OpenRouter-Title",
+            HeaderValue::from_static("My Code Agent"),
+        );
         Ok(headers)
     }
 
@@ -235,7 +241,8 @@ impl LlmClient {
 
 /// SSE event stream from the Chat Completions API.
 pub struct ChatStream {
-    stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
+    stream:
+        std::pin::Pin<Box<dyn futures::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
     buffer: Vec<u8>,
 }
 
@@ -251,7 +258,7 @@ impl ChatStream {
 
                 let event_str = String::from_utf8_lossy(&event_bytes);
                 let mut data_lines = Vec::new();
-                
+
                 for line in event_str.lines() {
                     let line = line.trim();
                     if let Some(data) = line.strip_prefix("data: ") {
@@ -264,7 +271,7 @@ impl ChatStream {
                         return None;
                     }
                 }
-                
+
                 if !data_lines.is_empty() {
                     let combined = data_lines.join("\n");
                     return Some(combined);
@@ -286,7 +293,11 @@ impl ChatStream {
                 Ok(chunk) => return Some(Ok(chunk)),
                 Err(e) => {
                     tracing::error!(raw_sse = %data, error = %e, "Failed to parse SSE chunk");
-                    return Some(Err(anyhow::anyhow!("Failed to parse SSE chunk: {} (raw: {})", e, &data[..data.len().min(200)])))
+                    return Some(Err(anyhow::anyhow!(
+                        "Failed to parse SSE chunk: {} (raw: {})",
+                        e,
+                        &data[..data.len().min(200)]
+                    )));
                 }
             }
         }
@@ -310,7 +321,7 @@ impl ChatStream {
                                     "Failed to parse SSE chunk: {} (raw: {})",
                                     e,
                                     &data[..data.len().min(200)],
-                                )))
+                                )));
                             }
                         }
                     }
@@ -320,7 +331,7 @@ impl ChatStream {
                     if !self.buffer.is_empty() {
                         let remaining = String::from_utf8_lossy(&self.buffer).to_string();
                         self.buffer.clear();
-                        
+
                         let mut data_lines = Vec::new();
                         for line in remaining.lines() {
                             let line = line.trim();
@@ -334,7 +345,7 @@ impl ChatStream {
                                 return None;
                             }
                         }
-                        
+
                         if !data_lines.is_empty() {
                             let combined = data_lines.join("\n");
                             match serde_json::from_str::<StreamChunk>(&combined) {
@@ -345,7 +356,7 @@ impl ChatStream {
                                         "Failed to parse trailing SSE: {} (raw: {})",
                                         e,
                                         &combined[..combined.len().min(200)],
-                                    )))
+                                    )));
                                 }
                             }
                         }

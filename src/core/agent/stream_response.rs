@@ -5,8 +5,8 @@ use crate::core::agent::client::LlmClient;
 use crate::core::config::AgentConfig;
 use crate::core::context::context_manager::ContextManager;
 use crate::core::context::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
-use crate::tools::ToolRegistry;
 use crate::core::types::{FinishReason, Message, ToolCall};
+use crate::tools::ToolRegistry;
 use crate::ui::render::{ReasoningTracker, StatefulTagStripper};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,7 +41,9 @@ impl ToolCallHistory {
     /// Check if this call is identical to the previous one.
     fn is_repeat_of_last(&self, name: &str, args: &str) -> bool {
         let normalized = Self::normalize(args);
-        self.calls.back().map_or(false, |(n, a)| n == name && a == &normalized)
+        self.calls
+            .back()
+            .map_or(false, |(n, a)| n == name && a == &normalized)
     }
 
     /// Normalize arguments: sort keys so semantically identical JSON matches.
@@ -153,8 +155,14 @@ pub struct StreamResult {
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
     Text(String),
-    ToolCall { name: String, arguments: String },
-    ToolResult { name: String, content: String },
+    ToolCall {
+        name: String,
+        arguments: String,
+    },
+    ToolResult {
+        name: String,
+        content: String,
+    },
     /// Status update for inter-turn waiting periods (e.g. "Waiting for model...")
     /// Clears the previous streaming_tool_result so the UI doesn't render heavy content.
     Status(String),
@@ -287,7 +295,8 @@ async fn process_sse_stream(
                     if let Some(ref name) = tcd.function.as_ref().and_then(|f| f.name.as_ref()) {
                         acc.name = Some(name.to_string());
                     }
-                    if let Some(ref args) = tcd.function.as_ref().and_then(|f| f.arguments.as_ref()) {
+                    if let Some(ref args) = tcd.function.as_ref().and_then(|f| f.arguments.as_ref())
+                    {
                         acc.arguments.push_str(args);
                     }
                     if acc.name.is_some() {
@@ -297,9 +306,13 @@ async fn process_sse_stream(
                         });
                     }
                 }
-                if context_manager.should_compact(*running_approx) && !context_manager.is_prune_triggered() {
+                if context_manager.should_compact(*running_approx)
+                    && !context_manager.is_prune_triggered()
+                {
                     context_manager.set_prune_triggered(true);
-                    status_messages.push("📝 Context window nearly full — will compact after this turn".to_string());
+                    status_messages.push(
+                        "📝 Context window nearly full — will compact after this turn".to_string(),
+                    );
                 }
             }
         }
@@ -399,13 +412,12 @@ async fn generate_context_summary(
         "Please provide a concise summary of the above conversation. \
          Focus on: user goals, decisions made, files changed, key findings, \
          and any important context that would help continue the work. \
-         Keep the summary under 300 words and write in the same language as the conversation."
-    );    let mut api_messages = vec![
-            Message::system(
-                "You are a helpful assistant that summarizes technical conversations concisely. \
-                 Preserve all important context, decisions, and file paths."
-            ),
-        ];
+         Keep the summary under 300 words and write in the same language as the conversation.",
+    );
+    let mut api_messages = vec![Message::system(
+        "You are a helpful assistant that summarizes technical conversations concisely. \
+                 Preserve all important context, decisions, and file paths.",
+    )];
     api_messages.extend_from_slice(old_messages);
     api_messages.push(summary_prompt);
 
@@ -468,7 +480,10 @@ pub async fn stream_response(
         api_messages.extend_from_slice(&messages);
 
         let tool_defs = tools.definitions();
-        let mut chat_stream = match client.stream_chat(&api_messages, &tool_defs, reasoning_field).await {
+        let mut chat_stream = match client
+            .stream_chat(&api_messages, &tool_defs, reasoning_field)
+            .await
+        {
             Ok(s) => s,
             Err(e) => {
                 status_messages.push(format!("✗ Failed to start stream: {}", e));
@@ -500,7 +515,8 @@ pub async fn stream_response(
         match result {
             ProcessResult::Interrupted => {
                 reasoning.flush_unfinished();
-                status_messages.push("⚠ Interrupted response — press Ctrl+C again to quit".to_string());
+                status_messages
+                    .push("⚠ Interrupted response — press Ctrl+C again to quit".to_string());
                 let second = tokio::select! {
                     _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => false,
                     _ = interrupt_rx.recv() => true,
@@ -569,9 +585,14 @@ pub async fn stream_response(
 
                     if api_at_limit || estimated_at_limit {
                         if api_at_limit {
-                            status_messages.push("📝 Context window full - compacting old messages...".to_string());
+                            status_messages.push(
+                                "📝 Context window full - compacting old messages...".to_string(),
+                            );
                         } else {
-                            status_messages.push("📝 Tool-heavy turn - compacting to maintain context headroom...".to_string());
+                            status_messages.push(
+                                "📝 Tool-heavy turn - compacting to maintain context headroom..."
+                                    .to_string(),
+                            );
                         }
 
                         // Try LLM summarization on FIRST compaction to preserve
@@ -579,10 +600,19 @@ pub async fn stream_response(
                         // compactions or if the LLM call fails.
                         let mut compacted = false;
                         if context_manager.compact_count() == 0 {
-                            if let Some(compact_point) = context_manager.find_compact_point_percent(&messages, 30) {
-                                match generate_context_summary(client, &messages[..compact_point], reasoning_field).await {
+                            if let Some(compact_point) =
+                                context_manager.find_compact_point_percent(&messages, 30)
+                            {
+                                match generate_context_summary(
+                                    client,
+                                    &messages[..compact_point],
+                                    reasoning_field,
+                                )
+                                .await
+                                {
                                     Ok(summary) => {
-                                        messages = context_manager.compact_messages(&messages, &summary);
+                                        messages =
+                                            context_manager.compact_messages(&messages, &summary);
                                         compacted = true;
                                         status_messages.push(format!(
                                             "✓ Summarized {} old messages into a compact summary ({} remaining)",
@@ -601,7 +631,11 @@ pub async fn stream_response(
                             let pruned = context_manager.prune_messages(&messages);
                             let pruned_count = messages.len().saturating_sub(pruned.len());
                             messages = pruned;
-                            status_messages.push(format!("✓ Pruned {} old messages ({} remaining)", pruned_count, messages.len()));
+                            status_messages.push(format!(
+                                "✓ Pruned {} old messages ({} remaining)",
+                                pruned_count,
+                                messages.len()
+                            ));
                         }
 
                         // Reset the one-shot flag — it was set during SSE
@@ -610,7 +644,8 @@ pub async fn stream_response(
                         // turn, spamming the user with unnecessary messages.
                         context_manager.set_prune_triggered(false);
                         context_manager.increment_compact_count();
-                        let pruned_estimate = context_manager.estimate_messages_tokens(&messages, true);
+                        let pruned_estimate =
+                            context_manager.estimate_messages_tokens(&messages, true);
                         running_approx = pruned_estimate;
                         session_usage.update_pruned_estimate(pruned_estimate);
                     }
@@ -706,15 +741,14 @@ pub async fn stream_response(
                     //    row with different args (e.g. file_update with
                     //    slightly different `old` strings each time).
                     if loop_detector.is_repeat_of_last(&tc.function.name, &tc.function.arguments) {
-                        let repeat_count =
-                            loop_detector.consecutive_repeat_count(&tc.function.name, &tc.function.arguments)
+                        let repeat_count = loop_detector
+                            .consecutive_repeat_count(&tc.function.name, &tc.function.arguments)
                             + 1;
                         let content = format!(
                             "[LOOP DETECTED] You've called `{}` with the same arguments {} times in a row. \
                              The previous result is still in the conversation. \
                              Review it and proceed with the next step — do NOT repeat this call.",
-                            tc.function.name,
-                            repeat_count,
+                            tc.function.name, repeat_count,
                         );
                         let tr = Message::tool(&tc.id, content);
                         messages.push(tr);
@@ -784,8 +818,9 @@ pub async fn stream_response(
                 // After all tools have executed and their results sent, signal
                 // the UI to clear the heavy tool result content and show a
                 // waiting indicator while the model processes the results.
-                send_event(StreamEvent::Status("⏳ Waiting for model response...".to_string()));
-
+                send_event(StreamEvent::Status(
+                    "⏳ Waiting for model response...".to_string(),
+                ));
             }
         }
     }
