@@ -63,8 +63,8 @@ fn render_tool_calls(
     show_tool_details: bool,
 ) {
     for tc in tool_calls {
-        let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
-            .unwrap_or(serde_json::Value::Null);
+        let args: serde_json::Value =
+            serde_json::from_str(&tc.function.arguments).unwrap_or(serde_json::Value::Null);
         lines.push(Line::from(vec![
             Span::styled("⚙️ ", Style::default().fg(Color::Yellow)),
             Span::styled(
@@ -256,9 +256,7 @@ fn render_tool_message(
     }
 
     // Check if it's a file_outline result
-    if try_render_file_outline(lines, &entry.content, entry_idx, app, area_width)
-        .is_some()
-    {
+    if try_render_file_outline(lines, &entry.content, entry_idx, app, area_width).is_some() {
         lines.push(Line::default());
         return;
     }
@@ -290,10 +288,24 @@ pub(super) fn render_message(
     match entry.role.as_str() {
         "user" => render_user_message(lines, entry, app, area_width),
         "assistant" => render_assistant_message(
-            lines, entry, entry_idx, app, max_width, area_width, show_tool_calls, show_tool_details,
+            lines,
+            entry,
+            entry_idx,
+            app,
+            max_width,
+            area_width,
+            show_tool_calls,
+            show_tool_details,
         ),
         "tool" => render_tool_message(
-            lines, entry, entry_idx, app, max_width, area_width, show_tool_calls, show_tool_details,
+            lines,
+            entry,
+            entry_idx,
+            app,
+            max_width,
+            area_width,
+            show_tool_calls,
+            show_tool_details,
         ),
         _ => {
             lines.push(Line::from(format!("{}: {}", entry.role, entry.content)));
