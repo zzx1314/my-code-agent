@@ -132,9 +132,6 @@ fn render_assistant_message(
     }
     // Display normal content (cached to avoid re-parsing markdown every frame)
     render_assistant_content(lines, entry, app, max_width);
-    if (show_tool_calls && entry.tool_calls.is_some()) || !entry.content.is_empty() {
-        lines.push(Line::default());
-    }
 }
 
 /// Render a ShellExec tool result (command, exit code, stdout/stderr).
