@@ -39,6 +39,13 @@ pub fn handle_command(
                 skill_cfg.command.as_ref().unwrap()
             ));
         }
+        // Send the skill's prompt as a user message so the LLM responds
+        // within the activated skill context immediately.
+        let message = format!(
+            "[Skill activated: {}]\n\n{}",
+            skill_cfg.name, skill_cfg.prompt
+        );
+        crate::core::agent::stream::send_message_to_llm(app, context_manager, message);
         return true;
     }
 

@@ -39,7 +39,7 @@ pub fn handle_model_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                     selected_model
                 )));
 
-                if let Ok(new_agent) = rebuild_agent(&app.config) {
+                if let Ok(new_agent) = rebuild_agent(&app.config, &app.skill_manager) {
                     app.agent = Arc::new(new_agent);
                     app.chat_history
                         .push(crate::app::ChatEntry::assistant(format!(
@@ -101,7 +101,7 @@ pub fn handle_provider_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                     selected_provider
                 )));
 
-                if let Ok(new_agent) = rebuild_agent(&app.config) {
+                if let Ok(new_agent) = rebuild_agent(&app.config, &app.skill_manager) {
                     app.agent = Arc::new(new_agent);
                     app.chat_history
                         .push(crate::app::ChatEntry::assistant(format!(

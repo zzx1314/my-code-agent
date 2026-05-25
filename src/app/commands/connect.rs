@@ -53,7 +53,7 @@ pub fn handle(app: &mut App, input: &str) -> bool {
     // Apply the provider configuration (shared with the provider picker)
     crate::app::apply_provider_config(app, &provider_name);
 
-    let succeeded = match rebuild_agent(&app.config) {
+    let succeeded = match rebuild_agent(&app.config, &app.skill_manager) {
         Ok(new_agent) => {
             app.agent = Arc::new(new_agent);
             true

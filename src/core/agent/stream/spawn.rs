@@ -1,7 +1,7 @@
 use tokio::sync::mpsc;
 
 use crate::app::App;
-use crate::core::agent::preamble::Agent;
+use crate::core::agent::preamble::{Agent, build_preamble_with_skills};
 use crate::core::context::context_manager::ContextManager;
 
 use super::result::is_auto_fix_prompt;
@@ -59,6 +59,7 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
 
     let agent_clone = app.agent.clone();
     let config_clone = app.config.clone();
+    let system_prompt = build_preamble_with_skills(&app.skill_manager);
     let mut token_usage_clone = app.token_usage.clone();
     let interrupt_rx = app.interrupt_tx.subscribe();
     let (response_tx, response_rx) = mpsc::channel::<StreamResult>(1);
@@ -85,7 +86,7 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
 
         let result = stream_response(
             &agent_clone.client,
-            &agent_clone.system_prompt,
+            &system_prompt,
             &expanded.expanded,
             &mut messages,
             &agent_clone.tools,
@@ -115,14 +116,17 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
     });
 }
 
-/// Rebuild the Agent from config (client, system prompt, tools)
-pub fn rebuild_agent(config: &crate::core::config::Config) -> anyhow::Result<Agent> {
+/// Rebuild the Agent from config (client, system prompt, tools).
+/// Accepts an optional `SkillManager` to inject active skill prompts.
+pub fn rebuild_agent(
+    config: &crate::core::config::Config,
+    skill_manager: &crate::core::skill::SkillManager,
+) -> anyhow::Result<Agent> {
     use crate::core::agent::preamble::build_client;
-    use crate::core::agent::preamble::build_preamble;
     use crate::tools::create_mcp_tools;
 
     let client = build_client(config);
-    let system_prompt = build_preamble();
+    let system_prompt = build_preamble_with_skills(skill_manager);
     let mut tools = crate::tools::ToolRegistry::from_config(config);
     tools.register(crate::tools::SpawnAgents::new(
         client.clone(),
