@@ -295,6 +295,43 @@ pub fn build_client(config: &Config) -> LlmClient {
     if config.llm.timeout_secs > 0 {
         client = client.with_timeout(config.llm.timeout_secs);
     }
+    // OpenAI endpoints (native & custom) use `max_completion_tokens` instead of `max_tokens`.
+    if provider == Provider::OpenAI || provider == Provider::Custom {
+        client = client.with_use_completion_tokens(true);
+    }
+
+    // Max tokens: config value > OpenAI/Custom default (1024) > not set
+    if let Some(max_tokens) = config.llm.max_tokens {
+        client = client.with_max_tokens(max_tokens);
+    } else if provider == Provider::OpenAI || provider == Provider::Custom {
+        client = client.with_max_tokens(1024);
+    }
+
+    // Optional sampling / penalty parameters from config
+    if let Some(temp) = config.llm.temperature {
+        client = client.with_temperature(temp);
+    } else if provider == Provider::OpenAI || provider == Provider::Custom {
+        client = client.with_temperature(1.0);
+    }
+    if let Some(top_p) = config.llm.top_p {
+        client = client.with_top_p(top_p);
+    } else if provider == Provider::OpenAI || provider == Provider::Custom {
+        client = client.with_top_p(0.95);
+    }
+    if let Some(ref stop) = config.llm.stop {
+        client = client.with_stop(stop.clone());
+    }
+    if let Some(fp) = config.llm.frequency_penalty {
+        client = client.with_frequency_penalty(fp);
+    } else if provider == Provider::OpenAI || provider == Provider::Custom {
+        client = client.with_frequency_penalty(0.0);
+    }
+    if let Some(pp) = config.llm.presence_penalty {
+        client = client.with_presence_penalty(pp);
+    } else if provider == Provider::OpenAI || provider == Provider::Custom {
+        client = client.with_presence_penalty(0.0);
+    }
+
     tracing::info!(
         model = %model,
         base_url = %base_url,

@@ -20,6 +20,19 @@ pub struct LlmClient {
     pub timeout_secs: u64,
     /// When true, adds `"reasoning": false` to the request body.
     reasoning_disabled: bool,
+    /// When true, uses `max_completion_tokens` instead of `max_tokens` in the request body.
+    /// OpenAI's o-series models require this field.
+    use_completion_tokens: bool,
+    /// Sampling temperature (0-2). None = use provider default.
+    temperature: Option<f64>,
+    /// Nucleus sampling threshold (0-1). None = use provider default.
+    top_p: Option<f64>,
+    /// Stop sequences. None = no stop.
+    stop: Option<Vec<String>>,
+    /// Frequency penalty (-2 to 2). None = use provider default.
+    frequency_penalty: Option<f64>,
+    /// Presence penalty (-2 to 2). None = use provider default.
+    presence_penalty: Option<f64>,
 }
 
 impl LlmClient {
@@ -32,6 +45,12 @@ impl LlmClient {
             max_tokens: None,
             timeout_secs: 0,
             reasoning_disabled: false,
+            use_completion_tokens: false,
+            temperature: None,
+            top_p: None,
+            stop: None,
+            frequency_penalty: None,
+            presence_penalty: None,
         }
     }
 
@@ -53,6 +72,38 @@ impl LlmClient {
 
     pub fn with_max_tokens(mut self, max_tokens: u64) -> Self {
         self.max_tokens = Some(max_tokens);
+        self
+    }
+
+    /// When set, uses `max_completion_tokens` instead of `max_tokens` in the request body.
+    /// This is required by OpenAI's o-series models (o1, o3-mini, etc.).
+    pub fn with_use_completion_tokens(mut self, val: bool) -> Self {
+        self.use_completion_tokens = val;
+        self
+    }
+
+    pub fn with_temperature(mut self, temperature: f64) -> Self {
+        self.temperature = Some(temperature);
+        self
+    }
+
+    pub fn with_top_p(mut self, top_p: f64) -> Self {
+        self.top_p = Some(top_p);
+        self
+    }
+
+    pub fn with_stop(mut self, stop: Vec<String>) -> Self {
+        self.stop = Some(stop);
+        self
+    }
+
+    pub fn with_frequency_penalty(mut self, penalty: f64) -> Self {
+        self.frequency_penalty = Some(penalty);
+        self
+    }
+
+    pub fn with_presence_penalty(mut self, penalty: f64) -> Self {
+        self.presence_penalty = Some(penalty);
         self
     }
 
@@ -98,7 +149,12 @@ impl LlmClient {
         });
 
         if let Some(max_tokens) = self.max_tokens {
-            body["max_tokens"] = serde_json::json!(max_tokens);
+            let field = if self.use_completion_tokens {
+                "max_completion_tokens"
+            } else {
+                "max_tokens"
+            };
+            body[field] = serde_json::json!(max_tokens);
         }
 
         if !tool_definitions.is_empty() {
@@ -118,6 +174,23 @@ impl LlmClient {
                 .collect();
             body["tools"] = serde_json::json!(tools);
             body["parallel_tool_calls"] = serde_json::json!(false);
+        }
+
+        // Optional sampling parameters (only included when explicitly set)
+        if let Some(temp) = self.temperature {
+            body["temperature"] = serde_json::json!(temp);
+        }
+        if let Some(p) = self.top_p {
+            body["top_p"] = serde_json::json!(p);
+        }
+        if let Some(ref stop) = self.stop {
+            body["stop"] = serde_json::json!(stop);
+        }
+        if let Some(fp) = self.frequency_penalty {
+            body["frequency_penalty"] = serde_json::json!(fp);
+        }
+        if let Some(pp) = self.presence_penalty {
+            body["presence_penalty"] = serde_json::json!(pp);
         }
 
         if stream {

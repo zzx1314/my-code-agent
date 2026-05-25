@@ -258,6 +258,26 @@ pub struct LLMConfig {
     /// Default: "reasoning_content"
     #[serde(default = "default_reasoning_field")]
     pub reasoning_field: String,
+    /// Sampling temperature (0-2). Default: not set (uses provider default).
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    /// Nucleus sampling threshold (0-1). Default: not set.
+    #[serde(default)]
+    pub top_p: Option<f64>,
+    /// Stop sequences. Default: not set.
+    #[serde(default)]
+    pub stop: Option<Vec<String>>,
+    /// Frequency penalty (-2 to 2). Default: not set (provider default, usually 0).
+    #[serde(default)]
+    pub frequency_penalty: Option<f64>,
+    /// Presence penalty (-2 to 2). Default: not set (provider default, usually 0).
+    #[serde(default)]
+    pub presence_penalty: Option<f64>,
+    /// Maximum tokens in the response.
+    /// For OpenAI, this is sent as `max_completion_tokens` (default: 1024).
+    /// For other providers, this is sent as `max_tokens` (default: not set).
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
 }
 
 fn default_llm_timeout_secs() -> u64 {
@@ -447,6 +467,12 @@ impl Default for LLMConfig {
             base_url: None,
             timeout_secs: default_llm_timeout_secs(),
             reasoning_field: default_reasoning_field(),
+            temperature: None,
+            top_p: None,
+            stop: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            max_tokens: None,
         }
     }
 }
