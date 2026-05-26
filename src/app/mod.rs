@@ -437,7 +437,7 @@ impl App {
             input_bg_color: ratatui::style::Color::Reset,
             chat_area_y: 0,
             response_cooldown_until: None,
-            skill_manager: SkillManager::from_config(&config),
+            skill_manager: SkillManager::load(),
         }
     }
 

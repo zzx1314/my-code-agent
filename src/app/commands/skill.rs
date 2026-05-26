@@ -119,16 +119,13 @@ mod tests {
     use tokio::sync::broadcast;
 
     fn make_app_with_skills(skills: Vec<crate::core::config::SkillConfig>) -> App {
-        let mut config = Config::default();
-        config.skills = skills;
+        let config = Config::default();
         let client = build_client(&config);
-        let agent = Arc::new(Agent::new(
-            client,
-            "test prompt".to_string(),
-            crate::tools::ToolRegistry::new(),
-        ));
+        let agent = Arc::new(Agent::new(client, "test prompt".to_string(), crate::tools::ToolRegistry::new()));
         let (tx, _) = broadcast::channel(1);
-        App::new(Vec::new(), TokenUsage::default(), String::new(), config, agent, tx)
+        let mut app = App::new(Vec::new(), TokenUsage::default(), String::new(), config, agent, tx);
+        app.skill_manager = crate::core::skill::SkillManager::from_skills(skills);
+        app
     }
 
     #[test]

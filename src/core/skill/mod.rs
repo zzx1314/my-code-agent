@@ -1,11 +1,18 @@
 use crate::core::config::SkillConfig;
 use std::collections::HashSet;
 
+/// TOML wrapper for deserializing `[[skill]]` array-of-tables entries.
+#[derive(serde::Deserialize)]
+struct SkillsFile {
+    skill: Vec<SkillConfig>,
+}
+
 /// Manages skill activation, deactivation, and preamble injection.
 ///
-/// Skills are defined in `config.toml` and can be activated/deactivated at runtime
-/// via the `/skill` command. Active skills with `inject_into_preamble = true`
-/// have their prompts injected into the system prompt.
+/// Skills are defined in `skills.toml` (a separate file from `config.toml`)
+/// and can be activated/deactivated at runtime via the `/skill` command.
+/// Active skills with `inject_into_preamble = true` have their prompts
+/// injected into the system prompt.
 #[derive(Debug, Clone)]
 pub struct SkillManager {
     /// All skills loaded from config.
@@ -15,10 +22,56 @@ pub struct SkillManager {
 }
 
 impl SkillManager {
-    /// Creates a new `SkillManager` from the config's skill definitions.
-    pub fn from_config(config: &crate::core::config::Config) -> Self {
+    /// Loads skills from the `skills.toml` file in the app directory.
+    /// Returns an empty `SkillManager` if the file doesn't exist or has errors.
+    pub fn load() -> Self {
+        let path = crate::core::paths::app_file(crate::core::config::SKILLS_FILE);
+        match std::fs::read_to_string(&path) {
+            Ok(content) => match toml::from_str::<SkillsFile>(&content) {
+                Ok(sf) => Self {
+                    skills: sf.skill,
+                    active: HashSet::new(),
+                },
+                Err(e) => {
+                    tracing::error!(
+                        path = %path.display(),
+                        error = %e,
+                        "Error parsing skills file. Using empty skills."
+                    );
+                    Self::empty()
+                }
+            },
+            Err(_) => Self::empty(),
+        }
+    }
+
+    /// Loads skills from a specific `skills.toml` file path.
+    /// Returns an empty `SkillManager` if the file doesn't exist or has errors.
+    pub fn load_from<P: AsRef<std::path::Path>>(path: P) -> Self {
+        let path = path.as_ref();
+        match std::fs::read_to_string(path) {
+            Ok(content) => match toml::from_str::<SkillsFile>(&content) {
+                Ok(sf) => Self {
+                    skills: sf.skill,
+                    active: HashSet::new(),
+                },
+                Err(e) => {
+                    tracing::error!(
+                        path = %path.display(),
+                        error = %e,
+                        "Error parsing skills file. Using empty skills."
+                    );
+                    Self::empty()
+                }
+            },
+            Err(_) => Self::empty(),
+        }
+    }
+
+    /// Creates a `SkillManager` from a given list of skills.
+    pub fn from_skills(skills: Vec<SkillConfig>) -> Self {
         Self {
-            skills: config.skills.clone(),
+            skills,
             active: HashSet::new(),
         }
     }
@@ -120,7 +173,7 @@ impl SkillManager {
     /// Each line shows: name, description, active state, and command.
     pub fn format_skill_list(&self) -> Vec<String> {
         if self.skills.is_empty() {
-            return vec!["  No skills configured. Add [[skill]] entries in config.toml.".to_string()];
+            return vec!["  No skills configured. Add [[skill]] entries in skills.toml.".to_string()];
         }
 
         self.skills
@@ -160,7 +213,7 @@ impl SkillManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::Config;
+    use std::io::Write;
 
     fn make_skill(name: &str, prompt: &str, command: Option<&str>) -> SkillConfig {
         SkillConfig {
@@ -172,26 +225,55 @@ mod tests {
         }
     }
 
-    fn make_config_with_skills(skills: Vec<SkillConfig>) -> Config {
-        let mut config = Config::default();
-        config.skills = skills;
-        config
+    fn make_mgr(skills: Vec<SkillConfig>) -> SkillManager {
+        SkillManager::from_skills(skills)
     }
 
     #[test]
-    fn test_from_config_loads_skills() {
-        let config = make_config_with_skills(vec![
+    fn test_from_skills_loads_skills() {
+        let mgr = make_mgr(vec![
             make_skill("rust-review", "Review Rust code", Some("/rust-review")),
             make_skill("security", "Security audit", None),
         ]);
-        let mgr = SkillManager::from_config(&config);
         assert_eq!(mgr.all_skills().len(), 2);
     }
 
     #[test]
+    fn test_load_from_file_loads_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("skills.toml");
+        let mut file = std::fs::File::create(&path).unwrap();
+        write!(
+            file,
+            "[[skill]]\nname = \"rust-review\"\ndescription = \"Review Rust code\"\nprompt = \"Review Rust code carefully\"\ninject_into_preamble = true\ncommand = \"/rust-review\"\n\n[[skill]]\nname = \"security\"\ndescription = \"Security audit\"\nprompt = \"Audit for security issues\"\n"
+        )
+        .unwrap();
+
+        let mgr = SkillManager::load_from(&path);
+        assert_eq!(mgr.all_skills().len(), 2);
+        assert_eq!(mgr.all_skills()[0].name, "rust-review");
+        assert_eq!(mgr.all_skills()[1].name, "security");
+    }
+
+    #[test]
+    fn test_load_from_file_empty_on_missing() {
+        let mgr = SkillManager::load_from("/nonexistent/path/skills.toml");
+        assert!(mgr.all_skills().is_empty());
+    }
+
+    #[test]
+    fn test_load_from_file_empty_on_invalid_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("skills.toml");
+        std::fs::write(&path, "[[skill]\ninvalid toml [[[").unwrap();
+
+        let mgr = SkillManager::load_from(&path);
+        assert!(mgr.all_skills().is_empty());
+    }
+
+    #[test]
     fn test_activate_deactivate() {
-        let config = make_config_with_skills(vec![make_skill("rust-review", "Review Rust code", None)]);
-        let mut mgr = SkillManager::from_config(&config);
+        let mut mgr = make_mgr(vec![make_skill("rust-review", "Review Rust code", None)]);
 
         assert!(!mgr.is_active("rust-review"));
         assert!(mgr.activate("rust-review"));
@@ -202,15 +284,13 @@ mod tests {
 
     #[test]
     fn test_activate_nonexistent() {
-        let config = make_config_with_skills(vec![]);
-        let mut mgr = SkillManager::from_config(&config);
+        let mut mgr = make_mgr(vec![]);
         assert!(!mgr.activate("nonexistent"));
     }
 
     #[test]
     fn test_toggle() {
-        let config = make_config_with_skills(vec![make_skill("rust-review", "Review Rust code", None)]);
-        let mut mgr = SkillManager::from_config(&config);
+        let mut mgr = make_mgr(vec![make_skill("rust-review", "Review Rust code", None)]);
 
         assert_eq!(mgr.toggle("rust-review"), Some(true));
         assert!(mgr.is_active("rust-review"));
@@ -220,25 +300,22 @@ mod tests {
 
     #[test]
     fn test_toggle_nonexistent() {
-        let config = make_config_with_skills(vec![]);
-        let mut mgr = SkillManager::from_config(&config);
+        let mut mgr = make_mgr(vec![]);
         assert_eq!(mgr.toggle("nonexistent"), None);
     }
 
     #[test]
     fn test_preamble_injections_empty() {
-        let config = make_config_with_skills(vec![make_skill("rust-review", "Review Rust code", None)]);
-        let mgr = SkillManager::from_config(&config);
+        let mgr = make_mgr(vec![make_skill("rust-review", "Review Rust code", None)]);
         assert!(mgr.preamble_injections().is_empty());
     }
 
     #[test]
     fn test_preamble_injections_active() {
-        let config = make_config_with_skills(vec![
+        let mut mgr = make_mgr(vec![
             make_skill("rust-review", "Review Rust code", None),
             make_skill("security", "Security audit", None),
         ]);
-        let mut mgr = SkillManager::from_config(&config);
         mgr.activate("rust-review");
 
         let injections = mgr.preamble_injections();
@@ -248,11 +325,10 @@ mod tests {
 
     #[test]
     fn test_preamble_injections_multiple_active() {
-        let config = make_config_with_skills(vec![
+        let mut mgr = make_mgr(vec![
             make_skill("rust-review", "Review Rust code", None),
             make_skill("security", "Security audit", None),
         ]);
-        let mut mgr = SkillManager::from_config(&config);
         mgr.activate("rust-review");
         mgr.activate("security");
 
@@ -263,12 +339,11 @@ mod tests {
 
     #[test]
     fn test_find_by_command() {
-        let config = make_config_with_skills(vec![make_skill(
+        let mgr = make_mgr(vec![make_skill(
             "rust-review",
             "Review Rust code",
             Some("/rust-review"),
         )]);
-        let mgr = SkillManager::from_config(&config);
 
         let skill = mgr.find_by_command("/rust-review");
         assert!(skill.is_some());
@@ -279,12 +354,11 @@ mod tests {
 
     #[test]
     fn test_find_active_by_command() {
-        let config = make_config_with_skills(vec![make_skill(
+        let mut mgr = make_mgr(vec![make_skill(
             "rust-review",
             "Review Rust code",
             Some("/rust-review"),
         )]);
-        let mut mgr = SkillManager::from_config(&config);
 
         // Not active yet
         assert!(mgr.find_active_by_command("/rust-review").is_none());
@@ -296,12 +370,11 @@ mod tests {
 
     #[test]
     fn test_format_skill_list() {
-        let config = make_config_with_skills(vec![make_skill(
+        let mgr = make_mgr(vec![make_skill(
             "rust-review",
             "Review Rust code",
             Some("/rust-review"),
         )]);
-        let mgr = SkillManager::from_config(&config);
         let lines = mgr.format_skill_list();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("rust-review"));
@@ -310,8 +383,7 @@ mod tests {
 
     #[test]
     fn test_format_skill_list_empty() {
-        let config = make_config_with_skills(vec![]);
-        let mgr = SkillManager::from_config(&config);
+        let mgr = make_mgr(vec![]);
         let lines = mgr.format_skill_list();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("No skills configured"));
@@ -319,11 +391,10 @@ mod tests {
 
     #[test]
     fn test_active_summary() {
-        let config = make_config_with_skills(vec![
+        let mut mgr = make_mgr(vec![
             make_skill("rust-review", "Review Rust code", None),
             make_skill("security", "Security audit", None),
         ]);
-        let mut mgr = SkillManager::from_config(&config);
         assert!(mgr.active_summary().is_empty());
 
         mgr.activate("rust-review");
@@ -334,11 +405,10 @@ mod tests {
 
     #[test]
     fn test_deactivate_all() {
-        let config = make_config_with_skills(vec![
+        let mut mgr = make_mgr(vec![
             make_skill("rust-review", "Review Rust code", None),
             make_skill("security", "Security audit", None),
         ]);
-        let mut mgr = SkillManager::from_config(&config);
         mgr.activate("rust-review");
         mgr.activate("security");
         assert_eq!(mgr.active_names().len(), 2);
@@ -349,12 +419,11 @@ mod tests {
 
     #[test]
     fn test_case_insensitive_activation() {
-        let config = make_config_with_skills(vec![make_skill(
+        let mut mgr = make_mgr(vec![make_skill(
             "Rust-Review",
             "Review Rust code",
             None,
         )]);
-        let mut mgr = SkillManager::from_config(&config);
         assert!(mgr.activate("rust-review"));
         assert!(mgr.is_active("Rust-Review"));
     }

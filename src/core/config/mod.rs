@@ -55,8 +55,11 @@ fn default_true() -> bool {
     true
 }
 
-/// Configuration file name (looked up in the application base directory).
 pub const CONFIG_FILE: &str = "config.toml";
+
+/// Skills file name (looked up in the application base directory).
+/// Contains `[[skill]]` array-of-tables entries.
+pub const SKILLS_FILE: &str = "skills.toml";
 
 /// Top-level configuration structure.
 ///
@@ -94,11 +97,7 @@ pub struct Config {
     /// UI appearance settings.
     #[serde(default)]
     pub ui: UiConfig,
-    /// Skill definitions.
-    #[serde(default)]
-    pub skills: Vec<SkillConfig>,
 }
-
 /// Code review settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReviewConfig {
