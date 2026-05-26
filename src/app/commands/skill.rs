@@ -9,6 +9,7 @@ use crate::app::App;
 ///   /skill --off <name> — deactivate a skill
 ///   /skill --all        — activate all skills
 ///   /skill --none       — deactivate all skills
+///   /skill --reload     — reload skills from skills.toml
 ///   /skill --help       — show this help
 pub fn handle(app: &mut App, input: &str) -> bool {
     let args = input.trim().strip_prefix("/skill").unwrap_or("").trim();
@@ -35,6 +36,35 @@ pub fn handle(app: &mut App, input: &str) -> bool {
             app.status_messages
                 .push("○ All skills deactivated".into());
             show_list(app);
+            true
+        }
+        "--reload" => {
+            match app.skill_manager.reload() {
+                Ok((total, preserved, dropped)) => {
+                    app.status_messages.push(format!(
+                        "🔄 Skills reloaded from skills.toml ({} loaded)",
+                        total
+                    ));
+                    if preserved > 0 {
+                        app.status_messages
+                            .push(format!("  ● {} skills kept active", preserved));
+                    }
+                    if !dropped.is_empty() {
+                        let dropped_list = dropped.join(", ");
+                        app.status_messages.push(format!(
+                            "  ○ {} skills deactivated (no longer in file): {}",
+                            dropped.len(),
+                            dropped_list
+                        ));
+                    }
+                    app.status_messages.push(String::new());
+                    show_list(app);
+                }
+                Err(e) => {
+                    app.status_messages
+                        .push(format!("❌ Reload failed: {}", e));
+                }
+            }
             true
         }
         s if s.starts_with("--on ") => {
@@ -105,6 +135,7 @@ fn show_help(app: &mut App) {
     app.status_messages.push("    /skill --off <name> — deactivate a skill".into());
     app.status_messages.push("    /skill --all        — activate all skills".into());
     app.status_messages.push("    /skill --none       — deactivate all skills".into());
+    app.status_messages.push("    /skill --reload     — reload skills from skills.toml".into());
     app.status_messages.push("".into());
 }
 

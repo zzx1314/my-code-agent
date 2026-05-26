@@ -51,9 +51,11 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             ));
         } else if let Some((ref name, _)) = app.streaming_tool_result {
             // Briefly show the completed tool result while tool result is set
-            // No marquee dots — this represents a completed action (✅).
+            // Show marquee dots to indicate the process is still ongoing.
+            let dot_cycle = (app.marquee_frame / 4) % 4;
+            let dots = ".".repeat(dot_cycle as usize);
             spans.push(Span::styled(
-                format!(" | ✅ {} complete", name),
+                format!(" | ✅ {} complete{}", name, dots),
                 Style::default().fg(Color::Green),
             ));
         } else if !app.streaming_status.is_empty() {
@@ -144,7 +146,11 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(Color::Cyan),
         ));
     } else {
-        spans.push(Span::styled(" | Ready", Style::default().fg(Color::Green)));
+        // Idle state — no marquee dots.
+        spans.push(Span::styled(
+            " | Ready",
+            Style::default().fg(Color::Green),
+        ));
     }
 
     let status_bar = Paragraph::new(Line::from(spans));
