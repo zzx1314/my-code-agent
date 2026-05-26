@@ -57,10 +57,6 @@ fn default_true() -> bool {
 
 pub const CONFIG_FILE: &str = "config.toml";
 
-/// Skills file name (looked up in the application base directory).
-/// Contains `[[skill]]` array-of-tables entries.
-pub const SKILLS_FILE: &str = "skills.toml";
-
 /// Top-level configuration structure.
 ///
 /// Loaded from `config.toml` in the project root. Missing fields use sensible defaults.
@@ -484,39 +480,7 @@ impl Default for LLMConfig {
         }
     }
 }
-/// A reusable, named behavior package that modifies how the agent operates.
-///
-/// Skills can inject specialized instructions into the system prompt (preamble)
-/// and/or register custom slash commands for quick invocation.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SkillConfig {
-    /// Unique skill name (e.g. "rust-review", "security-audit").
-    pub name: String,
-    /// Short description shown in /skill list.
-    pub description: String,
-    /// The prompt text injected into the system preamble when this skill is active.
-    pub prompt: String,
-    /// Whether to inject this skill's prompt into the system preamble automatically.
-    /// Default: true.
-    #[serde(default = "default_true")]
-    pub inject_into_preamble: bool,
-    /// Optional slash command to trigger this skill (e.g. "/rust-review").
-    /// When set, the skill can be activated via this command.
-    #[serde(default)]
-    pub command: Option<String>,
-}
 
-impl Default for SkillConfig {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            description: String::new(),
-            prompt: String::new(),
-            inject_into_preamble: true,
-            command: None,
-        }
-    }
-}
 /// UI appearance settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UiConfig {

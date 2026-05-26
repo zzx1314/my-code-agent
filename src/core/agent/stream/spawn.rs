@@ -41,9 +41,18 @@ pub fn send_message_to_llm(
 pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, prompt: &str) {
     use crate::core::agent::stream_response::{StreamResult, stream_response};
     use crate::core::context::expand_file_refs;
+    use crate::core::skill::expand_skill_refs;
     use crate::core::types::Message;
 
-    let expanded = expand_file_refs(prompt, &app.config);
+    // Save original user input before any expansion (used to restore chat history display)
+    let prompt_owned = prompt.to_string();
+
+    // Expand skill references first: @skill-name activates the skill
+    // and auto-activates skills whose keywords match the prompt.
+    // This runs before file expansion so @skill-name won't be mistaken for @filepath.
+    let prompt = expand_skill_refs(prompt, &mut app.skill_manager);
+
+    let expanded = expand_file_refs(&prompt, &app.config);
 
     let mut messages: Vec<Message> = app
         .chat_history
@@ -67,7 +76,6 @@ pub fn spawn_llm_stream(app: &mut App, context_manager: &mut ContextManager, pro
         mpsc::unbounded_channel::<crate::core::agent::stream_response::StreamEvent>();
 
     let mut ctx_mgr = context_manager.clone();
-    let prompt_owned = prompt.to_string();
 
     app.response_rx = Some(response_rx);
     app.streaming_events_rx = Some(event_rx);

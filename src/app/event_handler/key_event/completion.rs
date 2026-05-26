@@ -12,7 +12,16 @@ pub fn trigger_completion(app: &mut App, trigger_char: char) {
     app.completion_query = String::new();
 
     // Fetch and cache completion items
-    let items = get_completion_items(trigger_char);
+    let mut items = get_completion_items(trigger_char);
+
+    // Add skill names to @ completion (so users can tab-complete @skill-name)
+    if trigger_char == '@' {
+        for skill in app.skill_manager.all_skills() {
+            items.push(format!("@{}", skill.name));
+        }
+        items.sort();
+    }
+
     app.completion_all_items = items.clone();
     app.completion_items = items;
 }
