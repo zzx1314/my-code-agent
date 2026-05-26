@@ -39,12 +39,13 @@ pub fn handle_model_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
                     selected_model
                 )));
 
+                let display_name = crate::app::model_display_name(&selected_model);
                 if let Ok(new_agent) = rebuild_agent(&app.config, &app.skill_manager) {
                     app.agent = Arc::new(new_agent);
                     app.chat_history
                         .push(crate::app::ChatEntry::assistant(format!(
                             "Model switched to: {}",
-                            selected_model
+                            display_name
                         )));
                 } else {
                     app.chat_history.push(crate::app::ChatEntry::assistant(
@@ -103,11 +104,17 @@ pub fn handle_provider_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
 
                 if let Ok(new_agent) = rebuild_agent(&app.config, &app.skill_manager) {
                     app.agent = Arc::new(new_agent);
+                    let model_display = app
+                        .config
+                        .llm
+                        .model
+                        .as_deref()
+                        .map(crate::app::model_display_name)
+                        .unwrap_or_else(|| "default".to_string());
                     app.chat_history
                         .push(crate::app::ChatEntry::assistant(format!(
                             "Provider switched to: {} (model: {})",
-                            selected_provider,
-                            app.config.llm.model.as_deref().unwrap_or("default")
+                            selected_provider, model_display
                         )));
                 } else {
                     app.chat_history.push(crate::app::ChatEntry::assistant(

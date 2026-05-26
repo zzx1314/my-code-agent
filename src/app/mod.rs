@@ -463,6 +463,25 @@ impl App {
     }
 }
 
+/// Map a full model name to a short display alias.
+///
+/// For OpenRouter models (and any others with long names), return a concise
+/// alias that fits better in the terminal UI. Unknown/unmapped models are
+/// returned as-is.
+pub fn model_display_name(model: &str) -> String {
+    match model {
+        // ── OpenRouter aliases ──
+        "deepseek/deepseek-v4-flash" => "DS V4 Flash".to_string(),
+        "deepseek/deepseek-v4-pro" => "DS V4 Pro".to_string(),
+        "openrouter/owl-alpha" => "Owl Alpha".to_string(),
+        // ── DeepSeek aliases ──
+        "deepseek-v4-flash" => "DS V4 Flash".to_string(),
+        "deepseek-v4-pro" => "DS V4 Pro".to_string(),
+        // Fallback: return as-is
+        _ => model.to_string(),
+    }
+}
+
 /// Return the list of model options for the given provider.
 ///
 /// For Ollama, this fetches the locally available models from the Ollama API

@@ -197,6 +197,7 @@ pub fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
             } else {
                 "  "
             };
+            let display = crate::app::model_display_name(model);
             let style = if idx == app.model_selected {
                 Style::default()
                     .bg(Color::Blue)
@@ -205,7 +206,7 @@ pub fn render_model_picker(f: &mut Frame, app: &mut App, input_area: Rect) {
             } else {
                 Style::default().fg(Color::Cyan)
             };
-            ListItem::new(format!("{}{}", prefix, model)).style(style)
+            ListItem::new(format!("{}{}", prefix, display)).style(style)
         })
         .collect();
 

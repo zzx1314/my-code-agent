@@ -11,8 +11,9 @@ pub fn handle(app: &mut App) -> bool {
         "⏸️ Idle"
     };
 
-    // Retrieve the configured model name (fall back to "not set").
+    // Retrieve the configured model name (fall back to "not set"), using display alias.
     let model = app.config.llm.model.as_deref().unwrap_or("not set");
+    let model_display = crate::app::model_display_name(model);
 
     // Read the provider name.
     let provider = &app.config.llm.provider;
@@ -30,7 +31,7 @@ pub fn handle(app: &mut App) -> bool {
          - Model: {}\n\
          - Messages: {}\n\
          - Tokens: {}",
-            status, provider, model, chat_count, token_count,
+            status, provider, model_display, chat_count, token_count,
         )));
 
     // Suppress the banner on the next render (status was already shown inline).

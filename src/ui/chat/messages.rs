@@ -405,7 +405,13 @@ pub(super) fn render_chat_messages(
 
 /// Render the startup banner — bordered info panel wrapping tightly around content.
 pub(super) fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
-    let model = app.config.llm.model.as_deref().unwrap_or("unknown");
+    let model = app
+        .config
+        .llm
+        .model
+        .as_deref()
+        .map(crate::app::model_display_name)
+        .unwrap_or_else(|| "unknown".to_string());
     let dir = {
         let cwd = std::env::current_dir().unwrap_or_default();
         if let Some(home) = dirs::home_dir() {

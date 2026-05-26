@@ -6,11 +6,16 @@ use crate::app::App;
 pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
     let mut spans = Vec::new();
 
+    // Use display alias so long OpenRouter model names are shortened.
+    let model_label = app
+        .config
+        .llm
+        .model
+        .as_deref()
+        .map(crate::app::model_display_name)
+        .unwrap_or_else(|| "unknown".to_string());
     spans.push(Span::styled(
-        format!(
-            "Model: {}",
-            app.config.llm.model.as_deref().unwrap_or("unknown")
-        ),
+        format!("Model: {}", model_label),
         Style::default().fg(Color::DarkGray),
     ));
 
