@@ -50,7 +50,8 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
         let boundaries: Vec<usize> = app.text_segment_boundaries.clone();
         let text: String = app.streaming_text.clone();
-        let archived_segments: Vec<String> = app.completed_post_text_segments.clone();
+        let pre_text_segments: Vec<String> = app.completed_pre_text_segments.clone();
+        let post_text_segments: Vec<String> = app.completed_post_text_segments.clone();
         let post_text: String = app.post_text_reasoning.clone();
         let last_reasoning: String = app.last_reasoning.clone();
         let active_reasoning: String = app.streaming_reasoning.clone();
@@ -66,9 +67,25 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             );
         }
 
+        // ── Render archived pre-text reasoning segments ──
+        // These are completed reasoning blocks that appeared before any text
+        // content was emitted. Each segment gets its own "💭 Thinking..."
+        // header so distinct thought blocks remain visually separated.
+        for (i, segment) in pre_text_segments.iter().enumerate() {
+            let section_id = format!("stream_pre_text_reasoning_{}", i);
+            lines.push(Line::default());
+            render_reasoning_inline(
+                &mut lines,
+                segment,
+                app,
+                &section_id,
+                area_width,
+            );
+        }
+
         let mut prev: usize = 0;
 
-        for i in 0..archived_segments.len() {
+        for i in 0..post_text_segments.len() {
             if i < boundaries.len() {
                 let b = boundaries[i];
                 if b > prev && b <= text.len() {
@@ -81,7 +98,7 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
             lines.push(Line::default());
             render_reasoning_inline(
                 &mut lines,
-                &archived_segments[i],
+                &post_text_segments[i],
                 app,
                 &section_id,
                 area_width,
@@ -90,7 +107,7 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
 
         if !post_text.is_empty() {
             let b = boundaries
-                .get(archived_segments.len())
+                .get(post_text_segments.len())
                 .copied()
                 .unwrap_or(text.len());
             if b > prev && b <= text.len() {
