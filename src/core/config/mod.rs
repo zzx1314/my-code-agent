@@ -42,6 +42,9 @@ fn default_think_command() -> bool {
 fn default_thinking_display_height() -> u16 {
     5
 }
+fn default_max_reasoning_only_chunks() -> u32 {
+    200
+}
 fn default_provider_name() -> String {
     "deepseek".to_string()
 }
@@ -227,6 +230,13 @@ pub struct AgentConfig {
     /// Set to 0 to disable (no delay). Default: 0.
     #[serde(default)]
     pub response_interval_ms: u64,
+    /// Maximum consecutive SSE chunks containing ONLY reasoning content
+    /// (no text content, no tool calls) before forcing the stream to stop.
+    /// This catches the model getting stuck in an infinite thinking loop.
+    /// Default: 1000.
+    /// Set to 0 to disable this check.
+    #[serde(default = "default_max_reasoning_only_chunks")]
+    pub max_reasoning_only_chunks: u32,
 }
 
 /// LLM provider settings.
@@ -458,6 +468,7 @@ impl Default for AgentConfig {
             show_tool_details: true,
             show_tool_calls_in_history: false,
             response_interval_ms: 0,
+            max_reasoning_only_chunks: default_max_reasoning_only_chunks(),
         }
     }
 }
