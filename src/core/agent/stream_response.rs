@@ -518,18 +518,31 @@ pub async fn stream_response(
         let mut api_messages = vec![Message::system(system_prompt)];
         api_messages.extend_from_slice(&messages);
 
-        // Inject thinking-loop suppression hints into the API copy ONLY.
-        // These are NOT stored in chat_history, so they never appear in the UI.
-        // Two injection points for maximum proximity to the next reasoning turn:
-        //
-        // 1. The last tool result (user-role, closest to next assistant turn)
+        // Inject thinking-loop and tool-loop suppression hints into the API
+        // copy ONLY. These are NOT stored in chat_history, so they never
+        // appear in the UI. Three injection points for layered defense:
+        let has_tool_calls = api_messages.iter().any(|m| m.tool_calls.is_some());
+        let has_tool_results = api_messages.iter().any(|m| m.tool_call_id.is_some());
+
+        // 1. Explicit "all tools done" signal — a fresh user message at the end
+        //    of api_messages, positioned closest to the model's next turn. This
+        //    is the strongest signal because it's a complete message in the most
+        //    recent position.
+        if has_tool_calls && has_tool_results {
+            api_messages.push(Message::user(
+                "[All tool calls have been executed and their results are shown above. \
+                 Review the results and continue with your task. Do NOT call the same tools again.]",
+            ));
+        }
+
+        // 2. The last tool result (user-role, closest to next assistant turn)
         if let Some(last_tool) = api_messages.iter_mut().rev().find(|m| m.tool_call_id.is_some())
         {
             last_tool
                 .content
                 .push_str("\n\n---\nProceed directly. Do NOT re-analyze or repeat prior thinking.");
         }
-        // 2. The last assistant message with tool calls (precedes tool results)
+        // 3. The last assistant message with tool calls (precedes tool results)
         if let Some(last_asst) = api_messages
             .iter_mut()
             .rev()
