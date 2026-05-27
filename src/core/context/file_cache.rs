@@ -49,6 +49,17 @@ pub fn get_global_file_cache() -> Arc<Mutex<FileCache>> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl FileCache {
+    /// Normalize a path to its canonical form (absolute, symlinks resolved).
+    /// All cache keys use canonicalized paths so that different input forms
+    /// (`src/foo.rs`, `./src/foo.rs`, `/abs/src/foo.rs`) map to the same entry.
+    /// Falls back to the original path if canonicalization fails (e.g. file deleted).
+    fn normalize_path(path: &str) -> PathBuf {
+        match std::path::Path::new(path).canonicalize() {
+            Ok(p) => p,
+            Err(_) => PathBuf::from(path),
+        }
+    }
+
     pub fn new(max_entries: usize, max_age_secs: u64) -> Self {
         Self {
             entries: HashMap::new(),
@@ -59,7 +70,7 @@ impl FileCache {
     }
 
     pub fn get(&mut self, path: &str) -> Option<FileCacheEntry> {
-        let path = PathBuf::from(path);
+        let path = Self::normalize_path(path);
 
         if let Some(entry) = self.entries.get(&path) {
             let is_valid = self.is_entry_valid(&path, entry);
@@ -74,7 +85,7 @@ impl FileCache {
     }
 
     pub fn insert(&mut self, path: &str, content: String) {
-        let path = PathBuf::from(path);
+        let path = Self::normalize_path(path);
         let size = content.len() as u64;
         let lines = content.lines().count();
 
@@ -102,7 +113,10 @@ impl FileCache {
         offset: usize,
         limit: usize,
     ) -> Option<(String, FileCacheEntry)> {
-        if let Some(entry) = self.get(path) {
+        let normalized = Self::normalize_path(path);
+        let norm_path = normalized.to_string_lossy().to_string();
+
+        if let Some(entry) = self.get(&norm_path) {
             let slice = entry
                 .content
                 .lines()
@@ -113,10 +127,12 @@ impl FileCache {
             return Some((slice, entry));
         }
 
+        // Use original path for disk read (works with both relative and absolute forms),
+        // but store under the normalized key for cache consistency.
         let content = std::fs::read_to_string(path).ok()?;
 
-        self.insert(path, content.clone());
-        self.get(path).map(|entry| {
+        self.insert(&norm_path, content.clone());
+        self.get(&norm_path).map(|entry| {
             let slice = entry
                 .content
                 .lines()
@@ -149,7 +165,7 @@ impl FileCache {
     }
 
     pub fn invalidate(&mut self, path: &str) {
-        let path = PathBuf::from(path);
+        let path = Self::normalize_path(path);
         self.entries.remove(&path);
         self.access_order.retain(|p| p != &path);
     }

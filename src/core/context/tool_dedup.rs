@@ -49,6 +49,17 @@ pub struct ToolCallDedup {
 }
 
 impl ToolCallDedup {
+    /// Normalize a path to its canonical form (absolute, symlinks resolved).
+    /// All cache keys use canonicalized paths so that different input forms
+    /// (`src/foo.rs`, `./src/foo.rs`, `/abs/src/foo.rs`) map to the same entry.
+    /// This must match the normalization done in `FileCache` and `file_outline`.
+    fn normalize_path(path: &str) -> PathBuf {
+        match std::path::Path::new(path).canonicalize() {
+            Ok(p) => p,
+            Err(_) => PathBuf::from(path),
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             outline_records: HashMap::new(),
@@ -62,11 +73,11 @@ impl ToolCallDedup {
     /// (no hit_count escalation) since the outline is small and cached directly.
     /// The model always gets useful data instead of a `[DEDUP]` message.
     pub fn check_file_outline(&mut self, path: &str) -> DedupAction {
-        let path_buf = PathBuf::from(path);
+        let path_buf = Self::normalize_path(path);
         let key = OutlineKey { path: path_buf };
 
         if let Some(record) = self.outline_records.get(&key) {
-            if let Ok(metadata) = std::fs::metadata(path) {
+            if let Ok(metadata) = std::fs::metadata(&key.path) {
                 if let Ok(current_mtime) = metadata.modified() {
                     if current_mtime == record.mtime {
                         // File unchanged — return cached outline directly.
@@ -88,7 +99,7 @@ impl ToolCallDedup {
     /// Record a completed file_outline so future identical calls can be short-circuited.
     /// The `outline` string is cached and returned directly on subsequent dedup hits.
     pub fn record_file_outline(&mut self, path: &str, total_lines: usize, outline: &str) {
-        let path_buf = PathBuf::from(path);
+        let path_buf = Self::normalize_path(path);
 
         let mtime = std::fs::metadata(&path_buf)
             .and_then(|m| m.modified())
@@ -107,8 +118,9 @@ impl ToolCallDedup {
     }
 
     /// Invalidate all records for a specific path (e.g., after file_write or file_update).
+    /// Uses normalized path so that different input forms match the stored canonical key.
     pub fn invalidate_path(&mut self, path: &str) {
-        let path_buf = PathBuf::from(path);
+        let path_buf = Self::normalize_path(path);
         self.outline_records.retain(|key, _| key.path != path_buf);
     }
 
@@ -149,22 +161,13 @@ pub enum DedupAction {
 }
 
 /// Minimal metadata for a short-circuit response from `file_outline`.
+/// The `cached_outline` field contains the full outline string returned directly
+/// to the model (not a `[DEDUP]` placeholder), since the outline is small and
+/// always useful even on cache hits.
 #[derive(Debug, Clone)]
 pub struct DedupInfo {
     pub path: String,
     pub total_lines: usize,
     /// Cached outline content returned directly to the model.
     pub cached_outline: String,
-}
-
-impl DedupInfo {
-    /// Format a short message suitable as a tool result.
-    pub fn format_message(&self) -> String {
-        format!(
-            "[DEDUP] File \"{}\" ({} total lines) was already outlined above. \
-             No need to re-outline. Use the outline from the conversation history. \
-             If the content is no longer in context (was pruned), call file_outline again.",
-            self.path, self.total_lines,
-        )
-    }
 }

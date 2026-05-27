@@ -5,7 +5,7 @@ use my_code_agent::tools::ToolRegistry;
 fn test_all_tools_count() {
     let config = Config::default();
     let tools = ToolRegistry::from_config(&config);
-    assert_eq!(tools.len(), 19);
+    assert_eq!(tools.len(), 20);
 }
 
 #[test]
@@ -24,6 +24,7 @@ fn test_all_tools_names() {
     assert!(names.contains(&"shell_exec".to_string()));
     assert!(names.contains(&"code_search".to_string()));
     assert!(names.contains(&"code_review".to_string()));
+    assert!(names.contains(&"explore_context".to_string()));
     assert!(names.contains(&"list_dir".to_string()));
     assert!(names.contains(&"glob".to_string()));
     assert!(names.contains(&"git_status".to_string()));
