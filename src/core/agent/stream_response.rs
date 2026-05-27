@@ -7,7 +7,7 @@ use crate::core::context::context_manager::ContextManager;
 use crate::core::context::token_usage::{TokenUsage, format_context_warning, format_turn_usage};
 use crate::core::types::{FinishReason, Message, ToolCall};
 use crate::tools::ToolRegistry;
-use crate::ui::render::{ReasoningTracker, StatefulTagStripper};
+use crate::ui::render::{ReasoningTracker, StatefulTagStripper, strip_model_metadata};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tool call history — detects repeated identical calls to break loops
@@ -238,9 +238,9 @@ async fn process_sse_stream(
             if let Some(ref rt) = delta.reasoning_content {
                 if !rt.is_empty() && display_mode != "hidden" {
                     reasoning_active = true;
-                    // Strip tags (with cross-chunk state tracking) before sending
-                    // to both ReasoningTracker and UI.
-                    let cleaned = tag_stripper.process(rt);
+                    // Strip tags (with cross-chunk state tracking) and model
+                    // metadata lines before sending to UI.
+                    let cleaned = strip_model_metadata(&tag_stripper.process(rt));
                     reasoning.append(&cleaned);
                     send_event(StreamEvent::ReasoningActive(true));
                     send_event(StreamEvent::ReasoningDelta(cleaned));
@@ -248,9 +248,9 @@ async fn process_sse_stream(
             } else if let Some(ref rt) = delta.reasoning {
                 if !rt.is_empty() && display_mode != "hidden" {
                     reasoning_active = true;
-                    // Strip tags (with cross-chunk state tracking) before sending
-                    // to both ReasoningTracker and UI.
-                    let cleaned = tag_stripper.process(rt);
+                    // Strip tags (with cross-chunk state tracking) and model
+                    // metadata lines before sending to UI.
+                    let cleaned = strip_model_metadata(&tag_stripper.process(rt));
                     reasoning.append(&cleaned);
                     send_event(StreamEvent::ReasoningActive(true));
                     send_event(StreamEvent::ReasoningDelta(cleaned));
@@ -264,7 +264,8 @@ async fn process_sse_stream(
                         reasoning.end_segment();
                         send_event(StreamEvent::ReasoningActive(false));
                     }
-                    let cleaned = tag_stripper.process(text);
+                    // Strip tags and model metadata lines from content
+                    let cleaned = strip_model_metadata(&tag_stripper.process(text));
                     send_event(StreamEvent::Text(cleaned.clone()));
                     response_text.push_str(&cleaned);
                     *running_approx += ContextManager::estimate_text_tokens(&cleaned);
@@ -486,29 +487,26 @@ pub async fn stream_response(
         let has_tool_results = api_messages.iter().any(|m| m.tool_call_id.is_some());
 
         if has_tool_calls && has_tool_results {
-            // 1. The last tool result — append a clear instruction so the model
-            //    understands all tools are done and should not re-call them.
+            // Append a clear instruction to the last tool result so the model
+            // understands all tools are done and should not re-call them.
+            // Keep it as a single, concise instruction appended to ONE message
+            // to minimize the chance the model echoes it back in its output.
+            // Use plain text without special markers/brackets that models tend
+            // to echo back as content.
             if let Some(last_tool) = api_messages
                 .iter_mut()
                 .rev()
                 .find(|m| m.tool_call_id.is_some())
             {
                 last_tool.content.push_str(
-                    "\n\n[ALL TOOLS DONE] All tool calls have been executed. \
-                     Review the results above and continue with your next step. \
-                     Do NOT repeat any tool call.",
+                    "\n\nAll tool calls above have been executed. Continue with your \
+                     response. Do NOT repeat any tool call or re-analyze previous \
+                     tool outputs.",
                 );
             }
-            // 2. The last assistant message with tool calls — discourage re-analysis.
-            if let Some(last_asst) = api_messages
-                .iter_mut()
-                .rev()
-                .find(|m| m.role == "assistant" && m.tool_calls.is_some())
-            {
-                last_asst
-                    .content
-                    .push_str("\n\n[TOOLS ISSUED] Do NOT re-think prior analysis.");
-            }
+            // Do NOT inject into assistant messages — doing so causes the model
+            // to echo the injected text back as part of its response, which then
+            // appears in the UI. The single instruction above covers both cases.
         }
 
         let tool_defs = tools.definitions();
@@ -810,10 +808,18 @@ pub async fn stream_response(
                     let result = tools.execute(&tc.function.name, args).await;
                     let content = match result {
                         Ok(output) => output,
-                        Err(e) => format!(
-                            "[TOOL_ERROR] `{}` failed: {}.\nStop retrying this tool call — the operation did not succeed. Re-evaluate your approach instead.",
-                            tc.function.name, e,
-                        ),
+                        Err(e) => {
+                            tracing::error!(
+                                tool = %tc.function.name,
+                                arguments = %tc.function.arguments,
+                                error = %e,
+                                "Tool call failed"
+                            );
+                            format!(
+                                "[TOOL_ERROR] `{}` failed: {}.\nStop retrying this tool call — the operation did not succeed. Re-evaluate your approach instead.",
+                                tc.function.name, e,
+                            )
+                        }
                     };
 
                     // Check if end_turn was requested

@@ -3,6 +3,7 @@ use tokio::sync::mpsc;
 use crate::app::{App, ChatEntry};
 use crate::core::agent::review::{ReviewAgent, ReviewEvent};
 use crate::core::types::review::{ReviewOutcome, ReviewVerdict};
+use crate::ui::render::strip_model_metadata;
 
 use super::state::cleanup_stream_state;
 
@@ -407,6 +408,14 @@ pub fn trigger_auto_review(app: &mut App) {
 
 /// Process the final result of a streaming response
 fn process_stream_result(app: &mut App, result: crate::core::agent::stream_response::StreamResult) {
+    // ── Defensive filtering: strip model metadata lines that may have
+    // slipped through during streaming (e.g. cross-chunk patterns).
+    let result = crate::core::agent::stream_response::StreamResult {
+        full_response: strip_model_metadata(&result.full_response),
+        last_reasoning: strip_model_metadata(&result.last_reasoning),
+        ..result
+    };
+
     // Save streaming_todos before clearing — we'll re-add it after the
     // chat_history is synced so the plan stays visible after streaming
     // completes, right alongside the assistant's final response.

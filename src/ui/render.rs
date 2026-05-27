@@ -77,13 +77,14 @@ impl ReasoningTracker {
         }
     }
 
-    /// Strip HTML/XML-like tags (`<tag>`, `</tag>`) from reasoning text.
+    /// Strip HTML/XML-like tags (`<tag>`, `</tag>`, `<|tag|>`) from reasoning text.
     ///
     /// Reasoning content is internal monologue — any markup tags in it are
     /// model-internal formatting noise, not meaningful output.
     ///
     /// This handles:
     /// - `<think>`, `</think>`, `<answer>`, `</answer>`, etc.
+    /// - `<|tool_call|>`, `<|tool_result|>`, etc. (DeepSeek native format)
     ///
     /// It does NOT strip bare `<` that isn't part of a tag (e.g. `x < y`).
     fn strip_html_tags(text: &str) -> String {
@@ -132,13 +133,14 @@ impl Default for ReasoningTracker {
     }
 }
 
-/// Strip HTML/XML-like tags (`<tag>`, `</tag>`) from text.
+/// Strip HTML/XML-like tags (`<tag>`, `</tag>`, `<|tag|>`) from text.
 ///
 /// Reasoning content is internal monologue — any markup tags in it are
 /// model-internal formatting noise, not meaningful output.
 ///
 /// This handles:
 /// - `<think>`, `</think>`, `<answer>`, `</answer>`, etc.
+/// - `<|tool_call|>`, `<|tool_result|>`, etc. (DeepSeek native format)
 ///
 /// It does NOT strip bare `<` that isn't part of a tag (e.g. `x < y`).
 /// Stateful HTML/XML tag stripper that handles cross-chunk tag boundaries.
@@ -188,9 +190,10 @@ impl StatefulTagStripper {
         loop {
             if let Some(start) = remaining.find('<') {
                 let after = &remaining[start..];
-                // A tag starts with < followed by /, _, or an ASCII letter
+                // A tag starts with < followed by /, _, |, or an ASCII letter
+                // This handles both <tag> and <|tag|> (DeepSeek native tool call format)
                 let is_tag = after.len() > 1
-                    && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z');
+                    && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'|');
                 if is_tag {
                     if let Some(end) = after.find('>') {
                         // Valid tag — strip the entire <...>
@@ -233,7 +236,7 @@ impl Default for StatefulTagStripper {
     }
 }
 
-/// Strip HTML/XML-like tags (`<tag>`, `</tag>`) from text.
+/// Strip HTML/XML-like tags (`<tag>`, `</tag>`, `<|tag|>`) from text.
 ///
 /// This is the **stateless** version — each call is independent and does not
 /// remember tags that were split across chunks. For streaming scenarios where
@@ -255,9 +258,10 @@ pub fn strip_html_tags(text: &str) -> String {
     loop {
         if let Some(start) = remaining.find('<') {
             let after = &remaining[start..];
-            // A tag starts with < followed by /, _, or an ASCII letter
+            // A tag starts with < followed by /, _, |, or an ASCII letter
+            // This handles both <tag> and <|tag|> (DeepSeek native tool call format)
             let is_tag = after.len() > 1
-                && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z');
+                && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'|');
             if is_tag {
                 if let Some(end) = after.find('>') {
                     // Valid tag — strip the entire <...>
@@ -282,6 +286,48 @@ pub fn strip_html_tags(text: &str) -> String {
             result.push_str(remaining);
             break;
         }
+    }
+    result
+}
+
+/// Remove internal model metadata lines from text.
+///
+/// Some reasoning models (e.g. DeepSeek V4 Flash) output internal tracking
+/// metadata like:
+/// - `[CONTEXT GATHERING - CURRENT TURN, 2 tool calls]`
+/// - `[tool 1] functions.file_read:1 path/to/file.rs`
+/// - `[CONTEXT TOTAL: 2 tool calls so far]`
+///
+/// These are internal monologue that should not be displayed to the user.
+/// This function removes any line that matches known metadata patterns.
+pub fn strip_model_metadata(text: &str) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+
+    // Fast path: check if text contains any metadata pattern
+    if !text.contains("[CONTEXT GATHERING")
+        && !text.contains("[CONTEXT TOTAL")
+        && !text.contains("[tool ")
+    {
+        return text.to_string();
+    }
+
+    let mut result = String::with_capacity(text.len());
+    for line in text.split('\n') {
+        let trimmed = line.trim();
+        if trimmed.starts_with("[CONTEXT GATHERING")
+            || trimmed.starts_with("[CONTEXT TOTAL")
+            || trimmed.starts_with("[tool ")
+        {
+            continue;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    // Remove trailing newline if original didn't have one
+    if !text.ends_with('\n') && result.ends_with('\n') {
+        result.pop();
     }
     result
 }
