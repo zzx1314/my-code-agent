@@ -9,6 +9,7 @@ pub fn reset_streaming_state(app: &mut App) {
     app.streaming_text.clear();
     app.streaming_reasoning.clear();
     app.post_text_reasoning.clear();
+    app.completed_pre_text_segments.clear();
     app.completed_post_text_segments.clear();
     app.text_segment_boundaries.clear();
     app.last_reasoning.clear();
