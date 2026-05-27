@@ -22,3 +22,6 @@ mod shell_mode;
 mod test_multi_language_parser;
 #[path = "core/token_usage.rs"]
 mod token_usage;
+
+#[path = "core/skill.rs"]
+mod skill;
