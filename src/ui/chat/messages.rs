@@ -438,7 +438,7 @@ pub(super) fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
         Line::from(vec![Span::styled(" >_ My Code Agent", title_style)]),
         Line::from(""),
         Line::from(vec![
-            Span::styled(" model:     ", dim),
+            Span::styled(" model: ", dim),
             Span::styled(model, value_style),
             Span::styled("   ", dim),
             Span::styled("/model to change", dim),
