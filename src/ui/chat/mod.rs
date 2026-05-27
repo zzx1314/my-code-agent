@@ -73,7 +73,6 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         // header so distinct thought blocks remain visually separated.
         for (i, segment) in pre_text_segments.iter().enumerate() {
             let section_id = format!("stream_pre_text_reasoning_{}", i);
-            lines.push(Line::default());
             render_reasoning_inline(
                 &mut lines,
                 segment,
