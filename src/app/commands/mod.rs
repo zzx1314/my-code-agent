@@ -21,11 +21,7 @@ use crate::core::context::context_manager::ContextManager;
 
 /// Handle commands (input starting with /)
 /// Returns true if the command was handled, false if it should be sent to the LLM
-pub fn handle_command(
-    app: &mut App,
-    input: &str,
-    context_manager: &mut ContextManager,
-) -> bool {
+pub fn handle_command(app: &mut App, input: &str, context_manager: &mut ContextManager) -> bool {
     let command = input.trim().to_lowercase();
 
     // Check if any skill has a matching command first

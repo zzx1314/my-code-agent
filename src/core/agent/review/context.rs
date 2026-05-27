@@ -38,9 +38,7 @@ pub fn is_fix_prompt(content: &str) -> bool {
 /// (the main agent's response) and includes it as "Previous Iteration
 /// Feedback" — so the review agent knows which issues were accepted,
 /// rejected, or partially fixed.
-pub fn extract_previous_iteration_feedback(
-    history: &[crate::core::types::Message],
-) -> String {
+pub fn extract_previous_iteration_feedback(history: &[crate::core::types::Message]) -> String {
     let mut responses = Vec::new();
 
     for i in 0..history.len() {

@@ -67,7 +67,8 @@ fn test_review_report_creation() {
                 severity: Severity::Critical,
                 category: ReviewCategory::Security,
                 title: "SQL injection risk".to_string(),
-                description: "User input directly concatenated into SQL query without validation".to_string(),
+                description: "User input directly concatenated into SQL query without validation"
+                    .to_string(),
                 suggestion: Some("Use parameterized queries".to_string()),
                 code_snippet: None,
                 fix_example: Some("query!(\"SELECT * FROM users WHERE id = ?\", id)".to_string()),
@@ -432,7 +433,10 @@ fn test_extract_json_nested_braces_with_chinese_prefix() {
     let response = format!("Result: {} done", json);
     let result = extract_json_from_response(&response).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["issues"][0]["description"], "Contains braces { and } in text");
+    assert_eq!(
+        parsed["issues"][0]["description"],
+        "Contains braces { and } in text"
+    );
 }
 
 // =============================================================================

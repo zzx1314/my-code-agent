@@ -86,12 +86,11 @@ pub fn process_streaming_events(app: &mut App) {
                     if !active {
                         if !app.streaming_reasoning.is_empty() {
                             if app.streaming_text.is_empty() {
-                                // Pre-text thinking segment: merge to last_reasoning
-                                // so it displays above the streaming text.
-                                if !app.last_reasoning.is_empty() {
-                                    app.last_reasoning.push('\n');
-                                }
-                                app.last_reasoning.push_str(&app.streaming_reasoning);
+                                // Pre-text thinking segment: archive so each thought block
+                                // renders as its own separate section during streaming
+                                // (analogous to how post-text segments are archived).
+                                app.completed_pre_text_segments
+                                    .push(std::mem::take(&mut app.streaming_reasoning));
                             } else {
                                 // Post-text thinking (text already started):
                                 // Record a text segment boundary so rendering can

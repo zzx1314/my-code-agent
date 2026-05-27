@@ -112,36 +112,11 @@ impl Tool for FileUpdate {
         //   - Leading \n: LLM code block extraction (```\ncode)
         //   - Trailing \n: LLM code block formatting (code\n```)
         let new_content_trimmed = args.new_content.trim_matches('\n');
-        let mut new_lines: Vec<&str> = if new_content_trimmed.is_empty() {
+        let new_lines: Vec<&str> = if new_content_trimmed.is_empty() {
             vec![]
         } else {
             new_content_trimmed.split('\n').collect()
         };
-
-        // ── Deduplication ──────────────────────────────────────────
-        // LLMs often accidentally include surrounding context lines from
-        // the file in new_content.  Automatically remove lines that are
-        // exact duplicates of the adjacent pre-edit or post-edit line.
-
-        // 1. Preceding-line dedup: if the first line of new_content
-        //    matches the line immediately before the edit point, remove it.
-        if !new_lines.is_empty()
-            && args.start_line > 1
-            && new_lines[0] == lines[args.start_line - 2]
-        {
-            new_lines.remove(0);
-        }
-
-        // 2. Following-line dedup: if the last line of new_content
-        //    matches the first preserved line after the deletion range,
-        //    remove it.
-        let preserved_idx = args.start_line - 1 + args.delete_count;
-        if !new_lines.is_empty()
-            && preserved_idx < total_lines
-            && new_lines.last() == Some(&lines[preserved_idx])
-        {
-            new_lines.pop();
-        }
 
         let mut result_lines: Vec<&str> =
             Vec::with_capacity(total_lines - args.delete_count + new_lines.len());

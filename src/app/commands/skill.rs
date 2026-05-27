@@ -26,15 +26,13 @@ pub fn handle(app: &mut App, input: &str) -> bool {
             for skill in app.skill_manager.all_skills().to_vec() {
                 app.skill_manager.activate(&skill.name);
             }
-            app.status_messages
-                .push("✅ All skills activated".into());
+            app.status_messages.push("✅ All skills activated".into());
             show_list(app);
             true
         }
         "--none" => {
             app.skill_manager.deactivate_all();
-            app.status_messages
-                .push("○ All skills deactivated".into());
+            app.status_messages.push("○ All skills deactivated".into());
             show_list(app);
             true
         }
@@ -61,8 +59,7 @@ pub fn handle(app: &mut App, input: &str) -> bool {
                     show_list(app);
                 }
                 Err(e) => {
-                    app.status_messages
-                        .push(format!("❌ Reload failed: {}", e));
+                    app.status_messages.push(format!("❌ Reload failed: {}", e));
                 }
             }
             true
@@ -70,15 +67,16 @@ pub fn handle(app: &mut App, input: &str) -> bool {
         s if s.starts_with("--on ") => {
             let name = s.strip_prefix("--on ").unwrap().trim();
             if name.is_empty() {
-                app.status_messages
-                    .push("Usage: /skill --on <name>".into());
+                app.status_messages.push("Usage: /skill --on <name>".into());
             } else if app.skill_manager.activate(name) {
                 app.status_messages
                     .push(format!("✅ Skill '{}' activated", name));
                 show_list(app);
             } else {
-                app.status_messages
-                    .push(format!("❌ Skill '{}' not found. Use /skill to see available skills.", name));
+                app.status_messages.push(format!(
+                    "❌ Skill '{}' not found. Use /skill to see available skills.",
+                    name
+                ));
             }
             true
         }
@@ -129,13 +127,20 @@ fn show_list(app: &mut App) {
 fn show_help(app: &mut App) {
     app.status_messages.push("".into());
     app.status_messages.push("  Usage:".into());
-    app.status_messages.push("    /skill              — list all skills and their active state".into());
-    app.status_messages.push("    /skill <name>       — toggle a skill on/off".into());
-    app.status_messages.push("    /skill --on <name>  — activate a skill".into());
-    app.status_messages.push("    /skill --off <name> — deactivate a skill".into());
-    app.status_messages.push("    /skill --all        — activate all skills".into());
-    app.status_messages.push("    /skill --none       — deactivate all skills".into());
-    app.status_messages.push("    /skill --reload     — reload skills from the skills/ directory".into());
+    app.status_messages
+        .push("    /skill              — list all skills and their active state".into());
+    app.status_messages
+        .push("    /skill <name>       — toggle a skill on/off".into());
+    app.status_messages
+        .push("    /skill --on <name>  — activate a skill".into());
+    app.status_messages
+        .push("    /skill --off <name> — deactivate a skill".into());
+    app.status_messages
+        .push("    /skill --all        — activate all skills".into());
+    app.status_messages
+        .push("    /skill --none       — deactivate all skills".into());
+    app.status_messages
+        .push("    /skill --reload     — reload skills from the skills/ directory".into());
     app.status_messages.push("".into());
 }
 
@@ -152,9 +157,20 @@ mod tests {
     fn make_app_with_skills(skills: Vec<crate::core::skill::SkillConfig>) -> App {
         let config = Config::default();
         let client = build_client(&config);
-        let agent = Arc::new(Agent::new(client, "test prompt".to_string(), crate::tools::ToolRegistry::new()));
+        let agent = Arc::new(Agent::new(
+            client,
+            "test prompt".to_string(),
+            crate::tools::ToolRegistry::new(),
+        ));
         let (tx, _) = broadcast::channel(1);
-        let mut app = App::new(Vec::new(), TokenUsage::default(), String::new(), config, agent, tx);
+        let mut app = App::new(
+            Vec::new(),
+            TokenUsage::default(),
+            String::new(),
+            config,
+            agent,
+            tx,
+        );
         app.skill_manager = crate::core::skill::SkillManager::from_skills(skills);
         app
     }
@@ -163,7 +179,11 @@ mod tests {
     fn test_skill_list_empty() {
         let mut app = make_app_with_skills(vec![]);
         handle(&mut app, "/skill");
-        assert!(app.status_messages.iter().any(|m| m.contains("No skills found")));
+        assert!(
+            app.status_messages
+                .iter()
+                .any(|m| m.contains("No skills found"))
+        );
     }
 
     #[test]
@@ -201,13 +221,19 @@ mod tests {
     #[test]
     fn test_skill_all() {
         let s1 = crate::core::skill::SkillConfig {
-            name: "skill-a".to_string(), description: "A".to_string(),
-            prompt: "Prompt A".to_string(), inject_into_preamble: true, command: None,
+            name: "skill-a".to_string(),
+            description: "A".to_string(),
+            prompt: "Prompt A".to_string(),
+            inject_into_preamble: true,
+            command: None,
             keywords: Vec::new(),
         };
         let s2 = crate::core::skill::SkillConfig {
-            name: "skill-b".to_string(), description: "B".to_string(),
-            prompt: "Prompt B".to_string(), inject_into_preamble: true, command: None,
+            name: "skill-b".to_string(),
+            description: "B".to_string(),
+            prompt: "Prompt B".to_string(),
+            inject_into_preamble: true,
+            command: None,
             keywords: Vec::new(),
         };
         let mut app = make_app_with_skills(vec![s1, s2]);
@@ -219,8 +245,11 @@ mod tests {
     #[test]
     fn test_skill_none() {
         let s1 = crate::core::skill::SkillConfig {
-            name: "skill-a".to_string(), description: "A".to_string(),
-            prompt: "Prompt A".to_string(), inject_into_preamble: true, command: None,
+            name: "skill-a".to_string(),
+            description: "A".to_string(),
+            prompt: "Prompt A".to_string(),
+            inject_into_preamble: true,
+            command: None,
             keywords: Vec::new(),
         };
         let mut app = make_app_with_skills(vec![s1]);

@@ -186,7 +186,9 @@ fn is_known_false_positive(issue: &ReviewIssue) -> bool {
     if combined.contains("test removed")
         || combined.contains("tests removed")
         || combined.contains("removed without replacement")
-        || (combined.contains("test") && combined.contains("removed") && combined.contains("migrat"))
+        || (combined.contains("test")
+            && combined.contains("removed")
+            && combined.contains("migrat"))
     {
         // Only filter low/medium severity — real test-deletion bugs are critical
         if issue.severity == Severity::Low

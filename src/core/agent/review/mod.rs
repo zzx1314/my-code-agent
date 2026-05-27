@@ -8,31 +8,26 @@ use std::path::Path;
 use super::client::LlmClient;
 use crate::core::types::review::*;
 
-mod types;
-mod json;
+mod checks;
 mod context;
 mod false_positives;
-mod checks;
+mod json;
+mod types;
 
 // Re-export types and free functions from sub-modules for backward compatibility.
 // External consumers import from `crate::core::agent::review::*`.
-pub use self::types::{ReviewEvent, ReviewRequest};
-pub use self::json::{
-    escape_control_chars_in_strings,
-    extract_json_from_response,
-    remove_trailing_commas_from_json,
-    repair_truncated_json,
-    sanitize_json_escapes,
-};
-pub(crate) use self::checks::{
-    check_file_too_long, has_tests, is_source_file,
-};
+pub(crate) use self::checks::{check_file_too_long, has_tests, is_source_file};
 pub(crate) use self::context::{
     char_boundary_at_or_before, clean_review_content, extract_previous_iteration_feedback,
     get_file_outline, is_fix_prompt, truncate_content,
 };
 pub(crate) use self::false_positives::filter_known_false_positives;
 use self::json::parse_json_with_fallback;
+pub use self::json::{
+    escape_control_chars_in_strings, extract_json_from_response, remove_trailing_commas_from_json,
+    repair_truncated_json, sanitize_json_escapes,
+};
+pub use self::types::{ReviewEvent, ReviewRequest};
 
 /// Code Review Agent
 ///
@@ -301,9 +296,7 @@ impl ReviewAgent {
                 );
                 return Ok(reasoning_buf);
             } else {
-                tracing::error!(
-                    "call_llm_stream: both content and reasoning_content were empty"
-                );
+                tracing::error!("call_llm_stream: both content and reasoning_content were empty");
             }
         }
 
@@ -362,8 +355,7 @@ impl ReviewAgent {
         if let (Some(first_idx), Some(last_idx)) = (first_user_idx, last_assistant_idx) {
             for i in (first_idx + 1..last_idx).rev() {
                 if history[i].role == "user" {
-                    let content =
-                        clean_review_content(&history[i].content);
+                    let content = clean_review_content(&history[i].content);
                     if !content.is_empty() && content.len() > 20 {
                         result.push_str("## Follow-up Context\n");
                         result.push_str(&truncate_content(&content, 500));
@@ -807,9 +799,7 @@ impl ReviewAgent {
 
             // 2. Check test existence (only for source files, skip test/config files)
             if is_source_file(path) && !has_tests(path) {
-                let filename = path.file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("");
+                let filename = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
                 issues.push(ReviewIssue {
                     file: file.path.clone(),
                     line: None,

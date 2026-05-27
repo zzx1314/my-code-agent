@@ -179,9 +179,11 @@ impl SkillManager {
     /// Returns the skill config for a given command name (regardless of active state).
     pub fn find_by_command(&self, cmd: &str) -> Option<&SkillConfig> {
         let cmd = cmd.trim().to_lowercase();
-        self.skills
-            .iter()
-            .find(|s| s.command.as_ref().map_or(false, |c| c.to_lowercase() == cmd))
+        self.skills.iter().find(|s| {
+            s.command
+                .as_ref()
+                .map_or(false, |c| c.to_lowercase() == cmd)
+        })
     }
 
     /// Returns all skills loaded from config.
@@ -249,7 +251,9 @@ impl SkillManager {
     /// Each line shows: name, description, active state, and command.
     pub fn format_skill_list(&self) -> Vec<String> {
         if self.skills.is_empty() {
-            return vec!["  No skills found. Add `.md` files to the skills/ directory.".to_string()];
+            return vec![
+                "  No skills found. Add `.md` files to the skills/ directory.".to_string(),
+            ];
         }
 
         self.skills
@@ -299,8 +303,11 @@ impl SkillManager {
         let old_active = self.active.clone();
         let new_mgr = Self::load_from_dir(&dir);
 
-        let new_names: HashSet<String> =
-            new_mgr.skills.iter().map(|s| s.name.to_lowercase()).collect();
+        let new_names: HashSet<String> = new_mgr
+            .skills
+            .iter()
+            .map(|s| s.name.to_lowercase())
+            .collect();
 
         self.skills = new_mgr.skills;
         self.active.retain(|name| new_names.contains(name));
@@ -339,9 +346,8 @@ pub fn expand_skill_refs(prompt: &str, skill_manager: &mut SkillManager) -> Stri
 
     for word in &words {
         if word.starts_with('@') {
-            let name = word[1..].trim_end_matches(|c: char| {
-                c.is_ascii_punctuation() && !matches!(c, '-' | '_')
-            });
+            let name = word[1..]
+                .trim_end_matches(|c: char| c.is_ascii_punctuation() && !matches!(c, '-' | '_'));
             let name_lower = name.to_lowercase();
             if let Some(full_name) = name_map.get(&name_lower) {
                 if !skill_manager.is_active(full_name) {
@@ -374,8 +380,7 @@ pub fn expand_skill_refs(prompt: &str, skill_manager: &mut SkillManager) -> Stri
         }
     } else {
         // Collect prompts for newly activated skills
-        let skill_names_set: std::collections::HashSet<&String> =
-            activated_names.iter().collect();
+        let skill_names_set: std::collections::HashSet<&String> = activated_names.iter().collect();
         let skill_prompts: Vec<&SkillConfig> = skill_manager
             .all_skills()
             .iter()
@@ -408,8 +413,8 @@ pub fn expand_skill_refs(prompt: &str, skill_manager: &mut SkillManager) -> Stri
 ///
 /// Returns `Ok(SkillConfig)` on success, or `Err` with a description of the parse failure.
 pub fn parse_skill_file(path: &Path) -> Result<SkillConfig, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {}", path.display(), e))?;
 
     let content = content.trim();
 
@@ -423,7 +428,9 @@ pub fn parse_skill_file(path: &Path) -> Result<SkillConfig, String> {
 
     // Find the closing `---`
     let after_first = content.strip_prefix("---").unwrap().trim_start();
-    let closing_pos = after_first.find("\n---").or_else(|| after_first.find("\n---\r"));
+    let closing_pos = after_first
+        .find("\n---")
+        .or_else(|| after_first.find("\n---\r"));
 
     let (frontmatter_block, body) = match closing_pos {
         Some(pos) => {

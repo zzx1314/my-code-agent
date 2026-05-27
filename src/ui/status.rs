@@ -152,10 +152,7 @@ pub fn render_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
         ));
     } else {
         // Idle state — no marquee dots.
-        spans.push(Span::styled(
-            " | Ready",
-            Style::default().fg(Color::Green),
-        ));
+        spans.push(Span::styled(" | Ready", Style::default().fg(Color::Green)));
     }
 
     let status_bar = Paragraph::new(Line::from(spans));

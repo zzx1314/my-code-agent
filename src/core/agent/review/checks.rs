@@ -37,22 +37,13 @@ pub fn is_source_file(path: &Path) -> bool {
     }
 
     // Skip files under tests/, test-data/, fixtures/, mocks/ directories
-    let skip_dir_patterns = [
-        "/tests/",
-        "/test-data/",
-        "/fixtures/",
-        "/mocks/",
-    ];
+    let skip_dir_patterns = ["/tests/", "/test-data/", "/fixtures/", "/mocks/"];
     if skip_dir_patterns.iter().any(|p| file_str.contains(p)) {
         return false;
     }
 
     // Skip config/doc/generated files
-    let skip_extensions = [
-        ".toml",
-        ".lock",
-        ".md",
-    ];
+    let skip_extensions = [".toml", ".lock", ".md"];
     if skip_extensions.iter().any(|ext| file_str.ends_with(ext)) {
         return false;
     }

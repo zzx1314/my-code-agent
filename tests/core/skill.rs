@@ -111,11 +111,7 @@ fn test_parse_skill_file_no_frontmatter() {
 fn test_parse_skill_file_empty_body() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("bad.md");
-    std::fs::write(
-        &path,
-        "---\nname: empty\ndescription: Empty body\n---\n",
-    )
-    .unwrap();
+    std::fs::write(&path, "---\nname: empty\ndescription: Empty body\n---\n").unwrap();
 
     assert!(parse_skill_file(&path).is_err());
 }
@@ -298,11 +294,7 @@ fn test_deactivate_all() {
 
 #[test]
 fn test_case_insensitive_activation() {
-    let mut mgr = make_mgr(vec![make_skill(
-        "Rust-Review",
-        "Review Rust code",
-        None,
-    )]);
+    let mut mgr = make_mgr(vec![make_skill("Rust-Review", "Review Rust code", None)]);
     assert!(mgr.activate("rust-review"));
     assert!(mgr.is_active("Rust-Review"));
 }
@@ -377,15 +369,7 @@ fn test_reload_preserves_active_logic() {
         true,
         None,
     );
-    write_skill_file(
-        dir.path(),
-        "go.md",
-        "go",
-        "Go",
-        "Write Go code",
-        true,
-        None,
-    );
+    write_skill_file(dir.path(), "go.md", "go", "Go", "Write Go code", true, None);
 
     let mut mgr = SkillManager::load_from_dir(dir.path());
     mgr.activate("rust");

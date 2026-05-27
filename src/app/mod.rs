@@ -120,6 +120,13 @@ pub struct App {
     /// Rendered below streaming text but above active reasoning, keeping pre-text
     /// and post-text reasoning sections separate during streaming.
     pub post_text_reasoning: String,
+    /// Archived completed pre-text reasoning segments, each representing a distinct
+    /// reasoning block that appeared before any text was emitted.
+    /// When streaming, each archived segment renders as its own separate thinking
+    /// section (with its own "💭 Thinking..." header) instead of being merged into
+    /// a single block. Analogous to `completed_post_text_segments` but for the
+    /// pre-text thought phase.
+    pub completed_pre_text_segments: Vec<String>,
     /// Archived completed post-text reasoning segments, each representing a distinct
     /// reasoning block that appeared after text had already started.
     /// When a new reasoning segment begins while post_text_reasoning already has
@@ -338,6 +345,7 @@ impl App {
             streaming_text: String::new(),
             streaming_reasoning: String::new(),
             post_text_reasoning: String::new(),
+            completed_pre_text_segments: Vec::new(),
             completed_post_text_segments: Vec::new(),
             text_segment_boundaries: Vec::new(),
             is_reasoning_active: false,
