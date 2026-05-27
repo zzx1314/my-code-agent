@@ -406,19 +406,14 @@ impl AgentOrchestrator {
             report.summary.total_issues
         ));
 
-        // Severity Distribution
-        output.push_str("### Severity Distribution\n\n");
-        output.push_str(&format!(
-            "- 🔴 Critical: {}\n",
-            report.summary.critical_count
-        ));
-        output.push_str(&format!("- 🟠 High: {}\n", report.summary.high_count));
-        output.push_str(&format!("- 🟡 Medium: {}\n", report.summary.medium_count));
-        output.push_str(&format!("- 🔵 Low: {}\n", report.summary.low_count));
-        output.push_str(&format!("- ℹ️ Info: {}\n\n", report.summary.info_count));
+        if !report.llm_feedback.is_empty() {
+            output.push_str("### Review Feedback\n\n");
+            output.push_str(&report.llm_feedback);
+            output.push_str("\n\n");
+        }
 
         if report.issues.is_empty() {
-            output.push_str("✅ No issues found!\n\n");
+            output.push_str("✅ No structural issues found!\n\n");
             return output;
         }
 
@@ -517,6 +512,12 @@ impl AgentOrchestrator {
 
         // Inject review coverage summary — shows what was checked and what was found
         prompt.push_str(&self.format_review_coverage(report));
+
+        if !report.llm_feedback.is_empty() {
+            prompt.push_str("### Review Feedback\n\n");
+            prompt.push_str(&report.llm_feedback);
+            prompt.push_str("\n\n");
+        }
 
         if report.summary.total_issues > 0 {
             prompt.push_str(&format!(

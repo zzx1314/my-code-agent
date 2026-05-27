@@ -171,6 +171,8 @@ pub struct ReviewReport {
     pub changed_files: Vec<ChangedFile>,
     pub metrics: CodeMetrics,
     pub auto_fixable: Vec<ReviewIssue>,
+    /// Natural language feedback from the review LLM (not parsed as JSON issues).
+    pub llm_feedback: String,
 }
 
 /// Review summary
@@ -211,26 +213,30 @@ impl ReviewVerdict {
 impl ReviewReport {
     /// Produce a concise natural-language summary of the review results.
     pub fn natural_summary(&self) -> String {
-        if self.issues.is_empty() {
+        if self.issues.is_empty() && self.llm_feedback.is_empty() {
             format!(
                 "✅ Review passed — no issues found across {} files.",
                 self.changed_files.len(),
             )
         } else {
-            let top_issues: Vec<&str> = self
-                .issues
-                .iter()
-                .take(3)
-                .map(|i| i.title.as_str())
-                .collect();
+            let mut parts = Vec::new();
+            if !self.llm_feedback.is_empty() {
+                let preview: String = self.llm_feedback.chars().take(120).collect();
+                parts.push(preview);
+            }
+            if !self.issues.is_empty() {
+                parts.push(format!(
+                    "Structural issues: {} ({} critical, {} high).",
+                    self.summary.total_issues,
+                    self.summary.critical_count,
+                    self.summary.high_count,
+                ));
+            }
             format!(
-                "⚠️ Found {} issues ({} critical, {} high) across {} files. Verdict: {}. Key concerns: {}.",
-                self.summary.total_issues,
-                self.summary.critical_count,
-                self.summary.high_count,
-                self.changed_files.len(),
+                "⚠️ Verdict: {} ({} files). {}",
                 self.summary.verdict.label(),
-                top_issues.join("; "),
+                self.changed_files.len(),
+                parts.join(" "),
             )
         }
     }

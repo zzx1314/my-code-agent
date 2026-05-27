@@ -15,22 +15,8 @@ pub enum ReviewEvent {
     Started {
         file_count: usize,
     },
-    FileAnalyzed {
-        file: String,
-        issues_found: usize,
-    },
     Progress {
         message: String,
-    },
-    /// Emitted when a review phase completes (used for phased/multi-category review)
-    PhaseCompleted {
-        phase_index: usize,      // 1-based phase number
-        total_phases: usize,     // total number of phases
-        phase_name: String,      // e.g. "Core Correctness"
-        categories: Vec<String>, // category names checked in this phase
-        issues_found: usize,     // number of issues found
-        passed: bool,            // true if no issues
-        details: String,         // brief summary
     },
     /// Reasoning/thinking content from the LLM during review.
     /// Displayed on the frontend but NOT added to conversation history.

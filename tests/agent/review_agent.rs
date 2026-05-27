@@ -2,6 +2,9 @@
 //!
 //! Tests for ReviewAgent, AgentOrchestrator, and multi-agent collaboration workflow.
 
+use my_code_agent::app::App;
+use my_code_agent::core::agent::stream::{check_review_result, process_review_events};
+use my_code_agent::core::context::token_usage::TokenUsage;
 use my_code_agent::core::types::review::*;
 
 /// Test ReviewIssue struct creation and basic methods
@@ -100,6 +103,7 @@ fn test_review_report_creation() {
             complexity_estimate: None,
         },
         auto_fixable: vec![],
+        llm_feedback: "".to_string(),
     };
 
     assert_eq!(report.summary.total_issues, 2);
@@ -211,516 +215,6 @@ fn test_review_event_creation() {
     }
 }
 
-// =============================================================================
-// Tests for extract_json_from_response
-// =============================================================================
-
-use my_code_agent::app::App;
-use my_code_agent::core::agent::review::{
-    escape_control_chars_in_strings, extract_json_from_response, remove_trailing_commas_from_json,
-    repair_truncated_json, sanitize_json_escapes,
-};
-use my_code_agent::core::agent::stream::{check_review_result, process_review_events};
-use my_code_agent::core::context::token_usage::TokenUsage;
-
-const VALID_JSON: &str = r#"{"issues":[],"summary":{"verdict":"approved"}}"#;
-
-/// Test extracting JSON from a ```json code block (most common LLM output)
-#[test]
-fn test_extract_json_from_json_code_block() {
-    let response = format!("Here's my review:\n\n```json\n{}\n```", VALID_JSON);
-    let result = extract_json_from_response(&response).unwrap();
-    assert_eq!(result, VALID_JSON);
-}
-
-/// Test extracting JSON from a ``` code block without language specifier
-#[test]
-fn test_extract_json_from_plain_code_block() {
-    let response = format!("Review:\n\n```\n{}\n```", VALID_JSON);
-    let result = extract_json_from_response(&response).unwrap();
-    assert_eq!(result, VALID_JSON);
-}
-
-/// Test extracting raw JSON with explanatory text before/after
-#[test]
-fn test_extract_json_raw_with_surrounding_text() {
-    let response = format!(
-        "Here is the review result: {} I hope this helps!",
-        VALID_JSON
-    );
-    let result = extract_json_from_response(&response).unwrap();
-    assert_eq!(result, VALID_JSON);
-}
-
-/// Test extracting JSON with nested braces
-#[test]
-fn test_extract_json_nested_braces() {
-    let json = r#"{"issues":[{"file":"test.rs","line":5,"description":"nested { brace here"}],"summary":{"verdict":"approved"}}"#;
-    let response = format!("Result: {}", json);
-    let result = extract_json_from_response(&response).unwrap();
-    assert_eq!(result, json);
-}
-
-/// Test that the entire response being valid JSON works
-#[test]
-fn test_extract_json_entire_response_is_json() {
-    let result = extract_json_from_response(VALID_JSON).unwrap();
-    assert_eq!(result, VALID_JSON);
-}
-
-/// Test extracting JSON from a multi-line response with code block
-#[test]
-fn test_extract_json_multiline_code_block() {
-    let json = r#"{
-  "issues": [
-    {
-      "file": "src/main.rs",
-      "line": 42,
-      "severity": "high",
-      "category": "security",
-      "title": "Unsafe function",
-      "description": "Found unsafe code"
-    }
-  ],
-  "summary": {
-    "verdict": "needs_revision"
-  }
-}"#;
-    let response = format!("```json\n{}\n```", json);
-    let result = extract_json_from_response(&response).unwrap();
-    // Parse both to compare structurally (ignore whitespace differences)
-    let expected: serde_json::Value = serde_json::from_str(json).unwrap();
-    let actual: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(expected, actual);
-}
-
-/// Test that an empty response returns an error
-#[test]
-fn test_extract_json_empty_response() {
-    let result = extract_json_from_response("");
-    assert!(result.is_err());
-}
-
-/// Test extracting single-field JSON
-#[test]
-fn test_extract_json_single_object_with_nested_text() {
-    let json = r#"{"only": "value"}"#;
-    let response = format!("Some text {} more text", json);
-    let result = extract_json_from_response(&response).unwrap();
-    assert_eq!(result, json);
-}
-
-// =============================================================================
-// Tests for multi-byte character handling (UTF-8 byte index fix)
-// The previous bug: `chars().enumerate()` returned char indices but
-// `response.find('{')` returned byte indices. Multi-byte chars before the
-// first `{` would cause index mismatch and JSON extraction to fail.
-// The fix uses `char_indices()` which returns byte offsets, consistent
-// with `find()`.
-// =============================================================================
-
-/// Non-ASCII characters before { in bare JSON — was broken before the fix.
-#[test]
-fn test_extract_json_chinese_before_brace() {
-    let response = "Result: {\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
-    let result = extract_json_from_response(&response).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["summary"]["verdict"], "approved");
-}
-
-/// Emoji before { in bare JSON — multi-byte chars (4-byte UTF-8).
-#[test]
-fn test_extract_json_emoji_before_brace() {
-    let response = "✅✅✅{\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
-    let result = extract_json_from_response(&response).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["summary"]["verdict"], "approved");
-}
-
-/// Mixed emoji and Latin characters before { in bare JSON.
-#[test]
-fn test_extract_json_mixed_multibyte_before_brace() {
-    let response = "Review🎯Done! Result:{\"issues\":[],\"summary\":{\"verdict\":\"approved\"}}";
-    let result = extract_json_from_response(&response).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["summary"]["verdict"], "approved");
-}
-
-/// Non-ASCII text inside a ```json code block.
-#[test]
-fn test_extract_json_chinese_in_code_block() {
-    let response = "Review result:\n\n```json\n{\"issues\":[{\"file\":\"src/main.rs\",\"line\":42,\"severity\":\"high\",\"title\":\"Security issue\",\"description\":\"SQL injection risk detected\"}],\"summary\":{\"verdict\":\"needs_revision\"}}\n```";
-    let result = extract_json_from_response(&response).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["issues"][0]["title"], "Security issue");
-    assert_eq!(parsed["summary"]["verdict"], "needs_revision");
-}
-
-/// Non-ASCII text inside a plain ``` code block (without json specifier).
-#[test]
-fn test_extract_json_chinese_in_plain_code_block() {
-    let response = "Analysis complete:\n\n```\n{\"issues\":[{\"title\":\"Needs improvement\"}],\"summary\":{\"verdict\":\"approved\"}}\n```";
-    let result = extract_json_from_response(&response).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["issues"][0]["title"], "Needs improvement");
-}
-
-/// Empty ```json code block — should return empty issues via parse_issues_from_response.
-#[test]
-fn test_extract_json_empty_json_code_block() {
-    let response = "```json\n\n```";
-    let result = extract_json_from_response(&response).unwrap();
-    assert!(
-        result.trim().is_empty(),
-        "Empty code block should produce empty string"
-    );
-}
-
-/// Only whitespace in code block.
-#[test]
-fn test_extract_json_whitespace_only_code_block() {
-    let response = "```json\n   \n```";
-    let result = extract_json_from_response(&response).unwrap();
-    assert!(
-        result.trim().is_empty(),
-        "Whitespace-only code block should produce empty string"
-    );
-}
-
-/// Tab characters (not just spaces) in code block.
-#[test]
-fn test_extract_json_tab_only_code_block() {
-    let response = "```json\n\t\n```";
-    let result = extract_json_from_response(&response).unwrap();
-    assert!(
-        result.trim().is_empty(),
-        "Tab-only code block should produce empty string"
-    );
-}
-
-/// Response with only non-JSON text and no JSON at all.
-#[test]
-fn test_extract_json_chinese_only_no_json() {
-    let response = "Review complete, no issues found.";
-    let result = extract_json_from_response(response);
-    assert!(result.is_err(), "Response with no JSON should error");
-}
-
-/// JSON with special content inside string values.
-#[test]
-fn test_extract_json_chinese_in_json_values() {
-    let json = r#"{"issues":[{"title":"Incomplete feature","description":"Missing sort functionality"}],"summary":{"score":60}}"#;
-    let result = extract_json_from_response(json).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["issues"][0]["title"], "Incomplete feature");
-}
-
-/// Realistic auto-review response with mixed text + emoji before JSON.
-/// This simulates what actually caused the "expected value at line 1 column 1" error.
-#[test]
-fn test_extract_json_auto_review_chinese_response() {
-    let response = "✅ Review complete\n\nAnalysis: reviewed all changed files, here is the report:\n\n{\"issues\":[{\"file\":\"README.md\",\"line\":1,\"severity\":\"low\",\"category\":\"style\",\"title\":\"Format suggestion\",\"description\":\"Consider improving document structure\"}],\"summary\":{\"verdict\":\"approved\"}}";
-    let result = extract_json_from_response(&response).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["summary"]["verdict"], "approved");
-    assert_eq!(parsed["issues"][0]["title"], "Format suggestion");
-}
-
-/// JSON with nested braces AND text content before it.
-#[test]
-fn test_extract_json_nested_braces_with_chinese_prefix() {
-    let json = r#"{"issues":[{"file":"test.rs","line":5,"description":"Contains braces { and } in text"}],"summary":{"score":85}}"#;
-    let response = format!("Result: {} done", json);
-    let result = extract_json_from_response(&response).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(
-        parsed["issues"][0]["description"],
-        "Contains braces { and } in text"
-    );
-}
-
-// =============================================================================
-// Tests for repair_truncated_json
-// =============================================================================
-
-/// Valid JSON should pass through unchanged
-#[test]
-fn test_repair_truncated_already_valid() {
-    let json = r#"{"issues":[],"summary":{"score":100}}"#;
-    let result = repair_truncated_json(json);
-    assert_eq!(result, json);
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
-}
-
-/// Unclosed string at end should be closed
-#[test]
-fn test_repair_truncated_unclosed_string() {
-    let result = repair_truncated_json(r#"{"key": "value"#);
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON, got: {result}"
-    );
-}
-
-/// Unclosed nested brace should be closed
-#[test]
-fn test_repair_truncated_unclosed_brace() {
-    let result = repair_truncated_json(r#"{"a": {"b": 1}"#);
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON, got: {result}"
-    );
-}
-
-/// Unclosed array bracket should be closed
-#[test]
-fn test_repair_truncated_unclosed_bracket() {
-    let result = repair_truncated_json(r#"{"items": [1, 2, 3"#);
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON, got: {result}"
-    );
-}
-
-/// Trailing comma should be removed
-#[test]
-fn test_repair_truncated_trailing_comma() {
-    let result = repair_truncated_json(r#"{"a": 1,}"#);
-    assert!(
-        !result.contains(",}"),
-        "unexpected trailing comma in: {result}"
-    );
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON, got: {result}"
-    );
-}
-
-/// Full truncated review JSON should be repairable
-/// (uses the same sanitize-then-repair pipeline as the real code)
-#[test]
-fn test_repair_truncated_full_review() {
-    let truncated = r#"{"issues":[{"file":"src/main.rs","line":42,"severity":"high","title":"Issue","description":"Found a bug in C:\Users\test"}"#;
-    let sanitized = sanitize_json_escapes(truncated);
-    let result = repair_truncated_json(&sanitized);
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "expected valid JSON after sanitize+repair, got: {result}"
-    );
-}
-
-/// String with escaped quotes inside should not break repair
-#[test]
-fn test_repair_truncated_escaped_quotes() {
-    let truncated = r#"{"desc": "value with \" quote"}"#;
-    let result = repair_truncated_json(truncated);
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
-}
-
-/// Nested brackets in various orders
-#[test]
-fn test_repair_truncated_nested_brackets() {
-    let result = repair_truncated_json(r#"{"arr": [[[1, 2"#);
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
-}
-
-/// Multiple unclosed levels
-#[test]
-fn test_repair_truncated_multi_level() {
-    let result = repair_truncated_json(r#"{"a": {"b": {"c": 1"#);
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
-}
-
-// =============================================================================
-// Tests for escape_control_chars_in_strings
-// =============================================================================
-
-/// Raw newlines in JSON strings should be escaped
-#[test]
-fn test_escape_control_chars_newlines_in_string() {
-    let json = r#"{"desc": "line1
-line2"}"#;
-    let result = escape_control_chars_in_strings(json);
-    assert!(!result.contains("\n"), "should escape raw newlines");
-    assert!(result.contains("\\n"), "should replace with \\n");
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "escaped result should be valid JSON"
-    );
-}
-
-/// Raw tabs in JSON strings should be escaped
-#[test]
-fn test_escape_control_chars_tabs_in_string() {
-    let json = r#"{"code": "fn foo() {	bar()}"}"#;
-    let result = escape_control_chars_in_strings(json);
-    assert!(result.contains("\\t"), "should replace raw tabs with \\t");
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
-}
-
-/// Mixed raw newlines, tabs, and normal content
-#[test]
-fn test_escape_control_chars_mixed() {
-    let json = r#"{"snippet": "fn foo() {
-    let x = 1;	// tab here
-    bar(x);
-}"}"#;
-    let result = escape_control_chars_in_strings(json);
-    assert!(!result.contains("\n"), "should escape all raw newlines");
-    assert!(!result.contains("\t"), "should escape all raw tabs");
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "escaped result should be valid JSON"
-    );
-}
-
-/// Valid JSON without control chars should pass through unchanged
-#[test]
-fn test_escape_control_chars_already_valid() {
-    let json = r#"{"key": "value", "num": 42}"#;
-    let result = escape_control_chars_in_strings(json);
-    assert_eq!(result, json, "already-valid JSON should be unchanged");
-}
-
-/// Escaped sequences like \n, \t should NOT be double-escaped
-#[test]
-fn test_escape_control_chars_does_not_double_escape() {
-    let json = r#"{"desc": "line1\nline2"}"#;
-    let result = escape_control_chars_in_strings(json);
-    assert_eq!(result, json, "valid \\n should not be modified");
-}
-
-/// Control chars outside strings should not be touched
-#[test]
-fn test_escape_control_chars_outside_string() {
-    // Raw newline outside a string (before JSON) - should not crash
-    let json = "before\n{\"key\": \"value\"}";
-    let result = escape_control_chars_in_strings(json);
-    // The newline before the JSON is outside a string, so it stays
-    assert!(
-        result.contains('\n'),
-        "newlines outside strings should remain"
-    );
-}
-
-// =============================================================================
-// Tests for remove_trailing_commas_from_json
-// =============================================================================
-
-/// Nested trailing comma should be removed
-#[test]
-fn test_remove_trailing_commas_nested() {
-    let json = r#"{"issues": [{"file": "x.rs", "line": 42,}], "summary": {"score": 85}}"#;
-    let result = remove_trailing_commas_from_json(json);
-    assert!(
-        !result.contains(",}"),
-        "should remove nested trailing comma"
-    );
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "result should be valid JSON"
-    );
-}
-
-/// Multiple nested trailing commas at different levels
-#[test]
-fn test_remove_trailing_commas_multi_nested() {
-    let json = r#"{"issues": [{"a": 1, "b": 2,}, {"c": 3,}], "summary": {"score": 85,}}"#;
-    let result = remove_trailing_commas_from_json(json);
-    assert!(
-        !result.contains(",}"),
-        "should remove all nested trailing commas"
-    );
-    assert!(
-        !result.contains(",]"),
-        "should remove array trailing commas"
-    );
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
-}
-
-/// Trailing comma in array
-#[test]
-fn test_remove_trailing_commas_array() {
-    let json = r#"{"items": [1, 2, 3,]}"#;
-    let result = remove_trailing_commas_from_json(json);
-    assert!(!result.contains(",]"), "should remove array trailing comma");
-    assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
-}
-
-/// Already-valid JSON should pass through unchanged
-#[test]
-fn test_remove_trailing_commas_already_valid() {
-    let json = r#"{"issues": [], "summary": {"score": 100}}"#;
-    let result = remove_trailing_commas_from_json(json);
-    assert_eq!(result, json, "valid JSON should be unchanged");
-}
-
-/// Commas inside strings that look like trailing commas should be preserved
-#[test]
-fn test_remove_trailing_commas_inside_string() {
-    let json = r#"{"desc": "looks like ,}"}"#;
-    let result = remove_trailing_commas_from_json(json);
-    assert_eq!(result, json, "comma inside string should not be removed");
-}
-
-/// Entire realistic review JSON with trailing comma issue
-#[test]
-fn test_remove_trailing_commas_realistic_review() {
-    let json = r#"{
-  "issues": [
-    {
-      "file": "src/main.rs",
-      "line": 42,
-      "severity": "high",
-      "category": "bug_risk",
-      "title": "Issue",
-      "description": "Bug found",
-      "suggestion": "Fix it",
-      "code_snippet": "bad_code()",
-      "fix_example": "good_code()",
-    }
-  ],
-  "summary": {
-    "verdict": "approved",
-  }
-}"#;
-    let result = remove_trailing_commas_from_json(json);
-    assert!(!result.contains(",}"), "should remove all trailing commas");
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&result).is_ok(),
-        "result should be valid JSON"
-    );
-}
-
-/// Combined test: trailing comma + raw newlines in same JSON
-#[test]
-fn test_combined_repair_pipeline() {
-    // JSON with BOTH trailing commas AND raw newlines in strings
-    let json = r#"{
-  "issues": [
-    {
-      "file": "src/main.rs",
-      "line": 42,
-      "severity": "high",
-      "description": "Found issue with
-multi-line description",
-      "code_snippet": "fn foo() {
-    let x = 1;
-}",
-    }
-  ],
-  "summary": {
-    "verdict": "needs_revision",
-  }
-}"#;
-    // First remove trailing commas, then escape control chars
-    let step1 = remove_trailing_commas_from_json(json);
-    let step2 = escape_control_chars_in_strings(&step1);
-    assert!(
-        serde_json::from_str::<serde_json::Value>(&step2).is_ok(),
-        "combined repair should produce valid JSON"
-    );
-}
 
 // =============================================================================
 // =============================================================================
@@ -1413,6 +907,7 @@ fn test_verdict_with_functional_completeness_issue_is_needs_revision() {
             complexity_estimate: None,
         },
         auto_fixable: vec![],
+        llm_feedback: "".to_string(),
     };
 
     // NeedsRevision should trigger fix loop
@@ -1610,6 +1105,7 @@ fn test_review_coverage_table_format() {
             complexity_estimate: None,
         },
         auto_fixable: vec![],
+        llm_feedback: "".to_string(),
     };
 
     // Simulate format_review_coverage output
@@ -1707,6 +1203,7 @@ fn test_fix_prompt_contains_coverage_section() {
             complexity_estimate: None,
         },
         auto_fixable: vec![],
+        llm_feedback: "".to_string(),
     };
 
     // Verify the coverage table header format
@@ -1752,6 +1249,7 @@ fn test_review_coverage_empty_report() {
             complexity_estimate: None,
         },
         auto_fixable: vec![],
+        llm_feedback: "".to_string(),
     };
 
     // All categories should be "Passed" with "—" for count

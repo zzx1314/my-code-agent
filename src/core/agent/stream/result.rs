@@ -13,47 +13,14 @@ pub fn process_review_events(app: &mut App) {
     if let Some(ref mut rx) = app.review_event_rx {
         loop {
             match rx.try_recv() {
-                Ok(ReviewEvent::PhaseCompleted {
-                    phase_index,
-                    total_phases,
-                    phase_name,
-                    categories: _,
-                    issues_found,
-                    passed: _passed,
-                    details,
-                }) => {
-                    let prefix = if issues_found > 0 {
-                        format!(
-                            "⚠️ **Phase {}/{} — {}** ({} issue(s))\n",
-                            phase_index, total_phases, phase_name, issues_found
-                        )
-                    } else {
-                        format!(
-                            "✅ **Phase {}/{} — {}** (passed)\n",
-                            phase_index, total_phases, phase_name
-                        )
-                    };
-                    let msg = format!("{}   {}", prefix, details);
-                    app.chat_history.push(ChatEntry::assistant(msg));
-                    app.auto_scroll = true;
-
-                    // If this is the last phase, phase events are done;
-                    // the final completed event will be handled by check_review_result.
-                }
                 Ok(ReviewEvent::Started { .. }) => {
                     // Already shown via the "Auto-Review Started" or "Reviewing..." message
                     // in result.rs or commands/review.rs respectively.
                     // Just leave it as visible status.
                 }
                 Ok(ReviewEvent::Progress { .. }) => {
-                    // Clear accumulated reasoning from the previous phase when a new phase starts.
-                    // This prevents multi-phase reasoning from cluttering the display.
+                    // Clear accumulated reasoning when a new progress event arrives.
                     app.review_reasoning.clear();
-                }
-                Ok(ReviewEvent::FileAnalyzed { file, issues_found }) => {
-                    let msg = format!("📄 Analyzed `{}` — {} issue(s) found", file, issues_found);
-                    app.chat_history.push(ChatEntry::assistant(msg));
-                    app.auto_scroll = true;
                 }
                 Ok(ReviewEvent::ReasoningDelta(delta)) => {
                     // Accumulate reasoning deltas from streaming for frontend display.
@@ -354,7 +321,7 @@ pub fn trigger_auto_review(app: &mut App) {
                             // (summary, metrics, verdict all need to be recalculated)
                             report = orchestrator
                                 .review_agent
-                                .rebuild_report(&report.issues, &report.changed_files);
+                                .rebuild_report(&report.issues, &report.changed_files, &report.llm_feedback);
                         }
 
                         let display_text = orchestrator.format_review_report(&report);
