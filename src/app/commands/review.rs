@@ -207,7 +207,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                 let report_summary = format!(
                     "Verdict: {} | Issues: {}",
                     verdict.label(),
-                    report.summary.total_issues,
+                    report.issues.len(),
                 );
                 let _ = result_tx
                     .send(crate::core::types::review::ReviewOutcome {

@@ -334,7 +334,7 @@ pub fn trigger_auto_review(app: &mut App) {
                         let report_summary = format!(
                             "Verdict: {} | Issues: {} (Critical: {}, High: {}, Medium: {}, Low: {})",
                             report.summary.verdict.label(),
-                            report.summary.total_issues,
+                            report.issues.len(),
                             report.summary.critical_count,
                             report.summary.high_count,
                             report.summary.medium_count,
@@ -342,7 +342,7 @@ pub fn trigger_auto_review(app: &mut App) {
                         );
                         let verdict = report.summary.verdict.clone();
                         tracing::info!(
-                            issues = report.summary.total_issues,
+                            issues = report.issues.len(),
                             verdict = ?verdict,
                             "Auto-review completed"
                         );

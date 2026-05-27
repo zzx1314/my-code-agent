@@ -500,7 +500,6 @@ impl ReviewAgent {
 
         ReviewReport {
             summary: ReviewSummary {
-                total_issues: issues.len(),
                 critical_count,
                 high_count,
                 medium_count,

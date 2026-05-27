@@ -178,7 +178,6 @@ pub struct ReviewReport {
 /// Review summary
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewSummary {
-    pub total_issues: usize,
     pub critical_count: usize,
     pub high_count: usize,
     pub medium_count: usize,
@@ -227,7 +226,7 @@ impl ReviewReport {
             if !self.issues.is_empty() {
                 parts.push(format!(
                     "Structural issues: {} ({} critical, {} high).",
-                    self.summary.total_issues,
+                    self.issues.len(),
                     self.summary.critical_count,
                     self.summary.high_count,
                 ));

@@ -403,7 +403,7 @@ impl AgentOrchestrator {
         ));
         output.push_str(&format!(
             "- Total Issues: {}\n\n",
-            report.summary.total_issues
+            report.issues.len()
         ));
 
         if !report.llm_feedback.is_empty() {
@@ -519,18 +519,11 @@ impl AgentOrchestrator {
             prompt.push_str("\n\n");
         }
 
-        if report.summary.total_issues > 0 {
+        if !report.issues.is_empty() {
             prompt.push_str(&format!(
                 "### Found {} Issues\n\n",
-                report.summary.total_issues
+                report.issues.len()
             ));
-            prompt.push_str(&format!(
-                "- 🔴 Critical: {}\n",
-                report.summary.critical_count
-            ));
-            prompt.push_str(&format!("- 🟠 High: {}\n", report.summary.high_count));
-            prompt.push_str(&format!("- 🟡 Medium: {}\n", report.summary.medium_count));
-            prompt.push_str(&format!("- 🔵 Low: {}\n\n", report.summary.low_count));
 
             prompt.push_str("### Issues to Fix\n\n");
             for (i, issue) in report.issues.iter().enumerate() {

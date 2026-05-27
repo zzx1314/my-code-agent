@@ -54,7 +54,6 @@ fn test_review_verdict() {
 fn test_review_report_creation() {
     let report = ReviewReport {
         summary: ReviewSummary {
-            total_issues: 2,
             critical_count: 1,
             high_count: 1,
             medium_count: 0,
@@ -106,7 +105,7 @@ fn test_review_report_creation() {
         llm_feedback: "".to_string(),
     };
 
-    assert_eq!(report.summary.total_issues, 2);
+    assert_eq!(report.issues.len(), 2);
     assert_eq!(report.summary.verdict, ReviewVerdict::NeedsRevision);
     assert_eq!(report.issues[0].severity, Severity::Critical);
     assert_eq!(report.metrics.files_changed, 1);
@@ -172,7 +171,6 @@ fn test_code_metrics() {
 #[test]
 fn test_review_summary_defaults() {
     let summary = ReviewSummary {
-        total_issues: 0,
         critical_count: 0,
         high_count: 0,
         medium_count: 0,
@@ -181,7 +179,6 @@ fn test_review_summary_defaults() {
         verdict: ReviewVerdict::Approved,
     };
 
-    assert_eq!(summary.total_issues, 0);
     assert_eq!(summary.verdict, ReviewVerdict::Approved);
 }
 
@@ -879,7 +876,6 @@ fn test_review_issue_with_functional_completeness() {
 fn test_verdict_with_functional_completeness_issue_is_needs_revision() {
     let report = ReviewReport {
         summary: ReviewSummary {
-            total_issues: 1,
             critical_count: 0,
             high_count: 1,
             medium_count: 0,
@@ -1051,7 +1047,6 @@ fn test_scenario_missing_configuration() {
 fn test_review_coverage_table_format() {
     let report = ReviewReport {
         summary: ReviewSummary {
-            total_issues: 3,
             critical_count: 1,
             high_count: 1,
             medium_count: 1,
@@ -1186,7 +1181,6 @@ fn test_fix_prompt_contains_coverage_section() {
     // Create a minimal report and verify the coverage-related strings appear
     let report = ReviewReport {
         summary: ReviewSummary {
-            total_issues: 0,
             critical_count: 0,
             high_count: 0,
             medium_count: 0,
@@ -1232,7 +1226,6 @@ fn test_fix_prompt_contains_coverage_section() {
 fn test_review_coverage_empty_report() {
     let report = ReviewReport {
         summary: ReviewSummary {
-            total_issues: 0,
             critical_count: 0,
             high_count: 0,
             medium_count: 0,
