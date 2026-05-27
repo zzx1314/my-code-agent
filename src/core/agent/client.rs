@@ -173,6 +173,7 @@ impl LlmClient {
                 })
                 .collect();
             body["tools"] = serde_json::json!(tools);
+            body["tool_choice"] = serde_json::json!("auto");
             body["parallel_tool_calls"] = serde_json::json!(false);
         }
 
