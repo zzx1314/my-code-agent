@@ -520,37 +520,34 @@ pub async fn stream_response(
 
         // Inject thinking-loop and tool-loop suppression hints into the API
         // copy ONLY. These are NOT stored in chat_history, so they never
-        // appear in the UI. Three injection points for layered defense:
+        // appear in the UI. Two injection points for layered defense:
         let has_tool_calls = api_messages.iter().any(|m| m.tool_calls.is_some());
         let has_tool_results = api_messages.iter().any(|m| m.tool_call_id.is_some());
 
-        // 1. Explicit "all tools done" signal — a fresh user message at the end
-        //    of api_messages, positioned closest to the model's next turn. This
-        //    is the strongest signal because it's a complete message in the most
-        //    recent position.
         if has_tool_calls && has_tool_results {
-            api_messages.push(Message::user(
-                "[All tool calls have been executed and their results are shown above. \
-                 Review the results and continue with your task. Do NOT call the same tools again.]",
-            ));
-        }
-
-        // 2. The last tool result (user-role, closest to next assistant turn)
-        if let Some(last_tool) = api_messages.iter_mut().rev().find(|m| m.tool_call_id.is_some())
-        {
-            last_tool
-                .content
-                .push_str("\n\n---\nProceed directly. Do NOT re-analyze or repeat prior thinking.");
-        }
-        // 3. The last assistant message with tool calls (precedes tool results)
-        if let Some(last_asst) = api_messages
-            .iter_mut()
-            .rev()
-            .find(|m| m.role == "assistant" && m.tool_calls.is_some())
-        {
-            last_asst
-                .content
-                .push_str("\n\n[Continue. Do NOT re-think prior analysis.]");
+            // 1. The last tool result — append a clear instruction so the model
+            //    understands all tools are done and should not re-call them.
+            if let Some(last_tool) = api_messages
+                .iter_mut()
+                .rev()
+                .find(|m| m.tool_call_id.is_some())
+            {
+                last_tool.content.push_str(
+                    "\n\n[ALL TOOLS DONE] All tool calls have been executed. \
+                     Review the results above and continue with your next step. \
+                     Do NOT repeat any tool call.",
+                );
+            }
+            // 2. The last assistant message with tool calls — discourage re-analysis.
+            if let Some(last_asst) = api_messages
+                .iter_mut()
+                .rev()
+                .find(|m| m.role == "assistant" && m.tool_calls.is_some())
+            {
+                last_asst
+                    .content
+                    .push_str("\n\n[TOOLS ISSUED] Do NOT re-think prior analysis.");
+            }
         }
 
         let tool_defs = tools.definitions();
@@ -853,7 +850,10 @@ pub async fn stream_response(
                     let result = tools.execute(&tc.function.name, args).await;
                     let content = match result {
                         Ok(output) => output,
-                        Err(e) => format!("Error: {}", e),
+                        Err(e) => format!(
+                            "[TOOL_ERROR] `{}` failed: {}.\nStop retrying this tool call — the operation did not succeed. Re-evaluate your approach instead.",
+                            tc.function.name, e,
+                        ),
                     };
 
                     // Check if end_turn was requested
