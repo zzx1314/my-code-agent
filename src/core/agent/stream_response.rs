@@ -518,6 +518,28 @@ pub async fn stream_response(
         let mut api_messages = vec![Message::system(system_prompt)];
         api_messages.extend_from_slice(&messages);
 
+        // Inject thinking-loop suppression hints into the API copy ONLY.
+        // These are NOT stored in chat_history, so they never appear in the UI.
+        // Two injection points for maximum proximity to the next reasoning turn:
+        //
+        // 1. The last tool result (user-role, closest to next assistant turn)
+        if let Some(last_tool) = api_messages.iter_mut().rev().find(|m| m.tool_call_id.is_some())
+        {
+            last_tool
+                .content
+                .push_str("\n\n---\nProceed directly. Do NOT re-analyze or repeat prior thinking.");
+        }
+        // 2. The last assistant message with tool calls (precedes tool results)
+        if let Some(last_asst) = api_messages
+            .iter_mut()
+            .rev()
+            .find(|m| m.role == "assistant" && m.tool_calls.is_some())
+        {
+            last_asst
+                .content
+                .push_str("\n\n[Continue. Do NOT re-think prior analysis.]");
+        }
+
         let tool_defs = tools.definitions();
         let mut chat_stream = match client
             .stream_chat(&api_messages, &tool_defs, reasoning_field)
@@ -754,25 +776,14 @@ pub async fn stream_response(
                 // reasoning_content — both incorrect and wasteful.
                 reasoning.reset_total();
 
-                // Append a continuation marker to the assistant's visible text so the
-                // model sees "continue without re-thinking" as the last thing before
-                // tool results — this breaks self-reinforcing reasoning loops more
-                // effectively than the system prompt at position 0.
-                let assistant_display = format!(
-                    "{}\n\n[Continue. Do NOT re-think prior analysis.]",
-                    response_text,
-                );
                 let assistant_msg = if has_reasoning {
                     Message::assistant_with_tool_calls_and_reasoning(
-                        &assistant_display,
+                        &response_text,
                         tool_calls.clone(),
                         &reasoning_text,
                     )
                 } else {
-                    Message::assistant_with_tool_calls(
-                        &assistant_display,
-                        tool_calls.clone(),
-                    )
+                    Message::assistant_with_tool_calls(&response_text, tool_calls.clone())
                 };
                 messages.push(assistant_msg);
 
@@ -846,15 +857,7 @@ pub async fn stream_response(
                         name: tc.function.name.clone(),
                         content: content.clone(),
                     });
-                    // Append a "no re-analyze" instruction to tool results to break
-                    // potential thinking loops. This is placed as the last content the
-                    // model sees before its next reasoning turn — much more effective
-                    // than a system prompt at position 0.
-                    let tool_content = format!(
-                        "{}\n\n---\nProceed directly. Do NOT re-analyze or repeat prior thinking.",
-                        content,
-                    );
-                    let tr = Message::tool(&tc.id, tool_content);
+                    let tr = Message::tool(&tc.id, content);
                     messages.push(tr);
                 }
 
