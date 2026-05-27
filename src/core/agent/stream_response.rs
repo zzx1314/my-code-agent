@@ -207,17 +207,12 @@ async fn process_sse_stream(
     context_manager: &mut ContextManager,
     status_messages: &mut Vec<String>,
     interrupt_rx: &mut tokio::sync::broadcast::Receiver<()>,
-    // Maximum consecutive SSE chunks containing ONLY reasoning (no text or tool calls)
-    // before the stream is force-stopped. 0 = disabled.
-    max_reasoning_only_chunks: u32,
 ) -> ProcessResult {
     let mut response_text = String::new();
     let mut acc_tool_calls: Vec<AccumToolCall> = Vec::new();
     let mut usage: Option<crate::core::types::Usage> = None;
     let mut reasoning_active = false;
     let mut tag_stripper = StatefulTagStripper::new();
-    let mut consecutive_reasoning_only: u32 = 0;
-    let reasoning_loop_threshold = max_reasoning_only_chunks;
 
     loop {
         let chunk = tokio::select! {
@@ -239,40 +234,6 @@ async fn process_sse_stream(
 
         for choice in &chunk.choices {
             let delta = &choice.delta;
-
-            // ── Detect reasoning-only loop ───────────────────────────
-            // Track consecutive SSE chunks that contain ONLY reasoning content
-            // (no text, no tool calls). If the model gets stuck in an infinite
-            // thinking loop, this counter will keep growing until it hits the
-            // threshold and we force-stop the stream.
-            let has_reasoning = delta.reasoning_content.as_ref().map_or(false, |r| !r.is_empty())
-                || delta.reasoning.as_ref().map_or(false, |r| !r.is_empty());
-            let has_content = delta.content.as_ref().map_or(false, |c| !c.is_empty());
-            let has_tool_calls = delta.tool_calls.as_ref().map_or(false, |t| !t.is_empty());
-
-            if has_reasoning && !has_content && !has_tool_calls {
-                consecutive_reasoning_only += 1;
-            } else if has_content || has_tool_calls {
-                // Any meaningful output breaks the reasoning-only streak
-                consecutive_reasoning_only = 0;
-            }
-
-            if reasoning_loop_threshold > 0
-                && consecutive_reasoning_only > reasoning_loop_threshold
-            {
-                let msg = format!(
-                    "⚠ Model appears stuck in a thinking loop — {} consecutive reasoning chunks without output. Forcing stop.",
-                    consecutive_reasoning_only,
-                );
-                status_messages.push(msg.clone());
-                send_event(StreamEvent::Status(msg));
-                // Treat as a Length-like finish
-                return ProcessResult::Complete {
-                    response_text,
-                    tool_calls: build_tool_calls(&acc_tool_calls),
-                    usage,
-                };
-            }
 
             if let Some(ref rt) = delta.reasoning_content {
                 if !rt.is_empty() && display_mode != "hidden" {
@@ -580,7 +541,6 @@ pub async fn stream_response(
             context_manager,
             &mut status_messages,
             interrupt_rx,
-            agent_config.max_reasoning_only_chunks,
         )
         .await;
 
