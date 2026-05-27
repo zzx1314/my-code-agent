@@ -1328,6 +1328,7 @@ fn test_is_auto_fix_prompt_edge_cases() {
 
 use my_code_agent::core::agent::client::LlmClient;
 use my_code_agent::core::agent::orchestrator::AgentOrchestrator;
+use my_code_agent::core::agent::orchestrator::{create_review_baseline, detect_changed_files_from_git};
 use my_code_agent::core::agent::preamble::Agent;
 use my_code_agent::core::config::Config;
 use my_code_agent::core::types::{ToolCall, ToolCallFunction};
@@ -1638,18 +1639,18 @@ fn test_review_baseline_incremental_diff() {
     )
     .expect("Failed");
 
-    let round1_changes = rt.block_on(orch.detect_changed_files_from_git(None));
+    let round1_changes = rt.block_on(detect_changed_files_from_git(None));
     assert_eq!(round1_changes.len(), 1);
     let r1_added = round1_changes[0].lines_added;
     assert!(r1_added > 0);
 
     // Create baseline
     let baseline_sha =
-        AgentOrchestrator::create_review_baseline().expect("Should create baseline after round 1");
+        create_review_baseline().expect("Should create baseline after round 1");
     assert!(!baseline_sha.is_empty());
 
     // Baseline should exactly capture current state
-    let baseline_check = rt.block_on(orch.detect_changed_files_from_git(Some(&baseline_sha)));
+    let baseline_check = rt.block_on(detect_changed_files_from_git(Some(&baseline_sha)));
     assert!(baseline_check.is_empty());
 
     // ---- Round 2: add feature_y (modify lib.rs only, no new file) ----
@@ -1661,12 +1662,12 @@ fn test_review_baseline_incremental_diff() {
     .expect("Failed");
 
     // Cumulative diff (no baseline) = round 1 + round 2 all changes
-    let cumulative = rt.block_on(orch.detect_changed_files_from_git(None));
+    let cumulative = rt.block_on(detect_changed_files_from_git(None));
     assert_eq!(cumulative.len(), 1);
     let cum_added = cumulative[0].lines_added;
 
     // Incremental diff (with baseline) = only round 2 changes
-    let incremental = rt.block_on(orch.detect_changed_files_from_git(Some(&baseline_sha)));
+    let incremental = rt.block_on(detect_changed_files_from_git(Some(&baseline_sha)));
     assert_eq!(incremental.len(), 1);
     let inc_added = incremental[0].lines_added;
 
@@ -1702,7 +1703,7 @@ fn test_create_review_baseline_clean_tree_returns_none() {
     run_git(&["add", "main.rs"]);
     run_git(&["commit", "-m", "Initial"]);
 
-    assert!(AgentOrchestrator::create_review_baseline().is_none());
+    assert!(create_review_baseline().is_none());
 }
 
 #[test]
@@ -1717,12 +1718,12 @@ fn test_detect_changed_files_non_git_directory() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
     // Non-git directory should return empty Vec, no panic
-    let changes = rt.block_on(orch.detect_changed_files_from_git(None));
+    let changes = rt.block_on(detect_changed_files_from_git(None));
     assert!(changes.is_empty());
 
     // Invalid baseline should not panic either
     let changes_with_baseline =
-        rt.block_on(orch.detect_changed_files_from_git(Some("invalid-sha")));
+        rt.block_on(detect_changed_files_from_git(Some("invalid-sha")));
     assert!(changes_with_baseline.is_empty());
 }
 
@@ -1752,37 +1753,37 @@ fn test_review_baseline_full_lifecycle() {
         "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x\"\n}\n",
     )
     .expect("Failed");
-    let sha1 = AgentOrchestrator::create_review_baseline().expect("Round 1 baseline");
+    let sha1 = create_review_baseline().expect("Round 1 baseline");
     assert!(
-        rt.block_on(orch.detect_changed_files_from_git(Some(&sha1)))
+        rt.block_on(detect_changed_files_from_git(Some(&sha1)))
             .is_empty()
     );
 
     // ---- Round 2 ----
     std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x\"\n}\n\npub fn feature_y() -> &'static str {\n    \"feature_y\"\n}\n").expect("Failed");
 
-    let cumulative2 = rt.block_on(orch.detect_changed_files_from_git(None));
+    let cumulative2 = rt.block_on(detect_changed_files_from_git(None));
     let cum2_added = cumulative2[0].lines_added;
 
-    let incremental2 = rt.block_on(orch.detect_changed_files_from_git(Some(&sha1)));
+    let incremental2 = rt.block_on(detect_changed_files_from_git(Some(&sha1)));
     let inc2_added = incremental2[0].lines_added;
 
     // 增量 < 累积：基线排除了第 1 轮改动
     assert!(inc2_added < cum2_added);
 
     // 第 2 次基线
-    let sha2 = AgentOrchestrator::create_review_baseline().expect("Round 2 baseline");
+    let sha2 = create_review_baseline().expect("Round 2 baseline");
     assert_ne!(sha1, sha2);
     assert!(
-        rt.block_on(orch.detect_changed_files_from_git(Some(&sha2)))
+        rt.block_on(detect_changed_files_from_git(Some(&sha2)))
             .is_empty()
     );
 
     // ---- Round 3 ----
     std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x_updated\"\n}\n\npub fn feature_y() -> &'static str {\n    \"feature_y\"\n}\n").expect("Failed");
 
-    let from_sha1 = rt.block_on(orch.detect_changed_files_from_git(Some(&sha1)));
-    let from_sha2 = rt.block_on(orch.detect_changed_files_from_git(Some(&sha2)));
+    let from_sha1 = rt.block_on(detect_changed_files_from_git(Some(&sha1)));
+    let from_sha2 = rt.block_on(detect_changed_files_from_git(Some(&sha2)));
 
     // Old baseline shows more changes (round 2 + round 3)
     assert!(from_sha1[0].lines_added > from_sha2[0].lines_added);

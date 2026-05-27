@@ -148,8 +148,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
             }]
         } else {
             // Pass review baseline for incremental diff (show only changes since last review)
-            orchestrator
-                .detect_changed_files_from_git(baseline.as_deref())
+            crate::core::agent::orchestrator::detect_changed_files_from_git(baseline.as_deref())
                 .await
         };
 
@@ -200,7 +199,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                 // Create a new baseline after review completes, so the next review
                 // only shows changes made after this point (incremental diff).
                 let new_baseline =
-                    crate::core::agent::orchestrator::AgentOrchestrator::create_review_baseline();
+                    crate::core::agent::orchestrator::create_review_baseline();
 
                 let display_text = orchestrator.format_review_report(&report);
                 let verdict = report.summary.verdict.clone();
