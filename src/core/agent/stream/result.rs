@@ -397,6 +397,13 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     app.streaming_text.clear();
     app.streaming_status.clear();
 
+    // Clear the completed tool result from the status bar.
+    // Without this, the status bar would keep showing "✅ tool complete"
+    // even after the stream ends, especially when the model's response
+    // is only reasoning_content (no regular text content) — in that case
+    // streaming_tool_result is never cleared by a Text event.
+    app.streaming_tool_result = None;
+
     // The UI has already accumulated all reasoning segments from streaming
     // events (ReasoningDelta + ReasoningActive). When tools are called, the
     // backend ReasoningTracker is reset between turns (reset_total in

@@ -83,7 +83,13 @@ pub fn process_streaming_events(app: &mut App) {
                 }
                 Ok(crate::core::agent::stream_response::StreamEvent::ReasoningActive(active)) => {
                     app.is_reasoning_active = active;
-                    if !active {
+                    if active {
+                        // A new reasoning segment is starting — this signals the model has
+                        // begun its next turn after tool execution. Clear the previous tool
+                        // result from the status bar so it shows "💭 Thinking..." instead of
+                        // a stale "✅ tool complete" indicator.
+                        app.streaming_tool_result = None;
+                    } else {
                         if !app.streaming_reasoning.is_empty() {
                             if app.streaming_text.is_empty() {
                                 // Pre-text thinking segment: archive so each thought block
