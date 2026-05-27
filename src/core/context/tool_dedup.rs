@@ -7,35 +7,10 @@ use std::time::SystemTime;
 // Type definitions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Key for deduplication: (path, offset, limit)
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct ReadKey {
-    path: PathBuf,
-    offset: usize,
-    limit: usize,
-}
-
 /// Key for file_outline dedup: just the file path
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct OutlineKey {
     path: PathBuf,
-}
-
-/// Stores metadata about a previous read (no content — we only need the mtime for staleness checks).
-#[derive(Debug, Clone)]
-struct ReadRecord {
-    /// File modification time at the time of the read.
-    mtime: SystemTime,
-    /// Total lines in the file at the time of the read.
-    total_lines: usize,
-    /// Start line index (0-indexed) of the returned content.
-    start: usize,
-    /// End line index (exclusive, 0-indexed) of the returned content.
-    end: usize,
-    /// Number of times this same read has been short-circuited.
-    /// On the second+ hit the model likely lost context, so we fall through
-    /// to a full re-read.
-    hit_count: u32,
 }
 
 /// Stores metadata and cached outline content for a previous outline call.
@@ -66,91 +41,18 @@ pub fn get_global_tool_dedup() -> Arc<Mutex<ToolCallDedup>> {
 // ToolCallDedup implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Tracks previous `file_outline` calls so we can return cached results
+/// instead of re-parsing the file. Only used for `file_outline` — `file_read`
+/// is NOT deduplicated (doing so would risk the model hallucinating content).
 pub struct ToolCallDedup {
-    records: HashMap<ReadKey, ReadRecord>,
     outline_records: HashMap<OutlineKey, OutlineRecord>,
 }
 
 impl ToolCallDedup {
     pub fn new() -> Self {
         Self {
-            records: HashMap::new(),
             outline_records: HashMap::new(),
         }
-    }
-
-    /// Check if a file_read with the same parameters has been done before
-    /// and the file hasn't been modified since.
-    ///
-    /// Returns `DedupAction` indicating whether to short-circuit or proceed.
-    pub fn check_file_read(&mut self, path: &str, offset: usize, limit: usize) -> DedupAction {
-        let path_buf = PathBuf::from(path);
-        let key = ReadKey {
-            path: path_buf,
-            offset,
-            limit,
-        };
-
-        if let Some(record) = self.records.get_mut(&key) {
-            // Verify file hasn't been modified
-            if let Ok(metadata) = std::fs::metadata(path) {
-                if let Ok(current_mtime) = metadata.modified() {
-                    if current_mtime == record.mtime {
-                        record.hit_count += 1;
-                        // First dedup hit: return short message (saves tokens).
-                        // Second+ hit: model may have lost context → allow full re-read.
-                        if record.hit_count <= 1 {
-                            return DedupAction::ShortCircuit(DedupInfo {
-                                path: path.to_string(),
-                                total_lines: record.total_lines,
-                                start: record.start,
-                                end: record.end,
-                                cached_outline: None,
-                            });
-                        } else {
-                            // Allow the read to proceed (context was likely pruned)
-                            return DedupAction::Allow;
-                        }
-                    }
-                }
-            }
-        }
-
-        DedupAction::Allow
-    }
-
-    /// Record a completed file_read so future identical calls can be short-circuited.
-    pub fn record_file_read(
-        &mut self,
-        path: &str,
-        offset: usize,
-        limit: usize,
-        total_lines: usize,
-        start: usize,
-        end: usize,
-    ) {
-        let path_buf = PathBuf::from(path);
-
-        let mtime = std::fs::metadata(&path_buf)
-            .and_then(|m| m.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
-
-        let key = ReadKey {
-            path: path_buf,
-            offset,
-            limit,
-        };
-
-        self.records.insert(
-            key,
-            ReadRecord {
-                mtime,
-                total_lines,
-                start,
-                end,
-                hit_count: 0,
-            },
-        );
     }
 
     /// Check if a file_outline with the same path has been done before
@@ -173,9 +75,7 @@ impl ToolCallDedup {
                         return DedupAction::ShortCircuit(DedupInfo {
                             path: path.to_string(),
                             total_lines: record.total_lines,
-                            start: 0,
-                            end: record.total_lines,
-                            cached_outline: Some(record.cached_outline.clone()),
+                            cached_outline: record.cached_outline.clone(),
                         });
                     }
                 }
@@ -209,20 +109,23 @@ impl ToolCallDedup {
     /// Invalidate all records for a specific path (e.g., after file_write or file_update).
     pub fn invalidate_path(&mut self, path: &str) {
         let path_buf = PathBuf::from(path);
-        self.records.retain(|key, _| key.path != path_buf);
         self.outline_records.retain(|key, _| key.path != path_buf);
+    }
+
+    /// Invalidate all dedup records.
+    pub fn invalidate_all(&mut self) {
+        self.outline_records.clear();
     }
 
     /// Reset all dedup state. Call this on new session.
     pub fn reset(&mut self) {
-        self.records.clear();
         self.outline_records.clear();
     }
 
     /// Number of cached dedup entries.
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
-        self.records.len()
+        self.outline_records.len()
     }
 }
 
@@ -233,50 +136,35 @@ impl Default for ToolCallDedup {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DedupAction / DedupInfo — controls what FileRead returns on duplicate calls
+// DedupAction / DedupInfo — controls what FileOutline returns on duplicate calls
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Action to take when a duplicate file_read is detected.
+/// Action to take when a duplicate call is detected.
 #[derive(Debug)]
 pub enum DedupAction {
-    /// Proceed with the full read (no duplicate, or stale cache).
+    /// Proceed with the full operation (no duplicate, or stale cache).
     Allow,
-    /// Return a short message instead of the full content.
+    /// Return cached data instead of re-executing.
     ShortCircuit(DedupInfo),
 }
 
-/// Minimal metadata for a short-circuit response.
+/// Minimal metadata for a short-circuit response from `file_outline`.
 #[derive(Debug, Clone)]
 pub struct DedupInfo {
     pub path: String,
     pub total_lines: usize,
-    pub start: usize,
-    pub end: usize,
-    /// Cached outline content (populated for file_outline dedup, None for file_read).
-    pub cached_outline: Option<String>,
+    /// Cached outline content returned directly to the model.
+    pub cached_outline: String,
 }
 
 impl DedupInfo {
     /// Format a short message suitable as a tool result.
     pub fn format_message(&self) -> String {
-        if self.start == 0 && self.end == self.total_lines {
-            // Outline dedup (whole file)
-            format!(
-                "[DEDUP] File \"{}\" ({} total lines) was already outlined above. \
-                 No need to re-outline. Use the outline from the conversation history. \
-                 If the content is no longer in context (was pruned), call file_outline again.",
-                self.path, self.total_lines,
-            )
-        } else {
-            format!(
-                "[DEDUP] File \"{}\" (lines {}-{}, total {} lines) was already read and is in the conversation history above. \
-                 No need to re-read. If you need a different range, use different offset/limit values. \
-                 If the content is no longer in context (was pruned), call file_read again to get a fresh copy.",
-                self.path,
-                self.start + 1,
-                self.end,
-                self.total_lines,
-            )
-        }
+        format!(
+            "[DEDUP] File \"{}\" ({} total lines) was already outlined above. \
+             No need to re-outline. Use the outline from the conversation history. \
+             If the content is no longer in context (was pruned), call file_outline again.",
+            self.path, self.total_lines,
+        )
     }
 }

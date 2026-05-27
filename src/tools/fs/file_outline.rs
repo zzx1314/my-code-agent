@@ -66,10 +66,7 @@ impl Tool for FileOutline {
             let mut dedup_guard = dedup.lock().unwrap();
             match dedup_guard.check_file_outline(&canonical_path) {
                 crate::core::context::tool_dedup::DedupAction::ShortCircuit(info) => {
-                    let outline = match info.cached_outline {
-                        Some(cached) => cached,
-                        None => info.format_message(),
-                    };
+                    let outline = info.cached_outline;
                     return serde_json::to_string(&FileOutlineOutput {
                         path: args.path,
                         total_lines: info.total_lines,
