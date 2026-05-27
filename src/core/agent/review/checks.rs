@@ -89,7 +89,13 @@ fn has_inline_tests(path: &Path) -> bool {
 
 /// Derive a potential test file path from a source file path.
 ///
-/// For `src/foo/bar.rs`, checks `tests/foo/bar.rs` and `tests/test_bar.rs`.
+/// For `src/foo/bar.rs`, checks:
+/// - `tests/foo/bar.rs` (mirrored path)
+/// - `tests/test_bar.rs` (test_<stem>)
+///
+/// For `src/foo/bar/mod.rs`, additionally checks:
+/// - `tests/foo/bar.rs` (parent-dir name for mod.rs)
+///
 /// For the root `src/lib.rs`, checks `tests/lib.rs` and `tests/test_lib.rs`.
 fn derive_test_path(source_path: &Path) -> Option<std::path::PathBuf> {
     let file_str = source_path.to_string_lossy();
@@ -99,6 +105,22 @@ fn derive_test_path(source_path: &Path) -> Option<std::path::PathBuf> {
         let test_path = Path::new("tests").join(relative);
         if test_path.exists() {
             return Some(test_path);
+        }
+
+        // Strategy C: For mod.rs files under a subdirectory, try replacing
+        // "mod.rs" with the parent directory name + ".rs".
+        // E.g. src/core/skill/mod.rs → tests/core/skill.rs
+        if relative.ends_with("/mod.rs") {
+            if let Some(parent) = Path::new(relative).parent() {
+                if let Some(dir_name) = parent.file_name() {
+                    let alt_path = Path::new("tests")
+                        .join(parent)
+                        .with_file_name(format!("{}.rs", dir_name.to_str()?));
+                    if alt_path.exists() {
+                        return Some(alt_path);
+                    }
+                }
+            }
         }
     }
 

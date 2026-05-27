@@ -5,6 +5,7 @@
 //! signals from the review LLM.
 
 use crate::core::types::review::{ReviewIssue, Severity};
+use std::path::Path;
 
 /// Filter out known false-positive review issues using deterministic rules.
 ///
@@ -151,6 +152,48 @@ fn is_known_false_positive(issue: &ReviewIssue) -> bool {
             if issue.severity == Severity::Low || issue.severity == Severity::Info {
                 return true;
             }
+        }
+    }
+
+    // ── Rule 8: Test files/submodules flagged for "missing test coverage" ──
+    // Files already under `tests/` (test harness modules, test helpers) do
+    // not need their own tests. The LLM sometimes sees "tests/core.rs" or
+    // similar test module files and says they lack coverage — this is noise.
+    //
+    // We check the file path, not content. The deterministic check in
+    // `check_code_structure` (see `is_source_file` in checks.rs) already
+    // skips files under `tests/`. This rule catches the LLM doing the same.
+    let path = Path::new(&issue.file);
+    let path_starts_with_tests = path
+        .components()
+        .next()
+        .map(|c| c.as_os_str() == "tests")
+        .unwrap_or(false);
+    if path_starts_with_tests {
+        if combined.contains("missing test")
+            || combined.contains("test coverage")
+            || combined.contains("no test")
+        {
+            return true;
+        }
+    }
+
+    // ── Rule 9: "Tests removed without replacement" ──
+    // LLMs see test code removed in the diff and flag it as "tests removed
+    // without replacement", even when tests were properly migrated from
+    // inline `#[cfg(test)]` modules to dedicated files under `tests/`.
+    // The diff only shows the removal, not the addition in a separate file.
+    if combined.contains("test removed")
+        || combined.contains("tests removed")
+        || combined.contains("removed without replacement")
+        || (combined.contains("test") && combined.contains("removed") && combined.contains("migrat"))
+    {
+        // Only filter low/medium severity — real test-deletion bugs are critical
+        if issue.severity == Severity::Low
+            || issue.severity == Severity::Medium
+            || issue.severity == Severity::Info
+        {
+            return true;
         }
     }
 
