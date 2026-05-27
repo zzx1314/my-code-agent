@@ -100,10 +100,12 @@ impl Tool for FileRead {
                     },
                     "offset": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "Number of lines to skip from the start (0-indexed). Output line numbers are 1-indexed. Default: 0."
                     },
                     "limit": {
                         "type": "integer",
+                        "minimum": 1,
                         "description": "Maximum number of lines to read. Default: 200. Increase to read more of a large file."
                     }
                 },
@@ -113,7 +115,10 @@ impl Tool for FileRead {
     }
 
     async fn call(&self, args: serde_json::Value) -> Result<String, String> {
-        let args: FileReadArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+        let args: FileReadArgs = serde_json::from_value(args).map_err(|e| {
+            tracing::error!(error = %e, "file_read: failed to parse arguments");
+            e.to_string()
+        })?;
         let offset = args.offset.unwrap_or(0);
         let limit = args.limit.unwrap_or(self.default_read_limit);
 
@@ -134,7 +139,7 @@ impl Tool for FileRead {
                         lines: info.total_lines,
                         start: info.start,
                         end: info.end,
-                        truncated: false,
+                        truncated: info.end < info.total_lines,
                     })
                     .map_err(|e| e.to_string());
                 }
@@ -159,7 +164,10 @@ impl Tool for FileRead {
                 // Cache miss — read from disk asynchronously
                 let content = tokio::fs::read_to_string(&args.path)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| {
+                        tracing::error!(path = %args.path, error = %e, "file_read: failed to read file");
+                        e.to_string()
+                    })?;
                 // Update cache
                 let mut cache_guard = cache.lock().unwrap();
                 cache_guard.insert(&args.path, content.clone());
@@ -249,6 +257,9 @@ impl Tool for FileRead {
             end: adjusted_end,
             truncated: adjusted_end < total_lines,
         };
-        serde_json::to_string(&result).map_err(|e| e.to_string())
+        serde_json::to_string(&result).map_err(|e| {
+            tracing::error!(error = %e, "file_read: failed to serialize output");
+            e.to_string()
+        })
     }
 }
