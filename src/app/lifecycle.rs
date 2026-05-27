@@ -122,6 +122,7 @@ pub async fn run_app(
         crate::core::agent::stream::process_review_events(&mut app);
         crate::core::agent::stream::check_stream_result(&mut app);
         crate::core::agent::stream::check_init_result(&mut app);
+        crate::core::agent::stream::check_compact_result(&mut app);
         crate::core::agent::stream::check_review_result(&mut app);
 
         // Decay review-complete status bar message

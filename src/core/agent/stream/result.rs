@@ -401,7 +401,7 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     // The UI has already accumulated all reasoning segments from streaming
     // events (ReasoningDelta + ReasoningActive). When tools are called, the
     // backend ReasoningTracker is reset between turns (reset_total in
-    // stream_response.rs:680), so result.last_reasoning only contains the
+    // stream_response/mod.rs), so result.last_reasoning only contains the
     // LAST turn's reasoning — prefer the UI-accumulated version which has
     // the complete cross-turn picture.
     if !app.last_reasoning.is_empty() {
