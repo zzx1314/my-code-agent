@@ -38,15 +38,15 @@ struct ReadRecord {
     hit_count: u32,
 }
 
-/// Stores metadata about a previous outline call
+/// Stores metadata and cached outline content for a previous outline call.
 #[derive(Debug, Clone)]
 struct OutlineRecord {
     /// File modification time at the time of the read.
     mtime: SystemTime,
     /// Total lines in the file.
     total_lines: usize,
-    /// Number of times this same outline has been short-circuited.
-    hit_count: u32,
+    /// Cached outline string returned on short-circuit (avoids re-parsing).
+    cached_outline: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,6 +105,7 @@ impl ToolCallDedup {
                                 total_lines: record.total_lines,
                                 start: record.start,
                                 end: record.end,
+                                cached_outline: None,
                             });
                         } else {
                             // Allow the read to proceed (context was likely pruned)
@@ -154,25 +155,28 @@ impl ToolCallDedup {
 
     /// Check if a file_outline with the same path has been done before
     /// and the file hasn't been modified since.
+    ///
+    /// Unlike `check_file_read`, this always returns the cached outline on hit
+    /// (no hit_count escalation) since the outline is small and cached directly.
+    /// The model always gets useful data instead of a `[DEDUP]` message.
     pub fn check_file_outline(&mut self, path: &str) -> DedupAction {
         let path_buf = PathBuf::from(path);
         let key = OutlineKey { path: path_buf };
 
-        if let Some(record) = self.outline_records.get_mut(&key) {
+        if let Some(record) = self.outline_records.get(&key) {
             if let Ok(metadata) = std::fs::metadata(path) {
                 if let Ok(current_mtime) = metadata.modified() {
                     if current_mtime == record.mtime {
-                        record.hit_count += 1;
-                        if record.hit_count <= 1 {
-                            return DedupAction::ShortCircuit(DedupInfo {
-                                path: path.to_string(),
-                                total_lines: record.total_lines,
-                                start: 0,
-                                end: record.total_lines,
-                            });
-                        } else {
-                            return DedupAction::Allow;
-                        }
+                        // File unchanged — return cached outline directly.
+                        // No hit_count throttle needed since we store the real outline,
+                        // not a ["DEDUP"] message. The model always gets useful data.
+                        return DedupAction::ShortCircuit(DedupInfo {
+                            path: path.to_string(),
+                            total_lines: record.total_lines,
+                            start: 0,
+                            end: record.total_lines,
+                            cached_outline: Some(record.cached_outline.clone()),
+                        });
                     }
                 }
             }
@@ -182,7 +186,8 @@ impl ToolCallDedup {
     }
 
     /// Record a completed file_outline so future identical calls can be short-circuited.
-    pub fn record_file_outline(&mut self, path: &str, total_lines: usize) {
+    /// The `outline` string is cached and returned directly on subsequent dedup hits.
+    pub fn record_file_outline(&mut self, path: &str, total_lines: usize, outline: &str) {
         let path_buf = PathBuf::from(path);
 
         let mtime = std::fs::metadata(&path_buf)
@@ -196,7 +201,7 @@ impl ToolCallDedup {
             OutlineRecord {
                 mtime,
                 total_lines,
-                hit_count: 0,
+                cached_outline: outline.to_string(),
             },
         );
     }
@@ -247,6 +252,8 @@ pub struct DedupInfo {
     pub total_lines: usize,
     pub start: usize,
     pub end: usize,
+    /// Cached outline content (populated for file_outline dedup, None for file_read).
+    pub cached_outline: Option<String>,
 }
 
 impl DedupInfo {

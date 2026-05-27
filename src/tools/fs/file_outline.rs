@@ -52,16 +52,28 @@ impl Tool for FileOutline {
     async fn call(&self, args: serde_json::Value) -> Result<String, String> {
         let args: FileOutlineArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
+        // Canonicalize path for consistent dedup caching.
+        // Different formats like "src/foo.rs", "./src/foo.rs", and absolute paths
+        // all resolve to the same cache key, preventing unnecessary re-reads.
+        let canonical_path = match std::path::Path::new(&args.path).canonicalize() {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(_) => args.path.clone(),
+        };
+
         // ── Dedup check ───────────────────────────────────────────────
         {
             let dedup = get_global_tool_dedup();
             let mut dedup_guard = dedup.lock().unwrap();
-            match dedup_guard.check_file_outline(&args.path) {
+            match dedup_guard.check_file_outline(&canonical_path) {
                 crate::core::context::tool_dedup::DedupAction::ShortCircuit(info) => {
+                    let outline = match info.cached_outline {
+                        Some(cached) => cached,
+                        None => info.format_message(),
+                    };
                     return serde_json::to_string(&FileOutlineOutput {
                         path: args.path,
                         total_lines: info.total_lines,
-                        outline: info.format_message(),
+                        outline,
                     })
                     .map_err(|e| e.to_string());
                 }
@@ -69,12 +81,12 @@ impl Tool for FileOutline {
             }
         }
 
-        let content = tokio::fs::read_to_string(&args.path)
+        let content = tokio::fs::read_to_string(&canonical_path)
             .await
             .map_err(|e| e.to_string())?;
         let total_lines = content.lines().count();
 
-        let outline = if let Some(parsed) = ParsedFile::parse_with_path(content, &args.path) {
+        let outline = if let Some(parsed) = ParsedFile::parse_with_path(content, &canonical_path) {
             parsed.get_outline_string()
         } else {
             format!("(unable to parse file - not a supported language)")
@@ -84,7 +96,7 @@ impl Tool for FileOutline {
         {
             let dedup = get_global_tool_dedup();
             let mut dedup_guard = dedup.lock().unwrap();
-            dedup_guard.record_file_outline(&args.path, total_lines);
+            dedup_guard.record_file_outline(&canonical_path, total_lines, &outline);
         }
 
         serde_json::to_string(&FileOutlineOutput {
