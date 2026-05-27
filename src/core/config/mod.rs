@@ -43,7 +43,7 @@ fn default_thinking_display_height() -> u16 {
     5
 }
 fn default_max_reasoning_only_chunks() -> u32 {
-    200
+    1000
 }
 fn default_provider_name() -> String {
     "deepseek".to_string()
