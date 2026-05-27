@@ -21,6 +21,8 @@ pub enum ReviewEvent {
     /// Reasoning/thinking content from the LLM during review.
     /// Displayed on the frontend but NOT added to conversation history.
     ReasoningDelta(String),
+    /// Streaming natural language review feedback content.
+    ReviewFeedbackDelta(String),
     Completed {
         report: crate::core::types::review::ReviewReport,
     },

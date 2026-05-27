@@ -271,6 +271,8 @@ pub struct App {
     /// Reasoning content from the review agent's LLM calls.
     /// Displayed on the frontend but NOT added to conversation history.
     pub review_reasoning: String,
+    /// Natural language review feedback, streamed incrementally from the review LLM.
+    pub review_feedback: String,
     /// Issues from the previous auto-review iteration.
     /// Used for fingerprint-based deduplication to prevent repeated false positives.
     /// Cleared when the review loop ends (approved or max iterations reached).
@@ -434,6 +436,7 @@ impl App {
             review_complete_verdict: None,
             review_complete_timer: 0,
             review_reasoning: String::new(),
+            review_feedback: String::new(),
             previous_review_issues: Vec::new(),
             review_baseline: None,
             rendered_cache: HashMap::new(),

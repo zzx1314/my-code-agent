@@ -19,13 +19,17 @@ pub fn process_review_events(app: &mut App) {
                     // Just leave it as visible status.
                 }
                 Ok(ReviewEvent::Progress { .. }) => {
-                    // Clear accumulated reasoning when a new progress event arrives.
+                    // Clear accumulated reasoning and feedback when a new progress event arrives.
                     app.review_reasoning.clear();
+                    app.review_feedback.clear();
                 }
                 Ok(ReviewEvent::ReasoningDelta(delta)) => {
                     // Accumulate reasoning deltas from streaming for frontend display.
                     // NOT added to chat history — only shown transiently in the UI.
                     app.review_reasoning.push_str(&delta);
+                }
+                Ok(ReviewEvent::ReviewFeedbackDelta(delta)) => {
+                    app.review_feedback.push_str(&delta);
                 }
                 Ok(ReviewEvent::Completed { .. }) => {
                     // Handled by check_review_result — it sends the final display_text
@@ -154,6 +158,7 @@ pub fn check_review_result(app: &mut App) {
                     app.review_iteration = 0; // Reset for next cycle
                     app.previous_review_issues.clear(); // Clear for next review cycle
                     app.review_reasoning.clear();
+                    app.review_feedback.clear();
                 }
             }
             Err(mpsc::error::TryRecvError::Empty) => {}
@@ -163,6 +168,7 @@ pub fn check_review_result(app: &mut App) {
                 app.review_iteration = 0;
                 app.previous_review_issues.clear();
                 app.review_reasoning.clear();
+                app.review_feedback.clear();
                 app.review_complete_message = Some("⚠️ Review Disconnected".to_string());
                 app.review_complete_timer = 30;
                 app.review_complete_verdict = None;
