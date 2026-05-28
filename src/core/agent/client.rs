@@ -1,44 +1,115 @@
+//! LLM client backed by the `rig` framework.
+//!
+//! Uses `rig::providers::openai::CompletionsClient` which is compatible with all
+//! OpenAI-compatible providers (DeepSeek, OpenRouter, Ollama, Custom, etc.).
+
 use anyhow::{Context, Result};
-use futures::StreamExt;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
-use std::time::Duration;
-use tracing::{debug, warn};
+use futures::{future, StreamExt};
+use rig::client::CompletionClient;
+use rig::completion::{
+    AssistantContent, CompletionModel, Message as RigMessage,
+    ToolDefinition as RigToolDef,
+};
+use rig::completion::message::{Text, ToolCall, ToolFunction, ToolResult, ToolResultContent,
+                                 UserContent};
+use rig::one_or_many::OneOrMany;
+use rig::providers::openai;
+use rig::streaming::{StreamedAssistantContent, ToolCallDeltaContent};
+use tracing::debug;
 
-use crate::core::types::{Message, StreamChunk, ToolDefinition};
+use crate::core::types::{FinishReason, Message, StreamChunk, StreamChoice, StreamDelta,
+                          StreamToolCallDelta, StreamToolCallFunctionDelta, ToolDefinition};
 
-/// HTTP client for OpenAI-compatible Chat Completions API.
-///
-/// Replaces `rig::providers::openai::CompletionsClient` and
-/// `rig::providers::openrouter::Client`.
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider type enum
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProviderType {
+    DeepSeek,
+    OpenAI,
+    OpenRouter,
+    Custom,
+    Ollama,
+}
+
+impl ProviderType {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "deepseek" => Some(ProviderType::DeepSeek),
+            "openai" => Some(ProviderType::OpenAI),
+            "openrouter" => Some(ProviderType::OpenRouter),
+            "custom" => Some(ProviderType::Custom),
+            "ollama" => Some(ProviderType::Ollama),
+            _ => None,
+        }
+    }
+
+    pub fn default_model(&self) -> &'static str {
+        match self {
+            ProviderType::DeepSeek => "deepseek-v4-flash",
+            ProviderType::OpenAI => "gpt-4o",
+            ProviderType::OpenRouter => "openrouter/owl-alpha",
+            ProviderType::Custom => "gpt-4o",
+            ProviderType::Ollama => "llama3.2",
+        }
+    }
+
+    pub fn default_base_url(&self) -> &'static str {
+        match self {
+            ProviderType::DeepSeek => "https://api.deepseek.com/v1",
+            ProviderType::OpenAI => "https://api.openai.com/v1",
+            ProviderType::OpenRouter => "https://openrouter.ai/api/v1",
+            ProviderType::Custom => "",
+            ProviderType::Ollama => "http://localhost:11434/v1",
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LlmClient — rig-backed OpenAI-compatible client
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// HTTP client for OpenAI-compatible Chat Completions API, backed by `rig`.
 #[derive(Clone)]
 pub struct LlmClient {
-    http_client: reqwest::Client,
+    provider: ProviderType,
     base_url: String,
     api_key: String,
     pub model: String,
     pub max_tokens: Option<u64>,
     pub timeout_secs: u64,
-    /// When true, adds `"reasoning": false` to the request body.
     reasoning_disabled: bool,
-    /// When true, uses `max_completion_tokens` instead of `max_tokens` in the request body.
-    /// OpenAI's o-series models require this field.
     use_completion_tokens: bool,
-    /// Sampling temperature (0-2). None = use provider default.
     temperature: Option<f64>,
-    /// Nucleus sampling threshold (0-1). None = use provider default.
     top_p: Option<f64>,
-    /// Stop sequences. None = no stop.
     stop: Option<Vec<String>>,
-    /// Frequency penalty (-2 to 2). None = use provider default.
     frequency_penalty: Option<f64>,
-    /// Presence penalty (-2 to 2). None = use provider default.
     presence_penalty: Option<f64>,
 }
 
 impl LlmClient {
     pub fn new(base_url: &str, api_key: &str, model: &str) -> Self {
+        let provider = ProviderType::from_str(model)
+            .or_else(|| {
+                if base_url.contains("api.deepseek.com") {
+                    Some(ProviderType::DeepSeek)
+                } else if base_url.contains("openrouter.ai") {
+                    Some(ProviderType::OpenRouter)
+                } else if base_url.contains("localhost:11434")
+                    || base_url.contains("127.0.0.1:11434")
+                {
+                    Some(ProviderType::Ollama)
+                } else if base_url.contains("api.openai.com") {
+                    Some(ProviderType::OpenAI)
+                } else {
+                    Some(ProviderType::Custom)
+                }
+            })
+            .unwrap_or(ProviderType::Custom);
+
         Self {
-            http_client: reqwest::Client::new(),
+            provider,
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
             model: model.to_string(),
@@ -61,10 +132,6 @@ impl LlmClient {
 
     pub fn with_timeout(mut self, secs: u64) -> Self {
         if secs > 0 {
-            self.http_client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(secs))
-                .build()
-                .expect("Failed to build reqwest client with timeout");
             self.timeout_secs = secs;
         }
         self
@@ -75,8 +142,6 @@ impl LlmClient {
         self
     }
 
-    /// When set, uses `max_completion_tokens` instead of `max_tokens` in the request body.
-    /// This is required by OpenAI's o-series models (o1, o3-mini, etc.).
     pub fn with_use_completion_tokens(mut self, val: bool) -> Self {
         self.use_completion_tokens = val;
         self
@@ -107,336 +172,422 @@ impl LlmClient {
         self
     }
 
-    fn headers(&self) -> Result<HeaderMap> {
-        let mut headers = HeaderMap::new();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        // Only send Authorization header if an API key is configured.
-        // Providers without auth (e.g. local Ollama) skip the header entirely,
-        // avoiding 401 errors from empty/tokenless Bearer headers.
-        if !self.api_key.is_empty() {
-            let auth_value = HeaderValue::from_str(&format!("Bearer {}", self.api_key))
-                .context("Invalid API key format")?;
-            headers.insert(AUTHORIZATION, auth_value);
-        }
+    // ── Internal helpers ──────────────────────────────────────────────────
 
-        headers.insert(
-            "HTTP-Referer",
-            HeaderValue::from_static("https://github.com/my-code-agent"),
-        );
-        headers.insert(
-            "X-OpenRouter-Title",
-            HeaderValue::from_static("My Code Agent"),
-        );
-        Ok(headers)
+    fn build_rig_client(&self) -> Result<openai::CompletionsClient> {
+        let builder = openai::CompletionsClient::builder()
+            .api_key(&self.api_key)
+            .base_url(&self.base_url);
+        builder.build().context("Failed to build rig OpenAI client")
     }
 
-    fn chat_url(&self) -> String {
-        format!("{}/chat/completions", self.base_url)
-    }
+    /// Convert our custom Message slice to rig Messages.
+    fn convert_to_rig_messages(&self, messages: &[Message]) -> Vec<RigMessage> {
+        let mut rig_messages: Vec<RigMessage> = Vec::new();
 
-    /// Build the request body for a chat completions request.
-    fn build_request_body(
-        &self,
-        messages: &[Message],
-        tool_definitions: &[ToolDefinition],
-        stream: bool,
-        reasoning_field: &str,
-    ) -> serde_json::Value {
-        let mut body = serde_json::json!({
-            "model": self.model,
-            "messages": messages,
-            "stream": stream,
-        });
+        for msg in messages {
+            match msg.role.as_str() {
+                "system" => {
+                    rig_messages.push(RigMessage::System {
+                        content: msg.content.clone(),
+                    });
+                }
+                "user" => {
+                    rig_messages.push(RigMessage::User {
+                        content: OneOrMany::one(UserContent::Text(Text::from(
+                            msg.content.clone(),
+                        ))),
+                    });
+                }
+                "assistant" => {
+                    let mut contents = Vec::new();
 
-        if let Some(max_tokens) = self.max_tokens {
-            let field = if self.use_completion_tokens {
-                "max_completion_tokens"
-            } else {
-                "max_tokens"
-            };
-            body[field] = serde_json::json!(max_tokens);
-        }
+                    if !msg.content.is_empty() {
+                        contents.push(AssistantContent::Text(Text::from(msg.content.clone())));
+                    }
 
-        if !tool_definitions.is_empty() {
-            // Convert to OpenAI API format: [{"type": "function", "function": {...}}]
-            let tools: Vec<serde_json::Value> = tool_definitions
-                .iter()
-                .map(|td| {
-                    serde_json::json!({
-                        "type": "function",
-                        "function": {
-                            "name": td.name,
-                            "description": td.description,
-                            "parameters": td.parameters
-                        }
-                    })
-                })
-                .collect();
-            body["tools"] = serde_json::json!(tools);
-            body["tool_choice"] = serde_json::json!("auto");
-        }
-
-        // Optional sampling parameters (only included when explicitly set)
-        if let Some(temp) = self.temperature {
-            body["temperature"] = serde_json::json!(temp);
-        }
-        if let Some(p) = self.top_p {
-            body["top_p"] = serde_json::json!(p);
-        }
-        if let Some(ref stop) = self.stop {
-            body["stop"] = serde_json::json!(stop);
-        }
-        if let Some(fp) = self.frequency_penalty {
-            body["frequency_penalty"] = serde_json::json!(fp);
-        }
-        if let Some(pp) = self.presence_penalty {
-            body["presence_penalty"] = serde_json::json!(pp);
-        }
-
-        if stream {
-            body["stream_options"] = serde_json::json!({"include_usage": true});
-        }
-
-        // Disable model reasoning when requested (e.g. for translation calls
-        // where thinking output is unnecessary and wastes tokens).
-        if self.reasoning_disabled {
-            body["reasoning"] = serde_json::json!({"enabled": false});
-        }
-
-        // Transform reasoning_content field name if needed
-        if reasoning_field != "reasoning_content" {
-            if let Some(msgs) = body["messages"].as_array_mut() {
-                for msg in msgs.iter_mut() {
-                    if let Some(obj) = msg.as_object_mut() {
-                        if let Some(reasoning) = obj.remove("reasoning_content") {
-                            obj.insert(reasoning_field.to_string(), reasoning);
+                    if let Some(ref tcs) = msg.tool_calls {
+                        for tc in tcs {
+                            let args: serde_json::Value = match serde_json::from_str(&tc.function.arguments) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::warn!(err = %e, "Failed to parse tool call arguments as JSON; using null");
+                                    serde_json::Value::Null
+                                }
+                            };
+                            let tool_call = ToolCall {
+                                id: tc.id.clone(),
+                                call_id: None,
+                                function: ToolFunction {
+                                    name: tc.function.name.clone(),
+                                    arguments: args,
+                                },
+                                signature: None,
+                                additional_params: None,
+                            };
+                            contents.push(AssistantContent::ToolCall(tool_call));
                         }
                     }
+
+                    rig_messages.push(RigMessage::Assistant {
+                        id: None,
+                        content: OneOrMany::many(contents)
+                            .expect("assistant message must have at least one content item"),
+                    });
+                }
+                "tool" => {
+                    let tool_call_id = msg.tool_call_id.clone().unwrap_or_default();
+                    let tool_result = ToolResult {
+                        id: tool_call_id,
+                        call_id: None,
+                        content: OneOrMany::one(ToolResultContent::Text(Text::from(
+                            msg.content.clone(),
+                        ))),
+                    };
+                    rig_messages.push(RigMessage::User {
+                        content: OneOrMany::one(UserContent::ToolResult(tool_result)),
+                    });
+                }
+                _ => {
+                    rig_messages.push(RigMessage::User {
+                        content: OneOrMany::one(UserContent::Text(Text::from(
+                            msg.content.clone(),
+                        ))),
+                    });
                 }
             }
         }
 
-        body
+        rig_messages
     }
 
-    /// Send a streaming chat request and return an SSE event stream.
-    pub async fn stream_chat(
-        &self,
-        messages: &[Message],
-        tool_definitions: &[ToolDefinition],
-        reasoning_field: &str,
-    ) -> Result<ChatStream> {
-        let body = self.build_request_body(messages, tool_definitions, true, reasoning_field);
-        let headers = self.headers()?;
+    /// Collect additional model parameters into a JSON value.
+    fn additional_params(&self) -> serde_json::Value {
+        let mut params = serde_json::json!({});
 
-        debug!(
-            url = %self.chat_url(),
-            model = %self.model,
-            message_count = messages.len(),
-            tool_count = tool_definitions.len(),
-            stream = true,
-            "Sending streaming chat request to LLM"
-        );
-        debug!(request_body = %body, "LLM request body");
-
-        let response = self
-            .http_client
-            .post(&self.chat_url())
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send chat request")?;
-
-        let status = response.status();
-        debug!(status = %status, "Received LLM response status");
-
-        if !status.is_success() {
-            let text = response.text().await.unwrap_or_default();
-            warn!(status = %status, error = %text, "LLM API error");
-            anyhow::bail!("Chat API error ({}): {}", status, text);
+        if let Some(t) = self.temperature {
+            params["temperature"] = serde_json::json!(t);
+        }
+        if let Some(p) = self.top_p {
+            params["top_p"] = serde_json::json!(p);
+        }
+        if let Some(ref stop) = self.stop {
+            params["stop"] = serde_json::json!(stop);
+        }
+        if let Some(fp) = self.frequency_penalty {
+            params["frequency_penalty"] = serde_json::json!(fp);
+        }
+        if let Some(pp) = self.presence_penalty {
+            params["presence_penalty"] = serde_json::json!(pp);
+        }
+        if let Some(m) = self.max_tokens {
+            if self.use_completion_tokens {
+                params["max_completion_tokens"] = serde_json::json!(m);
+            } else {
+                params["max_tokens"] = serde_json::json!(m);
+            }
+        }
+        if self.reasoning_disabled {
+            params["reasoning"] = serde_json::json!({"enabled": false});
+        }
+        if self.provider == ProviderType::OpenRouter {
+            params["HTTP-Referer"] = serde_json::json!("https://github.com/my-code-agent");
+            params["X-OpenRouter-Title"] = serde_json::json!("My Code Agent");
         }
 
-        Ok(ChatStream {
-            stream: Box::pin(response.bytes_stream()),
-            buffer: Vec::new(),
-        })
+        params
     }
 
-    /// Send a non-streaming chat request (used internally as fallback).
-    #[allow(dead_code)]
+    // ── Public API ──────────────────────────────────────────────────────
+
+    /// Send a non-streaming chat request.
     pub async fn chat(
         &self,
         messages: &[Message],
         tool_definitions: &[ToolDefinition],
-        reasoning_field: &str,
+        _reasoning_field: &str,
     ) -> Result<serde_json::Value> {
-        let body = self.build_request_body(messages, tool_definitions, false, reasoning_field);
-        let headers = self.headers()?;
+        let client = self.build_rig_client()?;
+        let model = client.completion_model(&self.model);
+        let rig_messages = self.convert_to_rig_messages(messages);
+
+        let prompt = rig_messages.last().map_or(String::new(), |m| match m {
+            RigMessage::User { content } => content
+                .iter()
+                .filter_map(|c| match c {
+                    UserContent::Text(t) => Some(t.text().to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => String::new(),
+        });
+
+        let chat_history: Vec<RigMessage> = if rig_messages.len() > 1 {
+            rig_messages[..rig_messages.len() - 1].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        let mut builder = model.completion_request(prompt);
+
+        if !chat_history.is_empty() {
+            builder = builder.messages(chat_history);
+        }
+
+        let params = self.additional_params();
+        builder = builder.additional_params(params);
+
+        for td in tool_definitions {
+            let tool_def = RigToolDef {
+                name: td.name.clone(),
+                description: td.description.clone(),
+                parameters: td.parameters.clone(),
+            };
+            builder = builder.tool(tool_def);
+        }
 
         debug!(
-            url = %self.chat_url(),
             model = %self.model,
             message_count = messages.len(),
             tool_count = tool_definitions.len(),
             stream = false,
-            "Sending non-streaming chat request to LLM"
+            "Sending chat request via rig"
         );
-        debug!(request_body = %body, "LLM request body");
 
-        let response = self
-            .http_client
-            .post(&self.chat_url())
-            .headers(headers)
-            .json(&body)
+        let response = builder
             .send()
             .await
-            .context("Failed to send chat request")?;
+            .map_err(|e| anyhow::anyhow!("Rig completion error: {e}"))?;
 
-        let status = response.status();
-        debug!(status = %status, "Received LLM response status");
+        // Serialize the raw API response to JSON
+        serde_json::to_value(&response.raw_response)
+            .context("Failed to serialize rig response to JSON")
+    }
 
-        if !status.is_success() {
-            let text = response.text().await.unwrap_or_default();
-            warn!(status = %status, error = %text, "LLM API error");
-            anyhow::bail!("Chat API error ({}): {}", status, text);
+    /// Send a streaming chat request and return a `ChatStream`.
+    pub async fn stream_chat(
+        &self,
+        messages: &[Message],
+        tool_definitions: &[ToolDefinition],
+        _reasoning_field: &str,
+    ) -> Result<ChatStream> {
+        let client = self.build_rig_client()?;
+        let model = client.completion_model(&self.model);
+        let rig_messages = self.convert_to_rig_messages(messages);
+
+        let prompt = rig_messages.last().map_or(String::new(), |m| match m {
+            RigMessage::User { content } => content
+                .iter()
+                .filter_map(|c| match c {
+                    UserContent::Text(t) => Some(t.text().to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => String::new(),
+        });
+
+        let chat_history: Vec<RigMessage> = if rig_messages.len() > 1 {
+            rig_messages[..rig_messages.len() - 1].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        let mut builder = model.completion_request(prompt);
+
+        if !chat_history.is_empty() {
+            builder = builder.messages(chat_history);
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .context("Failed to parse chat response")?;
+        let params = self.additional_params();
+        builder = builder.additional_params(params);
 
-        debug!("Successfully parsed LLM response");
-        Ok(json)
+        for td in tool_definitions {
+            let tool_def = RigToolDef {
+                name: td.name.clone(),
+                description: td.description.clone(),
+                parameters: td.parameters.clone(),
+            };
+            builder = builder.tool(tool_def);
+        }
+
+        debug!(
+            model = %self.model,
+            message_count = messages.len(),
+            tool_count = tool_definitions.len(),
+            stream = true,
+            "Sending streaming chat request via rig"
+        );
+
+        let rig_stream = builder
+            .stream()
+            .await
+            .map_err(|e| anyhow::anyhow!("Rig stream error: {e}"))?;
+
+        // Map rig stream to StreamChunks with tool call tracking for finish_reason
+        let mapped = rig_stream.scan(
+            false, // seed: had_tool_calls
+            |had_tool_calls, item| {
+                let result = match item {
+                    Ok(content) => Self::stream_content_to_chunk(content, had_tool_calls),
+                    Err(e) => Some(Err(anyhow::anyhow!("Stream error: {e}"))),
+                };
+                future::ready(result)
+            },
+        );
+
+        Ok(ChatStream {
+            stream: Box::pin(mapped),
+        })
+    }
+
+    /// Convert a single rig `StreamedAssistantContent` item to our `StreamChunk`.
+    fn stream_content_to_chunk(
+        content: StreamedAssistantContent<openai::StreamingCompletionResponse>,
+        had_tool_calls: &mut bool,
+    ) -> Option<Result<StreamChunk>> {
+        match content {
+            StreamedAssistantContent::Text(text) => Some(Ok(StreamChunk {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        role: Some("assistant".to_string()),
+                        content: Some(text.text().to_string()),
+                        reasoning_content: None,
+                        reasoning: None,
+                        tool_calls: None,
+                    },
+                    finish_reason: None,
+                    index: 0,
+                }],
+                usage: None,
+            })),
+            StreamedAssistantContent::ReasoningDelta { reasoning, .. } => Some(Ok(StreamChunk {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        role: Some("assistant".to_string()),
+                        content: None,
+                        reasoning_content: Some(reasoning),
+                        reasoning: None,
+                        tool_calls: None,
+                    },
+                    finish_reason: None,
+                    index: 0,
+                }],
+                usage: None,
+            })),
+            StreamedAssistantContent::Reasoning(reasoning) => Some(Ok(StreamChunk {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        role: Some("assistant".to_string()),
+                        content: None,
+                        reasoning_content: Some(reasoning.display_text()),
+                        reasoning: None,
+                        tool_calls: None,
+                    },
+                    finish_reason: None,
+                    index: 0,
+                }],
+                usage: None,
+            })),
+            StreamedAssistantContent::ToolCall { tool_call, .. } => {
+                *had_tool_calls = true;
+                let args =
+                    serde_json::to_string(&tool_call.function.arguments).unwrap_or_default();
+                Some(Ok(StreamChunk {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            role: Some("assistant".to_string()),
+                            content: None,
+                            reasoning_content: None,
+                            reasoning: None,
+                            tool_calls: Some(vec![StreamToolCallDelta {
+                                index: 0,
+                                id: Some(tool_call.id),
+                                type_: Some("function".to_string()),
+                                function: Some(StreamToolCallFunctionDelta {
+                                    name: Some(tool_call.function.name),
+                                    arguments: Some(args),
+                                }),
+                            }]),
+                        },
+                        finish_reason: Some(FinishReason::ToolCalls),
+                        index: 0,
+                    }],
+                    usage: None,
+                }))
+            }
+            StreamedAssistantContent::ToolCallDelta { id, content, .. } => {
+                *had_tool_calls = true;
+                let (name, args) = match content {
+                    ToolCallDeltaContent::Name(n) => (Some(n), None),
+                    ToolCallDeltaContent::Delta(d) => (None, Some(d)),
+                };
+                Some(Ok(StreamChunk {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            role: Some("assistant".to_string()),
+                            content: None,
+                            reasoning_content: None,
+                            reasoning: None,
+                            tool_calls: Some(vec![StreamToolCallDelta {
+                                index: 0,
+                                id: Some(id),
+                                type_: Some("function".to_string()),
+                                function: Some(StreamToolCallFunctionDelta { name, arguments: args }),
+                            }]),
+                        },
+                        finish_reason: None,
+                        index: 0,
+                    }],
+                    usage: None,
+                }))
+            }
+            StreamedAssistantContent::Final(response) => {
+                let finish_reason = if *had_tool_calls {
+                    Some(FinishReason::ToolCalls)
+                } else {
+                    Some(FinishReason::Stop)
+                };
+
+                // Deserialize usage through JSON to handle OpenAI field naming
+                let usage = serde_json::to_value(&response.usage)
+                    .ok()
+                    .and_then(|v| serde_json::from_value(v).ok());
+
+                Some(Ok(StreamChunk {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            role: None,
+                            content: None,
+                            reasoning_content: None,
+                            reasoning: None,
+                            tool_calls: None,
+                        },
+                        finish_reason,
+                        index: 0,
+                    }],
+                    usage,
+                }))
+            }
+        }
     }
 }
 
-/// SSE event stream from the Chat Completions API.
+// ─────────────────────────────────────────────────────────────────────────────
+// ChatStream — wraps rig's streaming response (type-erased)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// SSE event stream backed by rig's streaming completion response.
 pub struct ChatStream {
-    stream:
-        std::pin::Pin<Box<dyn futures::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
-    buffer: Vec<u8>,
+    stream: std::pin::Pin<
+        Box<dyn futures::Stream<Item = Result<StreamChunk>> + Send>,
+    >,
 }
 
 impl ChatStream {
-    /// Parse the next SSE event from the stream.
-    ///
-    /// Returns `None` when the stream is exhausted (including after `data: [DONE]`).
-    fn parse_next_chunk(&mut self) -> Option<String> {
-        loop {
-            if let Some(end) = self.buffer.windows(2).position(|w| w == b"\n\n") {
-                let event_bytes = self.buffer[..end].to_vec();
-                self.buffer.drain(..=end + 1);
-
-                let event_str = String::from_utf8_lossy(&event_bytes);
-                let mut data_lines = Vec::new();
-
-                for line in event_str.lines() {
-                    let line = line.trim();
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        let data = data.trim();
-                        if data == "[DONE]" {
-                            return None;
-                        }
-                        data_lines.push(data.to_string());
-                    } else if line == "[DONE]" {
-                        return None;
-                    }
-                }
-
-                if !data_lines.is_empty() {
-                    let combined = data_lines.join("\n");
-                    return Some(combined);
-                }
-                continue;
-            }
-
-            break;
-        }
-
-        None
-    }
-
-    /// Read the next parsed SSE chunk from the stream.
+    /// Read the next parsed chunk from the stream.
     pub async fn next(&mut self) -> Option<Result<StreamChunk>> {
-        // First check if we have a complete event in the buffer
-        if let Some(data) = self.parse_next_chunk() {
-            match serde_json::from_str::<StreamChunk>(&data) {
-                Ok(chunk) => return Some(Ok(chunk)),
-                Err(e) => {
-                    tracing::error!(raw_sse = %data, error = %e, "Failed to parse SSE chunk");
-                    return Some(Err(anyhow::anyhow!(
-                        "Failed to parse SSE chunk: {} (raw: {})",
-                        e,
-                        &data[..data.len().min(200)]
-                    )));
-                }
-            }
-        }
-
-        // Read more data from the stream
-        loop {
-            match self.stream.next().await {
-                Some(Ok(bytes)) => {
-                    self.buffer.extend_from_slice(&bytes);
-
-                    if let Some(data) = self.parse_next_chunk() {
-                        match serde_json::from_str::<StreamChunk>(&data) {
-                            Ok(chunk) => return Some(Ok(chunk)),
-                            Err(e) => {
-                                tracing::error!(
-                                    raw_sse = %data,
-                                    error = %e,
-                                    "Failed to parse SSE chunk"
-                                );
-                                return Some(Err(anyhow::anyhow!(
-                                    "Failed to parse SSE chunk: {} (raw: {})",
-                                    e,
-                                    &data[..data.len().min(200)],
-                                )));
-                            }
-                        }
-                    }
-                }
-                Some(Err(e)) => return Some(Err(anyhow::anyhow!("Stream error: {}", e))),
-                None => {
-                    if !self.buffer.is_empty() {
-                        let remaining = String::from_utf8_lossy(&self.buffer).to_string();
-                        self.buffer.clear();
-
-                        let mut data_lines = Vec::new();
-                        for line in remaining.lines() {
-                            let line = line.trim();
-                            if let Some(data) = line.strip_prefix("data: ") {
-                                let data = data.trim();
-                                if data == "[DONE]" {
-                                    return None;
-                                }
-                                data_lines.push(data.to_string());
-                            } else if line == "[DONE]" {
-                                return None;
-                            }
-                        }
-
-                        if !data_lines.is_empty() {
-                            let combined = data_lines.join("\n");
-                            match serde_json::from_str::<StreamChunk>(&combined) {
-                                Ok(chunk) => return Some(Ok(chunk)),
-                                Err(e) => {
-                                    tracing::error!(raw_sse = %combined, error = %e, "Failed to parse trailing SSE");
-                                    return Some(Err(anyhow::anyhow!(
-                                        "Failed to parse trailing SSE: {} (raw: {})",
-                                        e,
-                                        &combined[..combined.len().min(200)],
-                                    )));
-                                }
-                            }
-                        }
-                    }
-                    return None;
-                }
-            }
-        }
+        self.stream.next().await
     }
 }

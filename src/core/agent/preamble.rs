@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use crate::core::agent::client::LlmClient;
+use crate::core::agent::client::{LlmClient, ProviderType};
 use crate::core::config::Config;
 use crate::tools::ToolRegistry;
 
@@ -188,6 +188,7 @@ pub fn build_preamble_with_skills(skill_manager: &crate::core::skill::SkillManag
     }
     preamble
 }
+
 fn check_api_key(provider_name: &str, api_key_env: &str) {
     if std::env::var(api_key_env).is_err() {
         tracing::error!(
@@ -263,50 +264,106 @@ impl Provider {
             Provider::Ollama => "Ollama",
         }
     }
+
+    /// Map to the LlmClient ProviderType used by the rig-backed client.
+    pub fn to_client_provider(&self) -> ProviderType {
+        match self {
+            Provider::DeepSeek => ProviderType::DeepSeek,
+            Provider::OpenAI => ProviderType::OpenAI,
+            Provider::Anthropic => {
+                tracing::warn!("Anthropic is not natively supported by rig-core; falling back to generic OpenAI-compatible client");
+                ProviderType::Custom
+            }
+            Provider::Cohere => {
+                tracing::warn!("Cohere is not natively supported by rig-core; falling back to generic OpenAI-compatible client");
+                ProviderType::Custom
+            }
+            Provider::OpenRouter => ProviderType::OpenRouter,
+            Provider::Custom => ProviderType::Custom,
+            Provider::Ollama => ProviderType::Ollama,
+        }
+    }
+
+    /// Get the base URL for this provider.
+    pub fn base_url(&self, config_override: Option<&str>) -> String {
+        if let Some(url) = config_override {
+            return url.to_string();
+        }
+        self.default_base_url().to_string()
+    }
+
+    fn default_base_url(&self) -> &'static str {
+        match self {
+            Provider::DeepSeek => "https://api.deepseek.com/v1",
+            Provider::OpenAI => "https://api.openai.com/v1",
+            Provider::Anthropic => "https://api.anthropic.com/v1", // Note: not OpenAI-compat, falls back
+            Provider::Cohere => "https://api.cohere.com/v1",
+            Provider::OpenRouter => "https://openrouter.ai/api/v1",
+            Provider::Custom => "",
+            Provider::Ollama => "http://localhost:11434/v1",
+        }
+    }
 }
 
-/// Build an LLM client from configuration.
-/// Replaces the old `build_agent()` / `build_agent_with_confirmation()`.
+/// Build an LLM client from configuration using the rig framework.
+///
+/// Creates a rig-backed LlmClient for OpenAI-compatible providers.
 pub fn build_client(config: &Config) -> LlmClient {
     let provider = Provider::from_str(&config.llm.provider).unwrap_or(Provider::DeepSeek);
+
+    // Determine model
     let model = config
         .llm
         .model
-        .as_deref()
-        .unwrap_or(provider.default_model())
-        .to_string();
+        .clone()
+        .unwrap_or_else(|| provider.default_model().to_string());
 
-    // Compute base_url first — the API key logic below depends on it to
-    // distinguish local Ollama (no auth) from remote Ollama (may need auth).
+    // Determine base_url
     let base_url = match provider {
-        Provider::DeepSeek => "https://api.deepseek.com/v1",
-        Provider::OpenRouter => "https://openrouter.ai/api/v1",
+        Provider::DeepSeek => config
+            .llm
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string()),
+        Provider::OpenRouter => config
+            .llm
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
         Provider::Ollama => config
             .llm
             .base_url
-            .as_deref()
-            .unwrap_or("http://localhost:11434/v1"),
-        Provider::Custom => config.llm.base_url.as_deref().unwrap_or_else(|| {
+            .clone()
+            .unwrap_or_else(|| "http://localhost:11434/v1".to_string()),
+        Provider::Custom => config.llm.base_url.clone().unwrap_or_else(|| {
             tracing::error!("Custom provider requires base_url in config.toml");
             std::process::exit(1);
         }),
-        _ => {
-            tracing::warn!(provider = %provider.display_name(), "Provider not fully implemented, using DeepSeek endpoint");
-            "https://api.deepseek.com/v1"
-        }
+        Provider::Anthropic => config
+            .llm
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.anthropic.com/v1".to_string()),
+        Provider::Cohere => config
+            .llm
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.cohere.com/v1".to_string()),
+        Provider::OpenAI => config
+            .llm
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
     };
 
+    // Determine API key env var
     let api_key_env = if config.llm.api_key_env.is_empty() {
         provider.default_api_key_env()
     } else {
         &config.llm.api_key_env
     };
 
-    // ── API key ───────────────────────────────────────────────────────────
-    // For local Ollama (default localhost URL), force an empty API key so no
-    // Authorization header is sent — avoids 401 when OLLAMA_API_KEY happens to
-    // be set in the environment from other tools.
-    // For remote Ollama (custom base_url) or other providers, read from env.
+    // For local Ollama, skip API key auth
     let is_local_ollama = provider == Provider::Ollama
         && (base_url.starts_with("http://localhost:11434")
             || base_url.starts_with("http://127.0.0.1:11434"));
@@ -327,41 +384,52 @@ pub fn build_client(config: &Config) -> LlmClient {
         std::env::var(api_key_env).unwrap_or_default()
     };
 
-    let mut client = LlmClient::new(base_url, &api_key, &model);
+    // Build the rig-backed client
+    let mut client = LlmClient::new(&base_url, &api_key, &model);
+
     if config.llm.timeout_secs > 0 {
         client = client.with_timeout(config.llm.timeout_secs);
     }
-    // OpenAI endpoints (native & custom) use `max_completion_tokens` instead of `max_tokens`.
+
+    // OpenAI endpoints use `max_completion_tokens` instead of `max_tokens`
     if provider == Provider::OpenAI || provider == Provider::Custom {
         client = client.with_use_completion_tokens(true);
     }
 
-    // Max tokens: config value > OpenAI/Custom default (2048) > not set
+    // Max tokens
     if let Some(max_tokens) = config.llm.max_tokens {
         client = client.with_max_tokens(max_tokens);
     } else if provider == Provider::OpenAI || provider == Provider::Custom {
         client = client.with_max_tokens(2048);
     }
 
-    // Optional sampling / penalty parameters from config
+    // Temperature
     if let Some(temp) = config.llm.temperature {
         client = client.with_temperature(temp);
     } else if provider == Provider::OpenAI || provider == Provider::Custom {
         client = client.with_temperature(1.0);
     }
+
+    // Top-p
     if let Some(top_p) = config.llm.top_p {
         client = client.with_top_p(top_p);
     } else if provider == Provider::OpenAI || provider == Provider::Custom {
         client = client.with_top_p(0.95);
     }
+
+    // Stop sequences
     if let Some(ref stop) = config.llm.stop {
         client = client.with_stop(stop.clone());
     }
+
+    // Frequency penalty
     if let Some(fp) = config.llm.frequency_penalty {
         client = client.with_frequency_penalty(fp);
     } else if provider == Provider::OpenAI || provider == Provider::Custom {
         client = client.with_frequency_penalty(0.0);
     }
+
+    // Presence penalty
     if let Some(pp) = config.llm.presence_penalty {
         client = client.with_presence_penalty(pp);
     } else if provider == Provider::OpenAI || provider == Provider::Custom {
@@ -372,6 +440,7 @@ pub fn build_client(config: &Config) -> LlmClient {
         model = %model,
         base_url = %base_url,
         provider = %provider.display_name(),
+        framework = "rig-core",
         "LLM client created"
     );
 
