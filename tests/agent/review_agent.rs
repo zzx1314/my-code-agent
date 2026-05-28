@@ -1630,7 +1630,7 @@ fn test_review_baseline_incremental_diff() {
     run_git(&["add", "lib.rs"]);
     run_git(&["commit", "-m", "Initial"]);
 
-    let orch = make_orchestrator(true);
+    let _orch = make_orchestrator(true);
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
     // ---- Round 1: add feature_x ----
@@ -1714,7 +1714,7 @@ fn test_detect_changed_files_non_git_directory() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let _guard = CwdGuard::new(&temp_dir);
 
-    let orch = make_orchestrator(true);
+    let _orch = make_orchestrator(true);
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
     // Non-git directory should return empty Vec, no panic
@@ -1743,7 +1743,7 @@ fn test_review_baseline_full_lifecycle() {
     run_git(&["add", "lib.rs"]);
     run_git(&["commit", "-m", "Initial"]);
 
-    let orch = make_orchestrator(true);
+    let _orch = make_orchestrator(true);
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
     // ---- Round 1 ----
