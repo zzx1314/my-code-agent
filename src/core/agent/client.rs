@@ -370,34 +370,26 @@ impl LlmClient {
     /// message content as `[{"type": "text", "text": "..."}]` instead of a plain string.
     /// This function extracts the text so callers can use `.as_str()` consistently.
     fn normalize_response_content(mut value: serde_json::Value) -> serde_json::Value {
-        if let Some(choices) = value.get_mut("choices") {
-            if let Some(choices_array) = choices.as_array_mut() {
-                for choice in choices_array {
-                    if let Some(message) = choice.get_mut("message") {
-                        if let Some(content) = message.get_mut("content") {
-                            if let Some(arr) = content.as_array() {
-                                // Extract text from [{"type": "text", "text": "..."}] format
-                                let text = arr
-                                    .iter()
-                                    .filter_map(|item| {
-                                        if item.get("type").and_then(|t| t.as_str()) == Some("text")
-                                        {
-                                            item.get("text").and_then(|v| v.as_str())
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join("\n");
-                                if !text.is_empty() {
-                                    *content = serde_json::Value::String(text);
-                                }
-                            }
-                        }
-                    }
-                }
+        let choices = match value.get_mut("choices").and_then(|c| c.as_array_mut()) {
+            Some(c) => c,
+            None => return value,
+        };
+
+        for choice in choices {
+            let content = match choice
+                .get_mut("message")
+                .and_then(|m| m.get_mut("content"))
+            {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Extract text via immutable borrow, then replace in place
+            if let Some(text) = extract_text_from_array(content) {
+                *content = serde_json::Value::String(text);
             }
         }
+
         value
     }
 
@@ -719,6 +711,27 @@ impl LlmClient {
                 }))
             }
         }
+    }
+}
+
+/// If `content` is a JSON array of `[{"type": "text", "text": "..."}]` items,
+/// extract and join the text strings; otherwise return `None`.
+fn extract_text_from_array(content: &serde_json::Value) -> Option<String> {
+    let arr = content.as_array()?;
+    let parts: Vec<&str> = arr
+        .iter()
+        .filter_map(|item| {
+            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                item.get("text").and_then(|v| v.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
     }
 }
 
