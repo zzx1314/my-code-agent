@@ -44,7 +44,10 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     if app.is_streaming {
-        lines.push(Line::default());
+        // Track whether we've added the initial separator from the chat
+        // history. Once added, subsequent reasoning segments don't need
+        // another blank line (the segment loop handles inter-segment spacing).
+        let mut has_stream_separator = false;
 
         let area_width = width.unwrap_or(80) as u16;
 
@@ -58,6 +61,16 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         let streaming_todos: Option<String> = app.streaming_todos.clone();
 
         if !last_reasoning.is_empty() {
+            // Separator before the first streaming reasoning block matches the
+            // blank line that render_chat_with_reasoning adds before the last
+            // assistant entry. If content already preceded us (has_stream_separator
+            // is true), we still need a blank line to separate from it.
+            if !has_stream_separator {
+                lines.push(Line::default());
+                has_stream_separator = true;
+            } else {
+                lines.push(Line::default());
+            }
             render_reasoning_inline(
                 &mut lines,
                 &last_reasoning,
@@ -72,7 +85,10 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         // content was emitted. Each segment gets its own "💭 Thinking..."
         // header so distinct thought blocks remain visually separated.
         for (i, segment) in pre_text_segments.iter().enumerate() {
-            if i > 0 {
+            if !has_stream_separator {
+                lines.push(Line::default());
+                has_stream_separator = true;
+            } else if i > 0 {
                 lines.push(Line::default());
             }
             let section_id = format!("stream_pre_text_reasoning_{}", i);
@@ -122,16 +138,13 @@ pub fn render_chat_area(f: &mut Frame, app: &mut App, area: Rect) {
         }
 
         if prev < text.len() {
+            lines.push(Line::default());
             let md_lines = render_streaming_markdown(&text[prev..], width);
             lines.extend(md_lines);
         }
 
         if !active_reasoning.is_empty() {
-            let has_streaming_content =
-                !last_reasoning.is_empty() || prev > 0 || !post_text.is_empty();
-            if has_streaming_content {
-                lines.push(Line::default());
-            }
+            lines.push(Line::default());
             render_streaming_reasoning_inline(
                 &mut lines,
                 &active_reasoning,
