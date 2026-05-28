@@ -34,7 +34,8 @@ impl Tool for FileWrite {
             name: self.name().to_string(),
             description: "Write content to a file on the local filesystem. \
                 Creates the file if it doesn't exist, overwrites if it does. \
-                Set create_dirs to true to create parent directories automatically."
+                **Important**: Set create_dirs to true when the target directory might not exist, \
+                otherwise the tool will fail with 'No such file or directory'."
                 .to_string(),
             parameters: json!({
                 "type": "object",
