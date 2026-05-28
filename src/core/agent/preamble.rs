@@ -271,11 +271,15 @@ impl Provider {
             Provider::DeepSeek => ProviderType::DeepSeek,
             Provider::OpenAI => ProviderType::OpenAI,
             Provider::Anthropic => {
-                tracing::warn!("Anthropic is not natively supported by rig-core; falling back to generic OpenAI-compatible client");
+                tracing::warn!(
+                    "Anthropic is not natively supported by rig-core; falling back to generic OpenAI-compatible client"
+                );
                 ProviderType::Custom
             }
             Provider::Cohere => {
-                tracing::warn!("Cohere is not natively supported by rig-core; falling back to generic OpenAI-compatible client");
+                tracing::warn!(
+                    "Cohere is not natively supported by rig-core; falling back to generic OpenAI-compatible client"
+                );
                 ProviderType::Custom
             }
             Provider::OpenRouter => ProviderType::OpenRouter,
@@ -406,14 +410,20 @@ pub fn build_client(config: &Config) -> LlmClient {
     // Temperature
     if let Some(temp) = config.llm.temperature {
         client = client.with_temperature(temp);
-    } else if provider == Provider::OpenAI || provider == Provider::Custom || provider == Provider::OpenRouter {
+    } else if provider == Provider::OpenAI
+        || provider == Provider::Custom
+        || provider == Provider::OpenRouter
+    {
         client = client.with_temperature(1.0);
     }
 
     // Top-p
     if let Some(top_p) = config.llm.top_p {
         client = client.with_top_p(top_p);
-    } else if provider == Provider::OpenAI || provider == Provider::Custom || provider == Provider::OpenRouter {
+    } else if provider == Provider::OpenAI
+        || provider == Provider::Custom
+        || provider == Provider::OpenRouter
+    {
         client = client.with_top_p(0.95);
     }
 
@@ -425,14 +435,20 @@ pub fn build_client(config: &Config) -> LlmClient {
     // Frequency penalty
     if let Some(fp) = config.llm.frequency_penalty {
         client = client.with_frequency_penalty(fp);
-    } else if provider == Provider::OpenAI || provider == Provider::Custom || provider == Provider::OpenRouter {
+    } else if provider == Provider::OpenAI
+        || provider == Provider::Custom
+        || provider == Provider::OpenRouter
+    {
         client = client.with_frequency_penalty(0.0);
     }
 
     // Presence penalty
     if let Some(pp) = config.llm.presence_penalty {
         client = client.with_presence_penalty(pp);
-    } else if provider == Provider::OpenAI || provider == Provider::Custom || provider == Provider::OpenRouter {
+    } else if provider == Provider::OpenAI
+        || provider == Provider::Custom
+        || provider == Provider::OpenRouter
+    {
         client = client.with_presence_penalty(0.0);
     }
 

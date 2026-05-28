@@ -5,22 +5,24 @@
 //! OpenRouter (which handles HTTP-Referer / X-OpenRouter-Title headers internally).
 
 use anyhow::{Context, Result};
-use futures::{future, StreamExt};
+use futures::{StreamExt, future};
 use rig::client::CompletionClient;
-use rig::completion::{
-    AssistantContent, CompletionModel, Message as RigMessage,
-    ToolDefinition as RigToolDef,
+use rig::completion::message::{
+    Text, ToolCall, ToolFunction, ToolResult, ToolResultContent, UserContent,
 };
-use rig::completion::message::{Text, ToolCall, ToolFunction, ToolResult, ToolResultContent,
-                                 UserContent};
+use rig::completion::{
+    AssistantContent, CompletionModel, Message as RigMessage, ToolDefinition as RigToolDef,
+};
 use rig::one_or_many::OneOrMany;
 use rig::providers::openai;
 use rig::providers::openrouter;
 use rig::streaming::{StreamedAssistantContent, ToolCallDeltaContent};
 use tracing::debug;
 
-use crate::core::types::{FinishReason, Message, StreamChunk, StreamChoice, StreamDelta,
-                          StreamToolCallDelta, StreamToolCallFunctionDelta, ToolDefinition};
+use crate::core::types::{
+    FinishReason, Message, StreamChoice, StreamChunk, StreamDelta, StreamToolCallDelta,
+    StreamToolCallFunctionDelta, ToolDefinition,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider type enum
@@ -101,8 +103,6 @@ impl StreamingResponseExt for openrouter::streaming::StreamingCompletionResponse
             .and_then(|v| serde_json::from_value(v).ok())
     }
 }
-
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LlmClient — rig-backed LLM client
@@ -261,9 +261,7 @@ impl LlmClient {
                 }
                 "user" => {
                     rig_messages.push(RigMessage::User {
-                        content: OneOrMany::one(UserContent::Text(Text::from(
-                            msg.content.clone(),
-                        ))),
+                        content: OneOrMany::one(UserContent::Text(Text::from(msg.content.clone()))),
                     });
                 }
                 "assistant" => {
@@ -275,7 +273,9 @@ impl LlmClient {
 
                     if let Some(ref tcs) = msg.tool_calls {
                         for tc in tcs {
-                            let args: serde_json::Value = match serde_json::from_str(&tc.function.arguments) {
+                            let args: serde_json::Value = match serde_json::from_str(
+                                &tc.function.arguments,
+                            ) {
                                 Ok(v) => v,
                                 Err(e) => {
                                     tracing::warn!(err = %e, "Failed to parse tool call arguments as JSON; using null");
@@ -317,9 +317,7 @@ impl LlmClient {
                 }
                 _ => {
                     rig_messages.push(RigMessage::User {
-                        content: OneOrMany::one(UserContent::Text(Text::from(
-                            msg.content.clone(),
-                        ))),
+                        content: OneOrMany::one(UserContent::Text(Text::from(msg.content.clone()))),
                     });
                 }
             }
@@ -365,6 +363,42 @@ impl LlmClient {
             }
         }
         params
+    }
+
+    /// Normalize the response JSON to convert array-formatted content back to a string.
+    /// Providers like OpenRouter and OpenAI (via rig's typed structs) serialize assistant
+    /// message content as `[{"type": "text", "text": "..."}]` instead of a plain string.
+    /// This function extracts the text so callers can use `.as_str()` consistently.
+    fn normalize_response_content(mut value: serde_json::Value) -> serde_json::Value {
+        if let Some(choices) = value.get_mut("choices") {
+            if let Some(choices_array) = choices.as_array_mut() {
+                for choice in choices_array {
+                    if let Some(message) = choice.get_mut("message") {
+                        if let Some(content) = message.get_mut("content") {
+                            if let Some(arr) = content.as_array() {
+                                // Extract text from [{"type": "text", "text": "..."}] format
+                                let text = arr
+                                    .iter()
+                                    .filter_map(|item| {
+                                        if item.get("type").and_then(|t| t.as_str()) == Some("text")
+                                        {
+                                            item.get("text").and_then(|v| v.as_str())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                if !text.is_empty() {
+                                    *content = serde_json::Value::String(text);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        value
     }
 
     // ── Public API ──────────────────────────────────────────────────────
@@ -428,6 +462,7 @@ impl LlmClient {
                     .map_err(|e| anyhow::anyhow!("Rig completion error: {e}"))?;
                 serde_json::to_value(&response.raw_response)
                     .context("Failed to serialize rig response to JSON")
+                    .map(Self::normalize_response_content)
             }
             RigClient::OpenRouter(c) => {
                 let model = c.completion_model(&self.model);
@@ -449,6 +484,7 @@ impl LlmClient {
                     .map_err(|e| anyhow::anyhow!("Rig completion error: {e}"))?;
                 serde_json::to_value(&response.raw_response)
                     .context("Failed to serialize rig response to JSON")
+                    .map(Self::normalize_response_content)
             }
         }
     }
@@ -511,17 +547,16 @@ impl LlmClient {
                     .await
                     .map_err(|e| anyhow::anyhow!("Rig stream error: {e}"))?;
 
-                let mapped = rig_stream.scan(
-                    false,
-                    |had_tool_calls, item| {
-                        let result = match item {
-                            Ok(content) => Self::stream_content_to_chunk(content, had_tool_calls),
-                            Err(e) => Some(Err(anyhow::anyhow!("Stream error: {e}"))),
-                        };
-                        future::ready(result)
-                    },
-                );
-                Ok(ChatStream { stream: Box::pin(mapped) })
+                let mapped = rig_stream.scan(false, |had_tool_calls, item| {
+                    let result = match item {
+                        Ok(content) => Self::stream_content_to_chunk(content, had_tool_calls),
+                        Err(e) => Some(Err(anyhow::anyhow!("Stream error: {e}"))),
+                    };
+                    future::ready(result)
+                });
+                Ok(ChatStream {
+                    stream: Box::pin(mapped),
+                })
             }
             RigClient::OpenRouter(c) => {
                 let model = c.completion_model(&self.model);
@@ -542,17 +577,16 @@ impl LlmClient {
                     .await
                     .map_err(|e| anyhow::anyhow!("Rig stream error: {e}"))?;
 
-                let mapped = rig_stream.scan(
-                    false,
-                    |had_tool_calls, item| {
-                        let result = match item {
-                            Ok(content) => Self::stream_content_to_chunk(content, had_tool_calls),
-                            Err(e) => Some(Err(anyhow::anyhow!("Stream error: {e}"))),
-                        };
-                        future::ready(result)
-                    },
-                );
-                Ok(ChatStream { stream: Box::pin(mapped) })
+                let mapped = rig_stream.scan(false, |had_tool_calls, item| {
+                    let result = match item {
+                        Ok(content) => Self::stream_content_to_chunk(content, had_tool_calls),
+                        Err(e) => Some(Err(anyhow::anyhow!("Stream error: {e}"))),
+                    };
+                    future::ready(result)
+                });
+                Ok(ChatStream {
+                    stream: Box::pin(mapped),
+                })
             }
         }
     }
@@ -607,8 +641,7 @@ impl LlmClient {
             })),
             StreamedAssistantContent::ToolCall { tool_call, .. } => {
                 *had_tool_calls = true;
-                let args =
-                    serde_json::to_string(&tool_call.function.arguments).unwrap_or_default();
+                let args = serde_json::to_string(&tool_call.function.arguments).unwrap_or_default();
                 Some(Ok(StreamChunk {
                     choices: vec![StreamChoice {
                         delta: StreamDelta {
@@ -649,7 +682,10 @@ impl LlmClient {
                                 index: 0,
                                 id: Some(id),
                                 type_: Some("function".to_string()),
-                                function: Some(StreamToolCallFunctionDelta { name, arguments: args }),
+                                function: Some(StreamToolCallFunctionDelta {
+                                    name,
+                                    arguments: args,
+                                }),
                             }]),
                         },
                         finish_reason: None,
@@ -692,9 +728,7 @@ impl LlmClient {
 
 /// SSE event stream backed by rig's streaming completion response.
 pub struct ChatStream {
-    stream: std::pin::Pin<
-        Box<dyn futures::Stream<Item = Result<StreamChunk>> + Send>,
-    >,
+    stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<StreamChunk>> + Send>>,
 }
 
 impl ChatStream {
