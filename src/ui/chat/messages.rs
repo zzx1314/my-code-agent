@@ -341,7 +341,7 @@ pub(super) fn render_chat_with_reasoning(
     let split_idx = last_assistant_idx.unwrap_or(app.chat_history.len());
 
     let show_tool_calls_in_history = app.config.agent.show_tool_calls_in_history;
-    let mut prev_role: Option<String> = None;
+    let mut last_visible_role: Option<String> = None;
 
     // Clone entries before the last assistant to avoid borrow conflict with &mut App
     let before: Vec<(usize, ChatEntry)> = app.chat_history[..split_idx]
@@ -350,9 +350,8 @@ pub(super) fn render_chat_with_reasoning(
         .map(|(i, e)| (i, e.clone()))
         .collect();
     for (i, entry) in &before {
-        // Add separator blank line between messages of different roles for visual spacing
-        if let Some(ref prev) = prev_role {
-            if prev != &entry.role {
+        if entry.role != "tool" {
+            if last_visible_role.is_some() {
                 lines.push(Line::default());
             }
         }
@@ -365,22 +364,16 @@ pub(super) fn render_chat_with_reasoning(
             show_tool_calls_in_history,
             app.config.agent.show_tool_details,
         );
-        // Only update prev_role when the message actually rendered visible output.
-        // Hidden tool messages would otherwise insert a phantom "tool" role that
-        // creates an extra blank line with the next assistant message.
         if rendered {
-            prev_role = Some(entry.role.clone());
+            last_visible_role = Some(entry.role.clone());
         }
     }
 
     // Render the last assistant message inline — its reasoning_content will be
     // rendered by render_message via the new inline reasoning helper.
     if let Some(idx) = last_assistant_idx {
-        // Add separator before the last assistant message if the role differs from previous
-        if let Some(ref prev) = prev_role {
-            if prev != "assistant" {
-                lines.push(Line::default());
-            }
+        if last_visible_role.is_some() {
+            lines.push(Line::default());
         }
         let entry = app.chat_history[idx].clone();
         render_message(
@@ -409,11 +402,13 @@ pub(super) fn render_chat_messages(
         .enumerate()
         .map(|(i, e)| (i, e.clone()))
         .collect();
-    let mut prev_role: Option<String> = None;
+    let mut last_visible_role: Option<String> = None;
     for (i, entry) in &entries {
-        // Add separator blank line between messages of different roles for visual spacing
-        if let Some(ref prev) = prev_role {
-            if prev != &entry.role {
+        // Add separator blank line before visible (non-tool) messages when a
+        // visible message precedes them. Tool entries are transparent — they
+        // never add blank lines and never update the visible-role tracker.
+        if entry.role != "tool" {
+            if last_visible_role.is_some() {
                 lines.push(Line::default());
             }
         }
@@ -427,7 +422,7 @@ pub(super) fn render_chat_messages(
             app.config.agent.show_tool_details,
         );
         if rendered {
-            prev_role = Some(entry.role.clone());
+            last_visible_role = Some(entry.role.clone());
         }
     }
 }
