@@ -98,10 +98,8 @@ impl ReasoningTracker {
         if !self.reasoning_buf.is_empty() {
             let trimmed = self.reasoning_buf.trim_end();
             if !trimmed.is_empty() {
-                if !self.total_reasoning.is_empty() {
-                    self.total_reasoning.push('\n');
-                }
                 self.total_reasoning.push_str(trimmed);
+                self.total_reasoning.push('\n');
             }
         }
         self.reasoning_buf.clear();
@@ -111,10 +109,8 @@ impl ReasoningTracker {
         if !self.reasoning_buf.is_empty() {
             let trimmed = self.reasoning_buf.trim_end();
             if !trimmed.is_empty() {
-                if !self.total_reasoning.is_empty() {
-                    self.total_reasoning.push('\n');
-                }
                 self.total_reasoning.push_str(trimmed);
+                self.total_reasoning.push('\n');
             }
         }
         self.reasoning_buf.clear();
