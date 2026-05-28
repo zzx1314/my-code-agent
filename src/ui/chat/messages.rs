@@ -214,6 +214,8 @@ fn render_shell_exec_result(
 }
 
 /// Render a tool message — file ops, todos, shell exec, file outline, or fallback.
+/// Returns `true` if any content was rendered (visible to the user), `false` if
+/// the message was silently hidden (e.g. non-file tool calls with show_tool_calls disabled).
 fn render_tool_message(
     lines: &mut Vec<ratatui::text::Line<'static>>,
     entry: &ChatEntry,
@@ -223,35 +225,35 @@ fn render_tool_message(
     area_width: u16,
     show_tool_calls: bool,
     show_tool_details: bool,
-) {
+) -> bool {
     // File tool results (file_write, file_update, file_delete) with git_diff
     // are ALWAYS shown — they contain substantive code changes.
     if try_render_file_tool_result(lines, &entry.content, entry_idx, app, true, area_width)
         .is_some()
     {
-        return;
+        return true;
     }
 
     // Todos results are ALWAYS shown — they contain planning progress.
     if try_render_todos(lines, &entry.content, max_width).is_some() {
-        return;
+        return true;
     }
 
     // Other tool results are only shown when show_tool_calls is enabled
     if !(show_tool_calls && show_tool_details) {
-        return;
+        return false;
     }
 
     // Parse the tool result (ShellExecOutput JSON) for nice display
     if let Ok(output) = serde_json::from_str::<serde_json::Value>(&entry.content) {
         if render_shell_exec_result(lines, &output, entry_idx, app, area_width) {
-            return;
+            return true;
         }
     }
 
     // Check if it's a file_outline result
     if try_render_file_outline(lines, &entry.content, entry_idx, app, area_width).is_some() {
-        return;
+        return true;
     }
 
     // Fallback: show raw content for non-shell tool results
@@ -263,10 +265,15 @@ fn render_tool_message(
                 .add_modifier(Modifier::BOLD),
         )]));
         lines.push(Line::from(entry.content.to_string()));
+        return true;
     }
+
+    false
 }
 
 /// Render a single message with role-based styling.
+/// Returns `true` if content was actually rendered (visible to the user),
+/// `false` if the message was silently skipped (e.g. hidden tool calls).
 pub(super) fn render_message(
     lines: &mut Vec<ratatui::text::Line<'static>>,
     entry: &ChatEntry,
@@ -275,32 +282,47 @@ pub(super) fn render_message(
     max_width: Option<usize>,
     show_tool_calls: bool,
     show_tool_details: bool,
-) {
+) -> bool {
     let area_width = max_width.unwrap_or(80) as u16;
     match entry.role.as_str() {
-        "user" => render_user_message(lines, entry, app, area_width),
-        "assistant" => render_assistant_message(
-            lines,
-            entry,
-            entry_idx,
-            app,
-            max_width,
-            area_width,
-            show_tool_calls,
-            show_tool_details,
-        ),
-        "tool" => render_tool_message(
-            lines,
-            entry,
-            entry_idx,
-            app,
-            max_width,
-            area_width,
-            show_tool_calls,
-            show_tool_details,
-        ),
+        "user" => {
+            render_user_message(lines, entry, app, area_width);
+            true
+        }
+        "assistant" => {
+            render_assistant_message(
+                lines,
+                entry,
+                entry_idx,
+                app,
+                max_width,
+                area_width,
+                show_tool_calls,
+                show_tool_details,
+            );
+            true
+        }
+        "tool" => {
+            let rendered = render_tool_message(
+                lines,
+                entry,
+                entry_idx,
+                app,
+                max_width,
+                area_width,
+                show_tool_calls,
+                show_tool_details,
+            );
+            // Only mark as rendered if the tool message actually produced
+            // visible output — hidden tool messages (show_tool_calls=false)
+            // should not update prev_role, otherwise consecutive hidden
+            // tool entries between two assistant messages create double
+            // blank lines (one for assistant→tool, one for tool→assistant).
+            rendered
+        }
         _ => {
             lines.push(Line::from(format!("{}: {}", entry.role, entry.content)));
+            true
         }
     }
 }
@@ -334,7 +356,7 @@ pub(super) fn render_chat_with_reasoning(
                 lines.push(Line::default());
             }
         }
-        render_message(
+        let rendered = render_message(
             lines,
             entry,
             *i,
@@ -343,7 +365,12 @@ pub(super) fn render_chat_with_reasoning(
             show_tool_calls_in_history,
             app.config.agent.show_tool_details,
         );
-        prev_role = Some(entry.role.clone());
+        // Only update prev_role when the message actually rendered visible output.
+        // Hidden tool messages would otherwise insert a phantom "tool" role that
+        // creates an extra blank line with the next assistant message.
+        if rendered {
+            prev_role = Some(entry.role.clone());
+        }
     }
 
     // Render the last assistant message inline — its reasoning_content will be
@@ -390,7 +417,7 @@ pub(super) fn render_chat_messages(
                 lines.push(Line::default());
             }
         }
-        render_message(
+        let rendered = render_message(
             lines,
             entry,
             *i,
@@ -399,7 +426,9 @@ pub(super) fn render_chat_messages(
             show_tool_calls_in_history,
             app.config.agent.show_tool_details,
         );
-        prev_role = Some(entry.role.clone());
+        if rendered {
+            prev_role = Some(entry.role.clone());
+        }
     }
 }
 

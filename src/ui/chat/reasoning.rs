@@ -17,7 +17,12 @@ pub fn build_reasoning_lines(reasoning: &str, area_width: u16) -> Option<Vec<Lin
     // total_lines from fluctuating when the collapsed reasoning content
     // changes between frames during streaming.
     let wrap_width = (area_width as usize).saturating_sub(4).max(10);
-    let rendered = crate::ui::render::render_full(reasoning, Some(wrap_width));
+    // Trim trailing whitespace from the reasoning text before markdown
+    // rendering. LLM reasoning output often ends with paragraph-level
+    // newlines (\n\n) — without trimming, these produce trailing empty
+    // lines in the rendered output that stack with the explicit blank
+    // lines added by the streaming layout to create double spacing.
+    let rendered = crate::ui::render::render_full(reasoning.trim_end(), Some(wrap_width));
     if rendered.is_empty() {
         return None;
     }

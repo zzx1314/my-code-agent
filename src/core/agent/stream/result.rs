@@ -424,22 +424,39 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         app.streaming_reasoning.clear();
     }
 
-    // Merge all archived post-text reasoning segments into last_reasoning
-    // for the completed state (used by /think, session save, and final
-    // inline-rendering flag). These segments were split during streaming
-    // so each thinking block appeared separately.
-    for segment in app.completed_post_text_segments.drain(..) {
-        if !app.last_reasoning.is_empty() {
-            app.last_reasoning.push('\n');
+    // Merge archived pre-text reasoning segments (reasoning that appeared
+    // before any text content, each archived separately during streaming).
+    for segment in app.completed_pre_text_segments.drain(..) {
+        let trimmed = segment.trim_end();
+        if !trimmed.is_empty() {
+            if !app.last_reasoning.is_empty() {
+                app.last_reasoning.push('\n');
+            }
+            app.last_reasoning.push_str(trimmed);
         }
-        app.last_reasoning.push_str(&segment);
+    }
+
+    // Merge archived post-text reasoning segments into last_reasoning.
+    // Trim each segment to avoid blank-line cascades from trailing newlines
+    // in LLM reasoning output.
+    for segment in app.completed_post_text_segments.drain(..) {
+        let trimmed = segment.trim_end();
+        if !trimmed.is_empty() {
+            if !app.last_reasoning.is_empty() {
+                app.last_reasoning.push('\n');
+            }
+            app.last_reasoning.push_str(trimmed);
+        }
     }
     // Merge the final (still in-progress) post-text reasoning, if any.
     if !app.post_text_reasoning.is_empty() {
-        if !app.last_reasoning.is_empty() {
-            app.last_reasoning.push('\n');
+        let trimmed = app.post_text_reasoning.trim_end();
+        if !trimmed.is_empty() {
+            if !app.last_reasoning.is_empty() {
+                app.last_reasoning.push('\n');
+            }
+            app.last_reasoning.push_str(trimmed);
         }
-        app.last_reasoning.push_str(&app.post_text_reasoning);
         app.post_text_reasoning.clear();
     }
 
@@ -525,9 +542,6 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         if !todos_md.is_empty() {
             if let Some(last) = app.chat_history.last_mut() {
                 if last.role == "assistant" {
-                    if !last.content.is_empty() {
-                        last.content.push('\n');
-                    }
                     last.content.push_str(todos_md);
                 }
             }

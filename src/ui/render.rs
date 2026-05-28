@@ -96,18 +96,28 @@ impl ReasoningTracker {
     pub fn end_segment(&mut self) {
         self.is_reasoning = false;
         if !self.reasoning_buf.is_empty() {
-            self.total_reasoning.push_str(&self.reasoning_buf);
-            self.total_reasoning.push('\n');
+            let trimmed = self.reasoning_buf.trim_end();
+            if !trimmed.is_empty() {
+                if !self.total_reasoning.is_empty() {
+                    self.total_reasoning.push('\n');
+                }
+                self.total_reasoning.push_str(trimmed);
+            }
         }
         self.reasoning_buf.clear();
     }
 
     pub fn flush_unfinished(&mut self) {
         if !self.reasoning_buf.is_empty() {
-            self.total_reasoning.push_str(&self.reasoning_buf);
-            self.total_reasoning.push('\n');
-            self.reasoning_buf.clear();
+            let trimmed = self.reasoning_buf.trim_end();
+            if !trimmed.is_empty() {
+                if !self.total_reasoning.is_empty() {
+                    self.total_reasoning.push('\n');
+                }
+                self.total_reasoning.push_str(trimmed);
+            }
         }
+        self.reasoning_buf.clear();
     }
 
     pub fn into_total_reasoning(self) -> String {
