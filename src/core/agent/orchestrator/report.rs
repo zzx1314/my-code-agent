@@ -80,10 +80,7 @@ impl AgentOrchestrator {
             "- Total Changes: +{} / -{} lines\n",
             report.metrics.total_lines_added, report.metrics.total_lines_removed
         ));
-        output.push_str(&format!(
-            "- Total Issues: {}\n\n",
-            report.issues.len()
-        ));
+        output.push_str(&format!("- Total Issues: {}\n\n", report.issues.len()));
 
         if !report.llm_feedback.is_empty() {
             output.push_str("### Review Feedback\n\n");
@@ -199,10 +196,7 @@ impl AgentOrchestrator {
         }
 
         if !report.issues.is_empty() {
-            prompt.push_str(&format!(
-                "### Found {} Issues\n\n",
-                report.issues.len()
-            ));
+            prompt.push_str(&format!("### Found {} Issues\n\n", report.issues.len()));
 
             prompt.push_str("### Issues to Fix\n\n");
             for (i, issue) in report.issues.iter().enumerate() {

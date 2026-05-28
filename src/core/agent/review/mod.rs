@@ -220,8 +220,7 @@ impl ReviewAgent {
                 if let Some(ref text) = delta.content {
                     if !text.is_empty() {
                         let cleaned = tag_stripper.process(text);
-                        let _ = event_tx
-                            .send(ReviewEvent::ReviewFeedbackDelta(cleaned.clone()));
+                        let _ = event_tx.send(ReviewEvent::ReviewFeedbackDelta(cleaned.clone()));
                         full_content.push_str(&cleaned);
                     }
                 }

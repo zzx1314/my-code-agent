@@ -269,14 +269,14 @@ pub fn strip_html_tags(text: &str) -> String {
     loop {
         if let Some(start) = remaining.find('<') {
             let after = &remaining[start..];
-        // A tag starts with < followed by /, _, or an ASCII letter
-        // Handles: <tag>, </tag>, <_tag> (common XML/HTML tags).
-        // Does NOT match <|tag|> (DeepSeek native format) — those
-        // appear in reasoning content and must NOT be stripped to
-        // avoid eating the model's internal monologue.
-        let is_tag = after.len() > 1
-            && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z');
-        if is_tag {
+            // A tag starts with < followed by /, _, or an ASCII letter
+            // Handles: <tag>, </tag>, <_tag> (common XML/HTML tags).
+            // Does NOT match <|tag|> (DeepSeek native format) — those
+            // appear in reasoning content and must NOT be stripped to
+            // avoid eating the model's internal monologue.
+            let is_tag = after.len() > 1
+                && matches!(after.as_bytes()[1], b'/' | b'_' | b'a'..=b'z' | b'A'..=b'Z');
+            if is_tag {
                 if let Some(end) = after.find('>') {
                     // Valid tag — strip the entire <...>
                     result.push_str(&remaining[..start]);

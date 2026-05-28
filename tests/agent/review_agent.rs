@@ -212,7 +212,6 @@ fn test_review_event_creation() {
     }
 }
 
-
 // =============================================================================
 // =============================================================================
 // Tests for ReviewOutcome (iterative review-fix loop)
@@ -1328,7 +1327,9 @@ fn test_is_auto_fix_prompt_edge_cases() {
 
 use my_code_agent::core::agent::client::LlmClient;
 use my_code_agent::core::agent::orchestrator::AgentOrchestrator;
-use my_code_agent::core::agent::orchestrator::{create_review_baseline, detect_changed_files_from_git};
+use my_code_agent::core::agent::orchestrator::{
+    create_review_baseline, detect_changed_files_from_git,
+};
 use my_code_agent::core::agent::preamble::Agent;
 use my_code_agent::core::config::Config;
 use my_code_agent::core::types::{ToolCall, ToolCallFunction};
@@ -1645,8 +1646,7 @@ fn test_review_baseline_incremental_diff() {
     assert!(r1_added > 0);
 
     // Create baseline
-    let baseline_sha =
-        create_review_baseline().expect("Should create baseline after round 1");
+    let baseline_sha = create_review_baseline().expect("Should create baseline after round 1");
     assert!(!baseline_sha.is_empty());
 
     // Baseline should exactly capture current state
@@ -1722,8 +1722,7 @@ fn test_detect_changed_files_non_git_directory() {
     assert!(changes.is_empty());
 
     // Invalid baseline should not panic either
-    let changes_with_baseline =
-        rt.block_on(detect_changed_files_from_git(Some("invalid-sha")));
+    let changes_with_baseline = rt.block_on(detect_changed_files_from_git(Some("invalid-sha")));
     assert!(changes_with_baseline.is_empty());
 }
 

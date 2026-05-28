@@ -198,8 +198,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
             Ok(report) => {
                 // Create a new baseline after review completes, so the next review
                 // only shows changes made after this point (incremental diff).
-                let new_baseline =
-                    crate::core::agent::orchestrator::create_review_baseline();
+                let new_baseline = crate::core::agent::orchestrator::create_review_baseline();
 
                 let display_text = orchestrator.format_review_report(&report);
                 let verdict = report.summary.verdict.clone();
