@@ -38,6 +38,7 @@ tree-sitter-typescript = "0.23"
 tree-sitter-html = "0.23"
 tree-sitter-java = "0.23"
 tree-sitter-python = "0.21"
+rig = { package = "rig-core", version = "0.37.0" }
 
 [dev-dependencies]
 tempfile = "3"

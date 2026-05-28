@@ -153,7 +153,17 @@ pub(super) async fn process_sse_stream(
                     }
                     if let Some(ref args) = tcd.function.as_ref().and_then(|f| f.arguments.as_ref())
                     {
-                        acc.arguments.push_str(args);
+                        // Some providers (via rig-core) emit both ToolCallDelta fragments AND
+                        // a final complete ToolCall for the same call. If the new args look like
+                        // a complete JSON object and we already have accumulated content,
+                        // treat it as a replacement (not a delta append) to avoid duplication:
+                        //   {"path":".","max_depth":2}{"max_depth":2,"path":"."}
+                        if !acc.arguments.is_empty() && args.starts_with('{') && args.ends_with('}')
+                        {
+                            acc.arguments = args.to_string();
+                        } else {
+                            acc.arguments.push_str(args);
+                        }
                     }
                     if acc.name.is_some() {
                         send_event(StreamEvent::ToolCall {

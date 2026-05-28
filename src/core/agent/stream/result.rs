@@ -258,7 +258,10 @@ pub fn trigger_auto_review(app: &mut App) {
                     .collect();
 
                 let changed_files =
-                    crate::core::agent::orchestrator::detect_changed_files_from_git(baseline.as_deref()).await;
+                    crate::core::agent::orchestrator::detect_changed_files_from_git(
+                        baseline.as_deref(),
+                    )
+                    .await;
 
                 if changed_files.is_empty() {
                     tracing::info!("Auto-review: no changed files detected");
@@ -324,9 +327,11 @@ pub fn trigger_auto_review(app: &mut App) {
                             );
                             // Rebuild the report with the filtered issues
                             // (summary, metrics, verdict all need to be recalculated)
-                            report = orchestrator
-                                .review_agent
-                                .rebuild_report(&report.issues, &report.changed_files, &report.llm_feedback);
+                            report = orchestrator.review_agent.rebuild_report(
+                                &report.issues,
+                                &report.changed_files,
+                                &report.llm_feedback,
+                            );
                         }
 
                         let display_text = orchestrator.format_review_report(&report);
@@ -348,7 +353,8 @@ pub fn trigger_auto_review(app: &mut App) {
 
                         // Create a new baseline after review completes, so the next
                         // review (e.g. after fix iteration) only shows incremental changes.
-                        let new_baseline = crate::core::agent::orchestrator::create_review_baseline();
+                        let new_baseline =
+                            crate::core::agent::orchestrator::create_review_baseline();
 
                         let outcome = ReviewOutcome {
                             display_text,
