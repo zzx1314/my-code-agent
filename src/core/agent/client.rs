@@ -1,7 +1,8 @@
 //! LLM client backed by the `rig` framework.
 //!
-//! Uses `rig::providers::openai::CompletionsClient` which is compatible with all
-//! OpenAI-compatible providers (DeepSeek, OpenRouter, Ollama, Custom, etc.).
+//! Uses `rig::providers::openai::CompletionsClient` for OpenAI-compatible providers
+//! (DeepSeek, Custom, Ollama, etc.) and `rig::providers::openrouter::Client` for
+//! OpenRouter (which handles HTTP-Referer / X-OpenRouter-Title headers internally).
 
 use anyhow::{Context, Result};
 use futures::{future, StreamExt};
@@ -14,6 +15,7 @@ use rig::completion::message::{Text, ToolCall, ToolFunction, ToolResult, ToolRes
                                  UserContent};
 use rig::one_or_many::OneOrMany;
 use rig::providers::openai;
+use rig::providers::openrouter;
 use rig::streaming::{StreamedAssistantContent, ToolCallDeltaContent};
 use tracing::debug;
 
@@ -67,10 +69,46 @@ impl ProviderType {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LlmClient — rig-backed OpenAI-compatible client
+// RigClient — wraps the two possible rig client types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// HTTP client for OpenAI-compatible Chat Completions API, backed by `rig`.
+enum RigClient {
+    OpenAi(openai::CompletionsClient),
+    OpenRouter(openrouter::Client),
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// StreamingResponseExt — uniform usage extraction for streaming responses
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Trait to extract usage info from different provider streaming response types.
+trait StreamingResponseExt {
+    fn extract_usage(&self) -> Option<crate::core::types::Usage>;
+}
+
+impl StreamingResponseExt for openai::StreamingCompletionResponse {
+    fn extract_usage(&self) -> Option<crate::core::types::Usage> {
+        serde_json::to_value(&self.usage)
+            .ok()
+            .and_then(|v| serde_json::from_value(v).ok())
+    }
+}
+
+impl StreamingResponseExt for openrouter::streaming::StreamingCompletionResponse {
+    fn extract_usage(&self) -> Option<crate::core::types::Usage> {
+        serde_json::to_value(&self.usage)
+            .ok()
+            .and_then(|v| serde_json::from_value(v).ok())
+    }
+}
+
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LlmClient — rig-backed LLM client
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// HTTP client for Chat Completions API, backed by `rig-core`.
 #[derive(Clone)]
 pub struct LlmClient {
     provider: ProviderType,
@@ -174,11 +212,40 @@ impl LlmClient {
 
     // ── Internal helpers ──────────────────────────────────────────────────
 
-    fn build_rig_client(&self) -> Result<openai::CompletionsClient> {
-        let builder = openai::CompletionsClient::builder()
-            .api_key(&self.api_key)
-            .base_url(&self.base_url);
-        builder.build().context("Failed to build rig OpenAI client")
+    fn build_rig_client(&self) -> Result<RigClient> {
+        // Build an HTTP client with the configured timeout.
+        // rig-core's ClientBuilder defaults to reqwest::Client::default() which
+        // has no timeout. We inject a custom client via http_client().
+        // Note: use rig's own ReqwestClient type alias (from reqwest 0.13)
+        // to match the version rig-core was built against.
+        let mut http_builder = rig::http_client::ReqwestClient::builder();
+        if self.timeout_secs > 0 {
+            http_builder = http_builder.timeout(std::time::Duration::from_secs(self.timeout_secs));
+        }
+        let http_client = http_builder
+            .build()
+            .context("Failed to build HTTP client with timeout")?;
+
+        match self.provider {
+            ProviderType::OpenRouter => {
+                let client = openrouter::Client::builder()
+                    .api_key(&self.api_key)
+                    .base_url(&self.base_url)
+                    .http_client(http_client)
+                    .build()
+                    .context("Failed to build rig OpenRouter client")?;
+                Ok(RigClient::OpenRouter(client))
+            }
+            _ => {
+                let client = openai::CompletionsClient::builder()
+                    .api_key(&self.api_key)
+                    .base_url(&self.base_url)
+                    .http_client(http_client)
+                    .build()
+                    .context("Failed to build rig OpenAI client")?;
+                Ok(RigClient::OpenAi(client))
+            }
+        }
     }
 
     /// Convert our custom Message slice to rig Messages.
@@ -288,13 +355,15 @@ impl LlmClient {
             }
         }
         if self.reasoning_disabled {
-            params["reasoning"] = serde_json::json!({"enabled": false});
+            // `reasoning: {enabled: false}` is OpenRouter-specific.
+            // DeepSeek, OpenAI, and other OpenAI-compatible providers do not
+            // support this parameter in the request body — their non-reasoning
+            // models simply don't produce reasoning output, and reasoning
+            // models cannot disable it via a parameter. Only send for OpenRouter.
+            if self.provider == ProviderType::OpenRouter {
+                params["reasoning"] = serde_json::json!({"enabled": false});
+            }
         }
-        if self.provider == ProviderType::OpenRouter {
-            params["HTTP-Referer"] = serde_json::json!("https://github.com/my-code-agent");
-            params["X-OpenRouter-Title"] = serde_json::json!("My Code Agent");
-        }
-
         params
     }
 
@@ -308,7 +377,6 @@ impl LlmClient {
         _reasoning_field: &str,
     ) -> Result<serde_json::Value> {
         let client = self.build_rig_client()?;
-        let model = client.completion_model(&self.model);
         let rig_messages = self.convert_to_rig_messages(messages);
 
         let prompt = rig_messages.last().map_or(String::new(), |m| match m {
@@ -329,23 +397,7 @@ impl LlmClient {
             Vec::new()
         };
 
-        let mut builder = model.completion_request(prompt);
-
-        if !chat_history.is_empty() {
-            builder = builder.messages(chat_history);
-        }
-
         let params = self.additional_params();
-        builder = builder.additional_params(params);
-
-        for td in tool_definitions {
-            let tool_def = RigToolDef {
-                name: td.name.clone(),
-                description: td.description.clone(),
-                parameters: td.parameters.clone(),
-            };
-            builder = builder.tool(tool_def);
-        }
 
         debug!(
             model = %self.model,
@@ -355,14 +407,50 @@ impl LlmClient {
             "Sending chat request via rig"
         );
 
-        let response = builder
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("Rig completion error: {e}"))?;
-
-        // Serialize the raw API response to JSON
-        serde_json::to_value(&response.raw_response)
-            .context("Failed to serialize rig response to JSON")
+        match client {
+            RigClient::OpenAi(c) => {
+                let model = c.completion_model(&self.model);
+                let mut builder = model.completion_request(prompt);
+                if !chat_history.is_empty() {
+                    builder = builder.messages(chat_history);
+                }
+                builder = builder.additional_params(params);
+                for td in tool_definitions {
+                    builder = builder.tool(RigToolDef {
+                        name: td.name.clone(),
+                        description: td.description.clone(),
+                        parameters: td.parameters.clone(),
+                    });
+                }
+                let response = builder
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Rig completion error: {e}"))?;
+                serde_json::to_value(&response.raw_response)
+                    .context("Failed to serialize rig response to JSON")
+            }
+            RigClient::OpenRouter(c) => {
+                let model = c.completion_model(&self.model);
+                let mut builder = model.completion_request(prompt);
+                if !chat_history.is_empty() {
+                    builder = builder.messages(chat_history);
+                }
+                builder = builder.additional_params(params);
+                for td in tool_definitions {
+                    builder = builder.tool(RigToolDef {
+                        name: td.name.clone(),
+                        description: td.description.clone(),
+                        parameters: td.parameters.clone(),
+                    });
+                }
+                let response = builder
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Rig completion error: {e}"))?;
+                serde_json::to_value(&response.raw_response)
+                    .context("Failed to serialize rig response to JSON")
+            }
+        }
     }
 
     /// Send a streaming chat request and return a `ChatStream`.
@@ -373,7 +461,6 @@ impl LlmClient {
         _reasoning_field: &str,
     ) -> Result<ChatStream> {
         let client = self.build_rig_client()?;
-        let model = client.completion_model(&self.model);
         let rig_messages = self.convert_to_rig_messages(messages);
 
         let prompt = rig_messages.last().map_or(String::new(), |m| match m {
@@ -394,23 +481,7 @@ impl LlmClient {
             Vec::new()
         };
 
-        let mut builder = model.completion_request(prompt);
-
-        if !chat_history.is_empty() {
-            builder = builder.messages(chat_history);
-        }
-
         let params = self.additional_params();
-        builder = builder.additional_params(params);
-
-        for td in tool_definitions {
-            let tool_def = RigToolDef {
-                name: td.name.clone(),
-                description: td.description.clone(),
-                parameters: td.parameters.clone(),
-            };
-            builder = builder.tool(tool_def);
-        }
 
         debug!(
             model = %self.model,
@@ -420,31 +491,75 @@ impl LlmClient {
             "Sending streaming chat request via rig"
         );
 
-        let rig_stream = builder
-            .stream()
-            .await
-            .map_err(|e| anyhow::anyhow!("Rig stream error: {e}"))?;
+        match client {
+            RigClient::OpenAi(c) => {
+                let model = c.completion_model(&self.model);
+                let mut builder = model.completion_request(prompt);
+                if !chat_history.is_empty() {
+                    builder = builder.messages(chat_history);
+                }
+                builder = builder.additional_params(params);
+                for td in tool_definitions {
+                    builder = builder.tool(RigToolDef {
+                        name: td.name.clone(),
+                        description: td.description.clone(),
+                        parameters: td.parameters.clone(),
+                    });
+                }
+                let rig_stream = builder
+                    .stream()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Rig stream error: {e}"))?;
 
-        // Map rig stream to StreamChunks with tool call tracking for finish_reason
-        let mapped = rig_stream.scan(
-            false, // seed: had_tool_calls
-            |had_tool_calls, item| {
-                let result = match item {
-                    Ok(content) => Self::stream_content_to_chunk(content, had_tool_calls),
-                    Err(e) => Some(Err(anyhow::anyhow!("Stream error: {e}"))),
-                };
-                future::ready(result)
-            },
-        );
+                let mapped = rig_stream.scan(
+                    false,
+                    |had_tool_calls, item| {
+                        let result = match item {
+                            Ok(content) => Self::stream_content_to_chunk(content, had_tool_calls),
+                            Err(e) => Some(Err(anyhow::anyhow!("Stream error: {e}"))),
+                        };
+                        future::ready(result)
+                    },
+                );
+                Ok(ChatStream { stream: Box::pin(mapped) })
+            }
+            RigClient::OpenRouter(c) => {
+                let model = c.completion_model(&self.model);
+                let mut builder = model.completion_request(prompt);
+                if !chat_history.is_empty() {
+                    builder = builder.messages(chat_history);
+                }
+                builder = builder.additional_params(params);
+                for td in tool_definitions {
+                    builder = builder.tool(RigToolDef {
+                        name: td.name.clone(),
+                        description: td.description.clone(),
+                        parameters: td.parameters.clone(),
+                    });
+                }
+                let rig_stream = builder
+                    .stream()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Rig stream error: {e}"))?;
 
-        Ok(ChatStream {
-            stream: Box::pin(mapped),
-        })
+                let mapped = rig_stream.scan(
+                    false,
+                    |had_tool_calls, item| {
+                        let result = match item {
+                            Ok(content) => Self::stream_content_to_chunk(content, had_tool_calls),
+                            Err(e) => Some(Err(anyhow::anyhow!("Stream error: {e}"))),
+                        };
+                        future::ready(result)
+                    },
+                );
+                Ok(ChatStream { stream: Box::pin(mapped) })
+            }
+        }
     }
 
     /// Convert a single rig `StreamedAssistantContent` item to our `StreamChunk`.
-    fn stream_content_to_chunk(
-        content: StreamedAssistantContent<openai::StreamingCompletionResponse>,
+    fn stream_content_to_chunk<T: StreamingResponseExt>(
+        content: StreamedAssistantContent<T>,
         had_tool_calls: &mut bool,
     ) -> Option<Result<StreamChunk>> {
         match content {
@@ -550,10 +665,7 @@ impl LlmClient {
                     Some(FinishReason::Stop)
                 };
 
-                // Deserialize usage through JSON to handle OpenAI field naming
-                let usage = serde_json::to_value(&response.usage)
-                    .ok()
-                    .and_then(|v| serde_json::from_value(v).ok());
+                let usage = response.extract_usage();
 
                 Some(Ok(StreamChunk {
                     choices: vec![StreamChoice {
