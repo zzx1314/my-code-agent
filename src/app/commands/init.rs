@@ -60,10 +60,52 @@ pub fn handle(app: &mut App) -> bool {
 
         // Extract content: use LLM response, or fallback to local generation
         let new_content = if result.full_response.is_empty() {
+            // Collect any error/status messages from the stream attempt
+            let error_detail: String = result
+                .status_messages
+                .iter()
+                .map(|m| format!("  - {}\n", m))
+                .collect();
+
             tracing::warn!(
                 "LLM returned empty response for /init, falling back to local generation"
             );
-            crate::app::bootstrap::knowledge::generate_knowledge_content_local()
+
+            let fallback = crate::app::bootstrap::knowledge::generate_knowledge_content_local();
+
+            let init_result = crate::app::bootstrap::knowledge::build_init_result(
+                &knowledge_file,
+                &fallback,
+                &config_clone,
+                is_update,
+            );
+
+            // Send a result that includes the error detail so the user knows
+            // the LLM call failed and that the fallback was used instead.
+            let error_msg = if error_detail.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n\n⚠️ **LLM call failed** — stream returned empty response. Used local fallback.\n{}",
+                    error_detail
+                )
+            };
+            init_tx
+                .send(crate::app::InitResult {
+                    message: format!(
+                        "{}{}",
+                        init_result.message,
+                        if error_msg.is_empty() {
+                            "\n\n⚠️ LLM returned empty response — used local fallback.".to_string()
+                        } else {
+                            error_msg
+                        },
+                    ),
+                    new_agent: init_result.new_agent,
+                })
+                .await
+                .ok();
+            return;
         } else {
             let raw = result.full_response.trim();
             let stripped = crate::app::bootstrap::knowledge::strip_code_fences(raw);
