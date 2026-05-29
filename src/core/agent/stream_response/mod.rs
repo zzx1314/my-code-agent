@@ -49,6 +49,20 @@ pub async fn stream_response(
         }
     };
 
+    if input.trim().is_empty() {
+        status_messages.push("✗ Empty user input — ignoring".to_string());
+        return StreamResult {
+            full_response: String::new(),
+            interrupted: false,
+            should_exit: false,
+            last_reasoning: reasoning.into_total_reasoning(),
+            status_messages,
+            turn_usage_line: None,
+            session_usage: session_usage.clone(),
+            updated_history: chat_history.clone(),
+        };
+    }
+
     let mut messages = chat_history.clone();
 
     if matches!(messages.last(), Some(Message { role, .. }) if role == "user") {

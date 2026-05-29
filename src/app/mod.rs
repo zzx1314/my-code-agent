@@ -219,6 +219,9 @@ pub struct App {
     pub shell_mode: bool,
     /// Message queue: messages entered by the user while the model is still streaming are queued here
     pub message_queue: Vec<String>,
+    /// Number of automatic todo continuations performed since the last user message.
+    /// Prevents infinite continuation loops when todos remain uncompleted.
+    pub continuation_count: u32,
     /// Whether to render reasoning inline (before the last LLM assistant message).
     /// Set to true when an LLM response with reasoning completes, false when a local
     /// command pushes a non-LLM assistant message.
@@ -418,6 +421,7 @@ impl App {
             confirmation_rx: None,
             shell_mode: false,
             message_queue: Vec::new(),
+            continuation_count: 0,
             show_inline_reasoning: false,
             input_history: Vec::new(),
             history_index: None,

@@ -177,10 +177,15 @@ pub async fn run_app(
                         }
                         app.history_index = None;
                         app.history_draft.clear();
+                        let text = if translated.trim().is_empty() {
+                            original
+                        } else {
+                            translated
+                        };
                         crate::core::agent::stream::send_message_to_llm(
                             &mut app,
                             &mut context_manager,
-                            translated,
+                            text,
                         );
                     }
                     Err(_) => {
