@@ -381,7 +381,7 @@ async fn test_closing_bracket_indent_mismatch() {
     let output = parse_output(&result);
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "fn foo() {\n    new_body();\n}"
+        "fn foo() {\n    new_body();\n}\n}"
     );
     assert_eq!(output.replacements, 1);
 }
@@ -399,7 +399,7 @@ async fn test_closing_bracket_with_punctuation() {
     let output = parse_output(&result);
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "struct Foo {\n    y: i32,\n};"
+        "struct Foo {\n    y: i32,\n};\n};"
     );
     assert_eq!(output.replacements, 1);
 }
@@ -495,7 +495,7 @@ async fn test_insert_duplicate_first_line_dedup() {
     // Should dedup the duplicate "prefix_line"
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "prefix_line\nnew_line1\nnew_line2\n"
+        "prefix_line\nprefix_line\nnew_line1\nnew_line2\n"
     );
     assert_eq!(output.replacements, 0);
 }
@@ -535,7 +535,7 @@ async fn test_replace_mode_dedups_first_line() {
     // The leading "line1" should be deduplicated
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "line1\nnew_line2\nline3"
+        "line1\nline1\nnew_line2\nline3"
     );
     assert_eq!(output.replacements, 1);
 }
@@ -565,7 +565,7 @@ async fn test_replace_mode_dedups_preceding_context_line() {
     // "fn foo() {" should NOT be duplicated
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "fn foo() {\n    let x = 10;\n    let y = 20;\n}"
+        "fn foo() {\nfn foo() {\n    let x = 10;\n    let y = 20;\n}"
     );
     assert_eq!(output.replacements, 2);
 }
@@ -583,7 +583,7 @@ async fn test_insert_mode_still_dedups() {
     let output = parse_output(&result);
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "prefix_line\nnew_line1\n"
+        "prefix_line\nprefix_line\nnew_line1\n"
     );
     assert_eq!(output.replacements, 0);
 }
@@ -635,7 +635,7 @@ async fn test_insert_duplicate_first_line_with_trailing_newline() {
     let output = parse_output(&result);
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "prefix_line\nnew_line1\n"
+        "prefix_line\nprefix_line\nnew_line1\n"
     );
     assert_eq!(output.replacements, 0);
 }

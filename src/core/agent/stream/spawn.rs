@@ -26,6 +26,7 @@ pub fn send_message_to_llm(
     } else {
         input_text.clone()
     };
+    app.continuation_count = 0;
     app.chat_history
         .push(crate::app::ChatEntry::user(display_text));
     app.input = {

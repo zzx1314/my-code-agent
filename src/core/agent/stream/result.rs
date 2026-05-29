@@ -469,6 +469,10 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     app.current_tool_call = None;
     app.streaming_events_rx = None;
 
+    // ── Todo continuation: auto-advance pending plan tasks ────────────────────
+    // Must run BEFORE partial moves of `result` below.
+    check_todo_continuation(app, &result.updated_history);
+
     // Sync the full backend history first.
     if !result.updated_history.is_empty() {
         let pruned: Vec<crate::app::ChatEntry> = result
@@ -574,6 +578,117 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
 
     // ── Auto-review: trigger after main agent completes file changes ──────────
     trigger_auto_review(app);
+}
+
+const MAX_AUTO_CONTINUATIONS: u32 = 10;
+const CONTINUATION_PREFIX: &str = "Continue working on the plan.";
+
+/// Returns true if the last user message in `updated_history` looks like
+/// a continuation prompt (meaning we're already in a continuation loop).
+fn last_user_is_continuation(updated_history: &[crate::core::types::Message]) -> bool {
+    updated_history
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .map_or(false, |m| m.content.starts_with(CONTINUATION_PREFIX))
+}
+
+/// Returns true if the model's most recent response (last assistant message
+/// before any tool results) included tool calls, indicating active work.
+fn last_response_had_tool_calls(
+    updated_history: &[crate::core::types::Message],
+) -> bool {
+    // Walk backwards to find the last assistant message that is NOT followed
+    // by tool results (i.e. the assistant message from the current turn).
+    let mut saw_tool_result = false;
+    for m in updated_history.iter().rev() {
+        match m.role.as_str() {
+            "tool" => saw_tool_result = true,
+            "assistant" => {
+                // This is the last assistant message. If it has tool_calls
+                // or is followed by tool results, the model was working.
+                if m.tool_calls.is_some() || saw_tool_result {
+                    return true;
+                }
+                return false;
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Read `.mycode/.todos.json` and push a continuation prompt to the message queue
+/// when there are still pending or in-progress tasks.
+fn check_todo_continuation(
+    app: &mut App,
+    updated_history: &[crate::core::types::Message],
+) {
+    if app.continuation_count >= MAX_AUTO_CONTINUATIONS {
+        return;
+    }
+
+    // Only continue if we're already in a continuation loop OR the last
+    // model response involved tool calls (active work, not just chatting).
+    let is_continuation = last_user_is_continuation(updated_history);
+    let was_working = last_response_had_tool_calls(updated_history);
+    if !is_continuation && !was_working {
+        return;
+    }
+
+    let path = crate::tools::infra::write_todos::TODOS_FILE_PATH;
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let todos: Vec<serde_json::Value> = match serde_json::from_str(&content) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    let mut pending_tasks: Vec<String> = Vec::new();
+    let mut completed_count = 0;
+    for todo in &todos {
+        let status = todo
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("pending");
+        let task = todo
+            .get("task")
+            .and_then(|t| t.as_str())
+            .unwrap_or("");
+        match status {
+            "pending" | "in_progress" => {
+                if !task.is_empty() {
+                    pending_tasks.push(task.to_string());
+                }
+            }
+            "completed" => completed_count += 1,
+            _ => {}
+        }
+    }
+
+    if pending_tasks.is_empty() {
+        return;
+    }
+
+    app.continuation_count += 1;
+
+    let list: String = pending_tasks
+        .iter()
+        .enumerate()
+        .map(|(i, task)| format!("{}. {}", i + 1, task))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let total = completed_count + pending_tasks.len();
+    let msg = format!(
+        "Continue working on the plan. Remaining tasks ({}/{}):\n{}",
+        completed_count,
+        total,
+        list,
+    );
+    app.message_queue.push(msg);
 }
 
 /// Strip reasoning_content prefix from the response text if it was duplicated.

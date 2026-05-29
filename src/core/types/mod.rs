@@ -51,11 +51,30 @@ impl<'de> serde::Deserialize<'de> for Usage {
                 .and_then(|v| v.as_u64())
                 .or_else(|| v.get("prompt_tokens").and_then(|v| v.as_u64()))
                 .unwrap_or(0),
-            output_tokens: v
-                .get("output_tokens")
-                .and_then(|v| v.as_u64())
-                .or_else(|| v.get("completion_tokens").and_then(|v| v.as_u64()))
-                .unwrap_or(0),
+            output_tokens: {
+                let raw = v
+                    .get("output_tokens")
+                    .and_then(|v| v.as_u64())
+                    .or_else(|| v.get("completion_tokens").and_then(|v| v.as_u64()))
+                    .unwrap_or(0);
+                // Some providers (e.g. XiaoMi MiMo) send usage in a separate
+                // SSE chunk after the final choice, which rig may not capture.
+                // Fallback: infer output_tokens from total - input if available.
+                if raw == 0 {
+                    let input = v.get("input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .or_else(|| v.get("prompt_tokens").and_then(|v| v.as_u64()))
+                        .unwrap_or(0);
+                    let total = v.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    if total > input {
+                        total - input
+                    } else {
+                        raw
+                    }
+                } else {
+                    raw
+                }
+            },
             total_tokens: v.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
             cached_input_tokens: v
                 .get("cached_input_tokens")
