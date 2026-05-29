@@ -405,23 +405,7 @@ impl LlmClient {
         let client = self.build_rig_client()?;
         let rig_messages = self.convert_to_rig_messages(messages);
 
-        let prompt = rig_messages.last().map_or(String::new(), |m| match m {
-            RigMessage::User { content } => content
-                .iter()
-                .filter_map(|c| match c {
-                    UserContent::Text(t) => Some(t.text().to_string()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
-            _ => String::new(),
-        });
-
-        let chat_history: Vec<RigMessage> = if rig_messages.len() > 1 {
-            rig_messages[..rig_messages.len() - 1].to_vec()
-        } else {
-            Vec::new()
-        };
+        let (prompt, chat_history) = Self::split_prompt_and_history(rig_messages);
 
         let params = self.additional_params();
 
@@ -436,7 +420,7 @@ impl LlmClient {
         match client {
             RigClient::OpenAi(c) => {
                 let model = c.completion_model(&self.model);
-                let mut builder = model.completion_request(prompt);
+                let mut builder = model.completion_request(&prompt);
                 if !chat_history.is_empty() {
                     builder = builder.messages(chat_history);
                 }
@@ -458,7 +442,7 @@ impl LlmClient {
             }
             RigClient::OpenRouter(c) => {
                 let model = c.completion_model(&self.model);
-                let mut builder = model.completion_request(prompt);
+                let mut builder = model.completion_request(&prompt);
                 if !chat_history.is_empty() {
                     builder = builder.messages(chat_history);
                 }
@@ -491,23 +475,7 @@ impl LlmClient {
         let client = self.build_rig_client()?;
         let rig_messages = self.convert_to_rig_messages(messages);
 
-        let prompt = rig_messages.last().map_or(String::new(), |m| match m {
-            RigMessage::User { content } => content
-                .iter()
-                .filter_map(|c| match c {
-                    UserContent::Text(t) => Some(t.text().to_string()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
-            _ => String::new(),
-        });
-
-        let chat_history: Vec<RigMessage> = if rig_messages.len() > 1 {
-            rig_messages[..rig_messages.len() - 1].to_vec()
-        } else {
-            Vec::new()
-        };
+        let (prompt, chat_history) = Self::split_prompt_and_history(rig_messages);
 
         let params = self.additional_params();
 
@@ -522,7 +490,7 @@ impl LlmClient {
         match client {
             RigClient::OpenAi(c) => {
                 let model = c.completion_model(&self.model);
-                let mut builder = model.completion_request(prompt);
+                let mut builder = model.completion_request(&prompt);
                 if !chat_history.is_empty() {
                     builder = builder.messages(chat_history);
                 }
@@ -552,7 +520,7 @@ impl LlmClient {
             }
             RigClient::OpenRouter(c) => {
                 let model = c.completion_model(&self.model);
-                let mut builder = model.completion_request(prompt);
+                let mut builder = model.completion_request(&prompt);
                 if !chat_history.is_empty() {
                     builder = builder.messages(chat_history);
                 }
@@ -580,6 +548,86 @@ impl LlmClient {
                     stream: Box::pin(mapped),
                 })
             }
+        }
+    }
+
+    /// Split rig messages into prompt and chat_history.
+    ///
+    /// Normally the last message is a user text message which becomes the prompt.
+    /// But in a tool loop continuation, the last message may be a tool result
+    /// (`UserContent::ToolResult`). We detect this case and extract the tool
+    /// result text as the prompt instead, keeping all previous messages
+    /// (including other tool results) in chat_history.
+    fn split_prompt_and_history(
+        rig_messages: Vec<RigMessage>,
+    ) -> (String, Vec<RigMessage>) {
+        // Check if the last message is a tool result (tool loop continuation)
+        let is_tool_continuation = rig_messages.last().map_or(false, |m| match m {
+            RigMessage::User { content } => content
+                .iter()
+                .any(|c| matches!(c, UserContent::ToolResult(_))),
+            _ => false,
+        });
+
+        if is_tool_continuation {
+            // ── Tool loop continuation ───────────────────────────────
+            // Extract the tool result text as the prompt, keep previous
+            // messages (including other tool results) in chat_history.
+            // The model sees the tool results in the message array and
+            // can continue naturally.
+            let prompt = rig_messages.last().map_or(String::new(), |m| match m {
+                RigMessage::User { content } => content
+                    .iter()
+                    .filter_map(|c| match c {
+                        UserContent::ToolResult(t) => t
+                            .content
+                            .iter()
+                            .filter_map(|c| match c {
+                                ToolResultContent::Text(t) => Some(t.text().to_string()),
+                                _ => None,
+                            })
+                            .next(),
+                        _ => None,
+                    })
+                    .next()
+                    .unwrap_or_default(),
+                _ => String::new(),
+            });
+            let chat_history: Vec<RigMessage> = if rig_messages.len() > 1 {
+                rig_messages[..rig_messages.len() - 1].to_vec()
+            } else {
+                Vec::new()
+            };
+            (prompt, chat_history)
+        } else {
+            // ── Normal case: last message is user text ────────────────
+            let prompt = rig_messages.last().map_or(String::new(), |m| match m {
+                RigMessage::User { content } => content
+                    .iter()
+                    .filter_map(|c| match c {
+                        UserContent::Text(t) => Some(t.text().to_string()),
+                        UserContent::ToolResult(t) => t
+                            .content
+                            .iter()
+                            .filter_map(|c| match c {
+                                ToolResultContent::Text(t) => Some(t.text().to_string()),
+                                _ => None,
+                            })
+                            .next(),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => String::new(),
+            });
+
+            let chat_history: Vec<RigMessage> = if rig_messages.len() > 1 {
+                rig_messages[..rig_messages.len() - 1].to_vec()
+            } else {
+                Vec::new()
+            };
+
+            (prompt, chat_history)
         }
     }
 
