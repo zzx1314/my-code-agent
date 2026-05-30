@@ -709,31 +709,28 @@ fn test_iteration_status_messages() {
 use my_code_agent::core::agent::review::ReviewAgent;
 use my_code_agent::core::types::Message;
 
-/// Test extract_context_from_history: keeps user messages, includes main agent's
-/// response to fix prompts as Previous Iteration Feedback, filters out fix prompt content itself.
+/// Test extract_context_from_history: keeps only the first user message.
 #[test]
-fn test_extract_context_from_history_includes_agent_feedback() {
+fn test_extract_context_from_history_includes_first_user_message() {
     let history = vec![
         Message::user("Add a CSV parser that reads a file and sorts by column"),
         Message::assistant("Here is the code..."),
         Message::tool("call_1", "file_write result"),
-        // Simulated fix prompt from auto-review loop - content should be filtered
         Message::user("fix the issues found in the code review (iteration 1/3)"),
         Message::assistant(
             "The README language issue is not a real problem — the project uses English by convention. I'll fix the actual bugs though.",
         ),
-        // Another fix prompt
         Message::user("Auto-Review Iteration 2/3 - Fix Required"),
     ];
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain the original user request
+    // Should contain only the first (original) user request
     assert!(
         context.contains("Add a CSV parser"),
         "Should keep original user request"
     );
-    // Should NOT contain fix prompt content
+    // Should NOT contain fix prompt content (filtered by clean_review_content)
     assert!(
         !context.contains("fix the issues found"),
         "Should filter out fix prompts"
@@ -742,23 +739,10 @@ fn test_extract_context_from_history_includes_agent_feedback() {
         !context.contains("Auto-Review Iteration"),
         "Should filter out iteration messages"
     );
+    // Should NOT include agent responses (only first user message retained)
     assert!(
-        !context.contains("Fix Required"),
-        "Should filter out fix required messages"
-    );
-    // Should include the main agent's response as Previous Iteration Feedback
-    assert!(
-        context.contains("Previous Iteration Feedback"),
-        "Should include feedback section"
-    );
-    assert!(
-        context.contains("README language issue is not a real problem"),
-        "Should include agent's response to review"
-    );
-    // Should NOT contain "What Was Implemented" since last assistant follows a fix prompt
-    assert!(
-        !context.contains("What Was Implemented"),
-        "Should skip What Was Implemented for fix responses"
+        !context.contains("README language issue"),
+        "Should not include agent responses"
     );
 }
 
@@ -778,10 +762,9 @@ fn test_extract_context_from_history_only_fix_prompts() {
     );
 }
 
-/// Test extract_context_from_history: includes original request + recent follow-up
-/// and should NOT include Previous Iteration Feedback when there are no fix prompts.
+/// Test extract_context_from_history: includes only the first user message.
 #[test]
-fn test_extract_context_from_history_includes_original_and_recent() {
+fn test_extract_context_from_history_returns_first_message_only() {
     let history = vec![
         Message::user("First question"),
         Message::assistant("Answer 1"),
@@ -792,25 +775,20 @@ fn test_extract_context_from_history_includes_original_and_recent() {
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain the original request (always included)
+    // Should contain the first user request
     assert!(
         context.contains("First question"),
         "Should contain original request"
     );
-    // Should contain the follow-up (between first user and last assistant)
+    // Should NOT contain follow-up messages (only first user message retained)
     assert!(
-        context.contains("Second question"),
-        "Should contain follow-up message"
+        !context.contains("Second question"),
+        "Should NOT contain follow-up message"
     );
-    // Messages after last assistant are not included
+    // Should NOT contain messages after the first user
     assert!(
         !context.contains("Third question"),
-        "Should NOT contain message after last assistant"
-    );
-    // No fix prompts → no Previous Iteration Feedback
-    assert!(
-        !context.contains("Previous Iteration Feedback"),
-        "Should not have feedback section when no fix prompts"
+        "Should NOT contain message after first user"
     );
 }
 

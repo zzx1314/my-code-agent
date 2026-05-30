@@ -16,8 +16,7 @@ mod types;
 // Re-export types and free functions from sub-modules for backward compatibility.
 pub(crate) use self::checks::{check_file_too_long, has_tests, is_source_file};
 pub(crate) use self::context::{
-    char_boundary_at_or_before, clean_review_content, extract_previous_iteration_feedback,
-    get_file_outline, is_fix_prompt, truncate_content,
+    clean_review_content, is_fix_prompt, truncate_content,
 };
 pub use self::types::{ReviewEvent, ReviewRequest};
 
@@ -66,15 +65,23 @@ impl ReviewAgent {
             "- Do NOT flag 'missing test coverage' — the project has a deterministic check for that.\n",
             "- Do NOT flag 'tests removed' — tests may have moved to dedicated test files.\n",
             "- Do NOT flag files under `tests/` for missing their own tests — they are test harnesses.\n",
-            "- Be concise. If nothing is wrong, just say so.\n",
             "- Only report issues you are CONFIDENT about. Never speculate.\n",
             "- Every claim must be directly verifiable from the provided diff.\n\n",
-            "## Output\n\n",
-            "Write your review as plain natural language. Be concise.\n",
-            "- If everything looks good, simply say what was checked and that it looks fine.\n",
-            "- If you find issues, describe each one: which file, what's wrong, and how to fix it.\n",
-            "- Reference specific file paths and line numbers when relevant.\n",
-            "- Do NOT output JSON or any structured format.\n",
+            "## Output Format — codebuff style\n\n",
+            "Write in **codebuff style**: minimal and direct. One to three lines max.\n\n",
+            "**If everything looks fine:** single line only:\n",
+            "✅ Review passed: checked functional completeness and bug risk.\n\n",
+            "**If issues found:** very short bullet list:\n",
+            "⚠️ [N] issue(s):\n",
+            "1. `path:line` — short description (one sentence max)\n",
+            "2. `path:line` — short description (one sentence max)\n\n",
+            "Examples:\n",
+            "✅ Review passed: checked functional completeness and bug risk.\n",
+            "⚠️ 2 issues:\n",
+            "1. `src/parser.rs:42` — Missing sort by first column (user requested feature not implemented)\n",
+            "2. `src/db.rs:88` — Unwrap without None check, possible panic\n\n",
+            "No preamble. No explanations. No formatting beyond the above.\n",
+            "Stop immediately after the output — do not continue.\n",
         ).to_string()
     }
 
@@ -128,15 +135,19 @@ impl ReviewAgent {
         let mut msg = String::new();
 
         if let Some(ctx) = context {
-            msg.push_str(&format!("## User Request (Requirements)\n\n{ctx}\n\n"));
+            msg.push_str("## Requirements\n\n");
+            msg.push_str(ctx);
+            msg.push_str("\n\n");
         }
 
         if let Some(history) = history_summary {
-            msg.push_str(&format!("## Conversation History Summary\n\n{history}\n\n"));
-            msg.push_str("**Consistency Check**: Please verify the implementation matches what was discussed in the conversation. Flag any contradictions, missed requirements, or deviations from the agreed approach.\n\n");
+            msg.push_str("## Context\n\n");
+            msg.push_str(history);
+            msg.push_str("\n\n");
         }
 
-        msg.push_str(&format!("## Code Changes to Review\n\n{changes_summary}"));
+        msg.push_str("## Changes\n\n");
+        msg.push_str(changes_summary);
         msg
     }
 
@@ -245,78 +256,18 @@ impl ReviewAgent {
 
     /// Extract user's original request from conversation history for review context.
     pub fn extract_context_from_history(history: &[crate::core::types::Message]) -> String {
-        let mut result = String::new();
-
-        let first_user_idx = history.iter().position(|m| m.role == "user");
-        let last_assistant_idx = history.iter().rposition(|m| m.role == "assistant");
-
-        // 1. Always include the first user message (original request)
-        if let Some(idx) = first_user_idx {
+        // Only include the first user message (original request) — that's usually
+        // enough to check functional completeness. Keeping it short saves tokens.
+        if let Some(idx) = history.iter().position(|m| m.role == "user") {
             let content = clean_review_content(&history[idx].content);
             if !content.is_empty() {
-                result.push_str("## Original Request\n");
-                result.push_str(&truncate_content(&content, 1500));
-                result.push_str("\n\n");
-            }
-        }
-
-        // 2. Include last assistant message summary (what was implemented).
-        if let Some(idx) = last_assistant_idx {
-            let follows_fix_prompt = idx > 0
-                && history[idx - 1].role == "user"
-                && is_fix_prompt(&history[idx - 1].content);
-
-            if !follows_fix_prompt {
-                let content = clean_review_content(&history[idx].content);
-                if !content.is_empty() {
-                    result.push_str("## What Was Implemented\n");
-                    result.push_str(&truncate_content(&content, 1000));
-                    result.push_str("\n\n");
+                let truncated = truncate_content(&content, 1000);
+                if !truncated.is_empty() {
+                    return truncated;
                 }
             }
         }
-
-        // 3. Include most recent follow-up user message if substantial
-        if let (Some(first_idx), Some(last_idx)) = (first_user_idx, last_assistant_idx) {
-            for i in (first_idx + 1..last_idx).rev() {
-                if history[i].role == "user" {
-                    let content = clean_review_content(&history[i].content);
-                    if !content.is_empty() && content.len() > 20 {
-                        result.push_str("## Follow-up Context\n");
-                        result.push_str(&truncate_content(&content, 500));
-                        result.push_str("\n\n");
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 4. Add previous iteration feedback
-        let agent_feedback = extract_previous_iteration_feedback(history);
-        if !agent_feedback.is_empty() {
-            result.push_str("## Previous Iteration Feedback\n");
-            result.push_str("The main agent's response to the previous code review:\n");
-            result.push_str(&agent_feedback);
-            result.push_str("\n\n");
-        }
-
-        // 5. Cap at 2000 characters
-        if result.len() > 2000 {
-            let boundary = char_boundary_at_or_before(&result, 2000);
-            result.truncate(boundary);
-            let search_end = char_boundary_at_or_before(&result, 1997.min(result.len()));
-            if let Some(last_newline) = result[..search_end].rfind('\n') {
-                result.truncate(last_newline + 1);
-            }
-        }
-
-        if result.is_empty() {
-            if let Some(msg) = history.iter().rev().find(|m| m.role == "user") {
-                result = clean_review_content(&msg.content);
-            }
-        }
-
-        result
+        String::new()
     }
 
     /// Extract conversation history summary for consistency checking.
@@ -435,24 +386,12 @@ impl ReviewAgent {
             };
             summary.push_str(&format!("### {} ({})\n", file.path, change_type_str));
             summary.push_str(&format!(
-                "- +{} lines, -{} lines\n",
+                "- +{} lines, -{} lines\n\n",
                 file.lines_added, file.lines_removed
             ));
 
-            if file.change_type != ChangeType::Deleted {
-                if let Some(outline) = get_file_outline(&file.path) {
-                    summary.push_str("**File Outline:**\n");
-                    summary.push_str("```\n");
-                    summary.push_str(&outline);
-                    summary.push_str("\n```\n");
-                }
-            }
-
             if !file.diff.is_empty() {
-                summary.push_str("**Diff:**\n");
-                summary.push_str("```diff\n");
-                summary.push_str(&file.diff);
-                summary.push_str("\n```\n");
+                summary.push_str(&format!("```diff\n{}\n```\n", file.diff));
             }
 
             summary.push_str("\n");
