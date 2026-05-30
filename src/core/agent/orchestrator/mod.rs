@@ -118,8 +118,9 @@ impl AgentOrchestrator {
             .iter()
             .rev()
             .take_while(|msg| msg.role != "user")
-            .filter(|msg| msg.role == "assistant" && msg.tool_calls.is_some())
-            .flat_map(|msg| msg.tool_calls.as_ref().unwrap())
+            .filter(|msg| msg.role == "assistant")
+            .filter_map(|msg| msg.tool_calls.as_ref())
+            .flat_map(|tcs| tcs.iter())
             .any(|tc| {
                 tc.function.name == "file_write"
                     || tc.function.name == "file_update"

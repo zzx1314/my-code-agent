@@ -296,10 +296,21 @@ impl LlmClient {
                         }
                     }
 
+                    // rig's OneOrMany::many returns Err for empty vecs.
+                    // This can happen when an LLM response has only reasoning_content
+                    // (no text content, no tool calls) — the assistant message would
+                    // have empty content and no tool_calls. Insert an empty string
+                    // placeholder to prevent a panic.
+                    if contents.is_empty() {
+                        tracing::warn!(
+                            "Assistant message has empty content and no tool calls; inserting empty placeholder"
+                        );
+                        contents.push(AssistantContent::Text(Text::from("")));
+                    }
                     rig_messages.push(RigMessage::Assistant {
                         id: None,
                         content: OneOrMany::many(contents)
-                            .expect("assistant message must have at least one content item"),
+                            .expect("assistant message contents should not be empty after placeholder"),
                     });
                 }
                 "tool" => {

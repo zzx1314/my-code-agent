@@ -14,7 +14,7 @@ mod context;
 mod types;
 
 // Re-export types and free functions from sub-modules for backward compatibility.
-pub(crate) use self::checks::{check_file_too_long, has_tests, is_source_file};
+pub(crate) use self::checks::check_file_too_long;
 pub(crate) use self::context::{
     clean_review_content, is_fix_prompt, truncate_content,
 };
@@ -62,9 +62,6 @@ impl ReviewAgent {
             "- Do NOT flag something as \"missing\" just because it's not in the diff.\n",
             "- Do NOT report: imports, types, style, dead code, naming, perf, concurrency,\n",
             "  security, error handling — these are covered by compiler, linter, or tests.\n",
-            "- Do NOT flag 'missing test coverage' — the project has a deterministic check for that.\n",
-            "- Do NOT flag 'tests removed' — tests may have moved to dedicated test files.\n",
-            "- Do NOT flag files under `tests/` for missing their own tests — they are test harnesses.\n",
             "- Only report issues you are CONFIDENT about. Never speculate.\n",
             "- Every claim must be directly verifiable from the provided diff.\n\n",
             "## Output Format — codebuff style\n\n",
@@ -114,7 +111,7 @@ impl ReviewAgent {
         let response = self.call_llm_stream(&user_message, &event_tx).await?;
 
         let _ = event_tx.send(ReviewEvent::Progress {
-            message: "Checking code structure and test coverage...".to_string(),
+            message: "Checking code structure...".to_string(),
         });
         let structural = self.check_code_structure(&request.changed_files);
         let report = self.build_report_inner(&response, &structural, &request.changed_files);
@@ -401,7 +398,7 @@ impl ReviewAgent {
     }
 
     /// Build a ReviewReport from LLM feedback + structural issues.
-    /// The `issues` slice contains only deterministic check results (file length, test coverage).
+    /// The `issues` slice contains only deterministic check results (file length).
     fn build_report_inner(
         &self,
         llm_feedback: &str,
@@ -501,7 +498,7 @@ impl ReviewAgent {
 
             let path = Path::new(&file.path);
 
-            // 1. Check file length
+            // Check file length
             if let Some(max_lines) = self.config.max_file_lines {
                 if check_file_too_long(path, max_lines) {
                     issues.push(ReviewIssue {
@@ -525,28 +522,7 @@ impl ReviewAgent {
                 }
             }
 
-            // 2. Check test existence
-            if is_source_file(path) && !has_tests(path) {
-                let filename = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                issues.push(ReviewIssue {
-                    file: file.path.clone(),
-                    line: None,
-                    end_line: None,
-                    severity: Severity::Low,
-                    category: ReviewCategory::Maintainability,
-                    title: "Missing test coverage".to_string(),
-                    description: format!(
-                        "File `{}` has no corresponding test file or inline tests. Please add test coverage for the new functionality.",
-                        file.path
-                    ),
-                    suggestion: Some(format!(
-                        "Create a test file `tests/test_{}.rs` in the `tests/` directory, or add an inline `#[cfg(test)]\n    mod tests {{ ... }}` module at the end of the file.",
-                        filename
-                    )),
-                    code_snippet: None,
-                    fix_example: None,
-                });
-            }
+
         }
 
         issues

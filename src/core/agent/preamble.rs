@@ -113,7 +113,7 @@ After all todos are completed and verification passes, provide a brief summary:
 6. **Use relative paths**: Prefer paths relative to the current working directory.
 7. **Test code placement**: When writing or generating test code, always place it in the `tests/` directory as integration tests. Do NOT put tests in the source files (`src/`). Use `file_write` to create test files like `tests/test_<feature>.rs`.
 9. **Mind file length**: Keep individual source files under a reasonable line limit (default ~500 lines). Long files hurt readability and maintainability. Split large files by functional responsibility — one concern per file.
-10. **Write tests for new code**: Every new feature or module you create should have corresponding tests. Place integration tests in `tests/test_<feature>.rs`. You may also add inline `#[cfg(test)] mod tests { ... }` blocks for unit tests. The review agent will flag missing test coverage.
+10. **Write tests for new code**: Every new feature or module you create should have corresponding tests. Place integration tests in `tests/test_<feature>.rs`. You may also add inline `#[cfg(test)] mod tests { ... }` blocks for unit tests.
 8. **Read complete functions**: When reading code, always ensure function/method boundaries are complete. Use `file_outline` first to identify function line ranges, then read the entire function span using offset/limit. Never read a partial function that cuts off mid-body.
 
 Always be concise but thorough.

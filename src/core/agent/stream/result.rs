@@ -510,13 +510,36 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     }
 
     // Deduplicate reasoning prefix from the response.
-    let has_assistant = app.chat_history.last().map(|e| e.role.as_str()) == Some("assistant");
-    if has_assistant {
-        let last = app.chat_history.last_mut().unwrap();
-        let deduped = build_response_display(&last.content, &app.last_reasoning);
-        last.content = deduped;
-        if !app.last_reasoning.is_empty() && last.reasoning_content.is_none() {
-            last.reasoning_content = Some(app.last_reasoning.clone());
+    if let Some(last) = app.chat_history.last_mut() {
+        if last.role == "assistant" {
+            let deduped = build_response_display(&last.content, &app.last_reasoning);
+            last.content = deduped;
+            if !app.last_reasoning.is_empty() && last.reasoning_content.is_none() {
+                last.reasoning_content = Some(app.last_reasoning.clone());
+            }
+        } else {
+            let display_text = build_response_display(&result.full_response, &app.last_reasoning);
+            if !display_text.is_empty() {
+                if !app.last_reasoning.is_empty() {
+                    app.chat_history
+                        .push(crate::app::ChatEntry::assistant_with_reasoning(
+                            display_text,
+                            &app.last_reasoning,
+                        ));
+                } else {
+                    app.chat_history
+                        .push(crate::app::ChatEntry::assistant(display_text));
+                }
+            } else if !app.last_reasoning.is_empty() {
+                app.chat_history
+                    .push(crate::app::ChatEntry::assistant_with_reasoning(
+                        "",
+                        &app.last_reasoning,
+                    ));
+            } else {
+                app.chat_history
+                    .push(crate::app::ChatEntry::assistant("_(no response)_"));
+            }
         }
     } else {
         let display_text = build_response_display(&result.full_response, &app.last_reasoning);

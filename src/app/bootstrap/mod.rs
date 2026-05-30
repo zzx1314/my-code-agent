@@ -128,7 +128,17 @@ pub async fn init_app() -> Result<InitState> {
     // ── 3. Config ───────────────────────────────────────────────────────────
     let config = Config::load();
 
-    // ── 4. Session ID for undo tracking ─────────────────────────────────────
+    // ── 4. Cleanup stale todos from previous session ────────────────────────
+    let todos_path = crate::tools::infra::write_todos::TODOS_FILE_PATH;
+    if std::path::Path::new(todos_path).exists() {
+        if let Err(e) = std::fs::remove_file(todos_path) {
+            tracing::warn!(path = %todos_path, error = %e, "Failed to remove stale todos file");
+        } else {
+            tracing::info!(path = %todos_path, "Cleared stale todos from previous session");
+        }
+    }
+
+    // ── 5. Session ID for undo tracking ─────────────────────────────────────
     let session_id = format!(
         "session_{}",
         std::time::SystemTime::now()
