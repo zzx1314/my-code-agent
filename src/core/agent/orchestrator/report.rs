@@ -35,8 +35,7 @@ impl AgentOrchestrator {
         format!("🔍 Review: {}", parts.join(", "))
     }
 
-    /// Format review report in short codebuff-style.
-    /// Output is minimal: verdict + stats + short bullet list.
+    /// Format review report combining verdict, LLM feedback, and structural checks.
     pub fn format_review_report(&self, report: &ReviewReport) -> String {
         let verdict_icon = report.summary.verdict.icon();
         let file_count = report.changed_files.len();
@@ -47,72 +46,50 @@ impl AgentOrchestrator {
 
         let mut output = String::new();
 
-        if report.issues.is_empty() && report.llm_feedback.is_empty() {
-            output.push_str(&format!(
-                "{} **{}** — {} files, {}, no issues.",
-                verdict_icon,
-                report.summary.verdict.label(),
-                file_count,
-                lines,
-            ));
-            return output;
-        }
+        // ── Verdict header ────────────────────────────────────────────────
+        output.push_str(&format!(
+            "{} **{}** — {} files changed ({})\n\n",
+            verdict_icon,
+            report.summary.verdict.label(),
+            file_count,
+            lines,
+        ));
 
-        let issue_count = report.issues.len();
-        if issue_count > 0 {
-            output.push_str(&format!(
-                "{} **{}** — {} files, {}, {} issue(s).",
-                verdict_icon,
-                report.summary.verdict.label(),
-                file_count,
-                lines,
-                issue_count,
-            ));
-        } else {
-            output.push_str(&format!(
-                "{} **{}** — {} files, {}.",
-                verdict_icon,
-                report.summary.verdict.label(),
-                file_count,
-                lines,
-            ));
-        }
-        output.push_str("\n\n");
-
-        // Coverage (compact one-liner)
+        // ── Coverage summary ──────────────────────────────────────────────
         output.push_str(&self.format_review_coverage(report));
         output.push_str("\n\n");
 
-        // LLM feedback (concise — review agent is now prompted to be terse)
+        // ── LLM feedback ──────────────────────────────────────────────────
         if !report.llm_feedback.is_empty() {
             output.push_str(&report.llm_feedback);
-            output.push_str("\n");
+            output.push('\n');
         }
 
-        // Issues — short bullet list
-        for (i, issue) in report.issues.iter().enumerate() {
-            let loc = if let Some(line) = issue.line {
-                if let Some(end) = issue.end_line {
-                    if end != line {
-                        format!("`{}:{}-{}`", issue.file, line, end)
+        // ── Structural issues (file length, tests, etc.) ──────────────────
+        if !report.issues.is_empty() {
+            output.push_str("\n📋 **Structural checks:**\n");
+            for issue in &report.issues {
+                let loc = if let Some(line) = issue.line {
+                    if let Some(end) = issue.end_line {
+                        if end != line {
+                            format!("`{}:{}-{}`", issue.file, line, end)
+                        } else {
+                            format!("`{}:{}`", issue.file, line)
+                        }
                     } else {
                         format!("`{}:{}`", issue.file, line)
                     }
                 } else {
-                    format!("`{}:{}`", issue.file, line)
-                }
-            } else {
-                format!("`{}`", issue.file)
-            };
-
-            output.push_str(&format!(
-                "{}. {} [{}] {} — {}\n",
-                i + 1,
-                issue.severity.icon(),
-                issue.severity.label(),
-                issue.title,
-                loc,
-            ));
+                    format!("`{}`", issue.file)
+                };
+                output.push_str(&format!(
+                    "  {} [{}] {} — {}\n",
+                    issue.severity.icon(),
+                    issue.severity.label(),
+                    issue.title,
+                    loc,
+                ));
+            }
         }
 
         output

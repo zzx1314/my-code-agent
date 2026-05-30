@@ -428,9 +428,10 @@ impl ReviewAgent {
             }
         }
 
-        // Verdict based on structural issues only
+        // Verdict: consider BOTH structural issues AND LLM feedback
         let has_medium_or_above = critical_count > 0 || high_count > 0 || medium_count > 0;
-        let verdict = if has_medium_or_above {
+        let llm_has_issues = Self::llm_feedback_indicates_issues(llm_feedback);
+        let verdict = if has_medium_or_above || llm_has_issues {
             ReviewVerdict::NeedsRevision
         } else {
             ReviewVerdict::Approved
@@ -456,6 +457,26 @@ impl ReviewAgent {
             auto_fixable,
             llm_feedback: llm_feedback.to_string(),
         }
+    }
+
+    /// Check whether the LLM's natural-language feedback indicates any issues
+    /// were found. Follows the codebuff-style format from the system prompt:
+    ///
+    /// - `✅ Review passed: ...` → no issues
+    /// - `⚠️ [N] issue(s):` → issues found
+    /// - Empty → no issues
+    /// - Anything else → conservative: assume issues
+    fn llm_feedback_indicates_issues(feedback: &str) -> bool {
+        let trimmed = feedback.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        // Codebuff format: "✅ Review passed..." = no issues
+        if trimmed.starts_with('✅') {
+            return false;
+        }
+        // Any non-empty feedback that isn't the clean "passed" message likely has issues
+        true
     }
 
     /// Rebuild a report from filtered issues, preserving or providing llm_feedback.
