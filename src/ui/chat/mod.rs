@@ -228,9 +228,13 @@ pub fn word_wrap_text(text: &str, max_width: usize) -> Vec<String> {
                 result.push(remaining.to_string());
                 break;
             }
-            let mut break_at = remaining[..max_width].rfind(' ').unwrap_or(max_width);
+            // Use floor_char_boundary to avoid panicking on multi-byte characters
+            // (e.g. Chinese, Japanese, emoji). Byte-level slicing into a &str at a
+            // non-char boundary panics.
+            let boundary = remaining.floor_char_boundary(max_width);
+            let mut break_at = remaining[..boundary].rfind(' ').unwrap_or(boundary);
             if break_at == 0 {
-                break_at = max_width;
+                break_at = boundary;
             }
             result.push(remaining[..break_at].to_string());
             remaining = remaining[break_at..].trim_start();
