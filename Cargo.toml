@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "signal", "fs"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "signal", "fs", "io-std"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 bytes = "1"
 anyhow = "1"
@@ -39,6 +39,8 @@ tree-sitter-html = "0.23"
 tree-sitter-java = "0.23"
 tree-sitter-python = "0.21"
 rig = { package = "rig-core", version = "0.37.0" }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

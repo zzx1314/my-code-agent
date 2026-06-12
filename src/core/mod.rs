@@ -22,3 +22,6 @@ pub mod types;
 
 // Chinese→English translation
 pub mod translate;
+
+// WebSocket client (headless mode)
+pub mod ws_client;

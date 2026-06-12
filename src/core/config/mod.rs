@@ -90,6 +90,9 @@ pub struct Config {
     /// Translation settings (Chinese→English auto-translation).
     #[serde(default)]
     pub translation: TranslationConfig,
+    /// WebSocket client settings (headless mode).
+    #[serde(default)]
+    pub ws_client: WsClientConfig,
     /// UI appearance settings.
     #[serde(default)]
     pub ui: UiConfig,
@@ -489,6 +492,40 @@ pub struct UiConfig {
     /// directly.  Leave empty / omit to use the dynamic detection.
     #[serde(default)]
     pub input_bg: Option<String>,
+}
+
+/// WebSocket client settings (headless mode).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct WsClientConfig {
+    /// Enable WebSocket client (headless mode).
+    /// When enabled, the app connects to a WebSocket server and processes
+    /// commands without showing the terminal UI.
+    #[serde(default)]
+    pub enabled: bool,
+    /// WebSocket server URL (e.g. "ws://localhost:8080/agent").
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Reconnection interval in seconds (exponential backoff starts here).
+    #[serde(default = "default_ws_reconnect_secs")]
+    pub reconnect_interval_secs: u64,
+    /// Authentication token (sent as first message after connecting).
+    #[serde(default)]
+    pub auth_token: Option<String>,
+}
+
+fn default_ws_reconnect_secs() -> u64 {
+    2
+}
+
+impl Default for WsClientConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: None,
+            reconnect_interval_secs: 2,
+            auth_token: None,
+        }
+    }
 }
 
 impl Default for UiConfig {

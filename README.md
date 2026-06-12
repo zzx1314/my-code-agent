@@ -431,6 +431,109 @@ parallel_api_key = "your_key_here"
 
 All fields are optional — sensible defaults are used when omitted.
 
+## WebSocket Remote Control
+
+The agent can run in **headless mode** and be controlled remotely via WebSocket. This is useful for server deployments, automation, or integrating the agent into other tools.
+
+### Architecture
+
+```
+┌──────────────┐    WsCommand     ┌──────────────┐   WsCommand    ┌───────────────┐
+│  ws-client   │ ────────────────→│  ws-server   │───────────────→│  my-code-agent│
+│  (CLI tool)  │←──────────────── │  (relay)     │←───────────────│  (headless)   │
+└──────────────┘   WsResponse     └──────────────┘   WsResponse   └───────────────┘
+                                        │
+                                   ┌────┴────┐
+                                   │  REPL   │
+                                   │  (stdin) │
+                                   └─────────┘
+```
+
+Three components work together:
+
+1. **`ws-server`** — WebSocket relay server. Agents connect on port 8088, CLI clients connect on port 8089.
+2. **`my-code-agent`** — The agent itself, running in headless mode with `[ws_client] enabled = true`.
+3. **`ws-client`** — Remote CLI tool that sends commands to the agent through the server.
+
+### Quick Start
+
+**Terminal 1 — Start the relay server:**
+```bash
+cargo run --example ws_server
+```
+
+**Terminal 2 — Start the agent in headless mode:**
+
+First, add to `config.toml`:
+```toml
+[ws_client]
+enabled = true
+url = "ws://localhost:8088/agent"
+```
+
+Then start:
+```bash
+cargo run --release
+```
+
+You'll see the agent connect to the server:
+```
+✅ Agent #1 connected — 127.0.0.1:xxxxx
+```
+
+**Terminal 3 — Connect a remote client:**
+```bash
+cargo run --example ws_client
+```
+
+Now you can type commands in the client terminal to control the agent:
+```
+> prompt: refactor src/main.rs to be more modular
+  📤 Prompt sent: refactor src/main.rs to be more modular
+  ✅ [agent #1 @ ...] Refactored src/main.rs into 3 modules
+
+> command: /tokens
+  📤 Command sent: /tokens
+  💡 Total tokens: 15234 (input: 8231, output: 7003)
+
+> interrupt
+  ⏹️  Interrupt sent
+
+> history
+  📜 Requesting history...
+  📜 History (12 messages)
+     [0] user: refactor main.rs
+     [1] assistant: Here's the refactored code...
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `prompt: <text>` | Send any prompt to the agent |
+| `command: /status` | Execute a slash command (`/status`, `/tokens`, `/clear`) |
+| `history` | Fetch the full conversation history |
+| `interrupt` | Interrupt the current streaming response |
+| `ping` | Health check — verify the agent is responsive |
+| `help` | Show available commands |
+| `exit` / `quit` | Disconnect from the server |
+
+### Custom Ports
+
+```bash
+# Start server with custom ports
+cargo run --example ws_server -- --agent-port 9000 --client-port 9001
+
+# Connect client to custom server
+cargo run --example ws_client -- --server ws://192.168.1.100:9001
+```
+
+### Protocol
+
+The WebSocket protocol uses JSON messages. See `src/core/ws_client/` for the full specification.
+
+---
+
 ## Running Tests
 
 ```bash
