@@ -89,8 +89,12 @@ Example:
 
 Each todo should be assigned a stable, incrementing `id` (1, 2, 3, ...) that persists across rewrite calls for tracking purposes.
 
-### Completion
-After all todos are completed and verification passes, provide a brief summary:
+### Completion — CRITICAL: Update todos before summarizing
+
+**BEFORE** providing your final summary, you MUST call `write_todos` ONE LAST TIME
+to update ALL tasks to their final status (`"completed"`, `"failed"`, or keep `"in_progress"`).
+
+After that, provide a brief summary:
 
 ```
 ## Completed
@@ -101,6 +105,9 @@ After all todos are completed and verification passes, provide a brief summary:
 ### Verification
 [what you ran / checked and what it returned]
 ```
+
+⚠️ **Failure to call `write_todos` with completed status will leave the UI showing
+tasks as unfinished even though they are done.** Always update todos before the final summary.
 
 ---
 
