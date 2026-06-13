@@ -512,6 +512,9 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         if !todos_md.is_empty() {
             if let Some(last) = app.chat_history.last_mut() {
                 if last.role == "assistant" {
+                    // Add newline separator so the markdown header doesn't merge
+                    // with the assistant's preceding text.
+                    last.content.push('\n');
                     last.content.push_str(todos_md);
                 }
             }

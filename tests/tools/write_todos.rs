@@ -262,8 +262,9 @@ async fn test_markdown_header() {
     let todos = vec![todo("Test", TodoStatus::Completed)];
     let md = call_tool(todos).await;
 
-    // Should start with a newline followed by h2 markdown header with emoji
-    assert!(md.starts_with("\n## 📋 Todos"));
+    // Should start with h2 markdown header with emoji
+    // (newlines are added when appending to assistant messages, not in the tool output)
+    assert!(md.starts_with("## 📋 Todos"));
 }
 
 #[tokio::test]

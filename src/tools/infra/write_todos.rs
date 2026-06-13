@@ -147,7 +147,7 @@ fn format_todos_markdown(todos: &[TodoItem]) -> String {
     // Pre-allocate capacity: header (~40) + summary (~60) + items (~60 each)
     // Pre-allocate capacity: header (~40) + summary (~60) + items (~60 each)
     let mut md = String::with_capacity(100 + todos.len() * 60);
-    md.push_str(&format!("\n## 📋 Todos ({}/{})\n\n", stats.completed, total));
+    md.push_str(&format!("## 📋 Todos ({}/{})\n\n", stats.completed, total));
     md.push_str(&format!("{}\n\n", summary));
 
     for todo in todos.iter() {
