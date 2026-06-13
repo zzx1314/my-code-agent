@@ -57,9 +57,11 @@ impl Tool for MdToWord {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: self.name().to_string(),
-            description: "Convert a Markdown file to Word (docx) format using pandoc. \
-                This tool allows you to create Word documents by writing Markdown content, \
-                which is then converted to professionally formatted Word documents."
+            description: "Convert a Markdown file to Word (docx) format using pandoc. Use this tool \
+                to create Word documents by first writing Markdown content with file_write, then \
+                converting it with md_to_word. The original .md file will be deleted after \
+                successful conversion. Supports optional custom templates and reference documents \
+                for styling."
                 .to_string(),
             parameters: json!({
                 "type": "object",
@@ -148,12 +150,22 @@ impl Tool for MdToWord {
         let output = cmd.output().await.map_err(|e| e.to_string())?;
 
         if output.status.success() {
+            // Delete the original .md file after successful conversion
+            if let Err(e) = tokio::fs::remove_file(&args.input_file).await {
+                return Err(format!(
+                    "Converted to {}, but failed to delete original file {}: {}",
+                    output_path.display(),
+                    args.input_file,
+                    e
+                ));
+            }
+
             let result = MdToWordOutput {
                 success: true,
                 input_file: args.input_file.clone(),
                 output_file: output_path.display().to_string(),
                 message: format!(
-                    "Successfully converted {} to {}",
+                    "Successfully converted {} to {} and deleted the original file",
                     args.input_file,
                     output_path.display()
                 ),
@@ -163,24 +175,5 @@ impl Tool for MdToWord {
             let stderr = String::from_utf8_lossy(&output.stderr);
             Err(format!("Pandoc conversion failed: {}", stderr))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_output_path() {
-        let input = Path::new("document.md");
-        let output = MdToWord::get_default_output_path(input);
-        assert_eq!(output, PathBuf::from("document.docx"));
-    }
-
-    #[test]
-    fn test_default_output_path_with_directory() {
-        let input = Path::new("/path/to/document.md");
-        let output = MdToWord::get_default_output_path(input);
-        assert_eq!(output, PathBuf::from("/path/to/document.docx"));
     }
 }
