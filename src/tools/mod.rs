@@ -1,4 +1,5 @@
 // ── Sub-modules by category ─────────────────────────────────────────────────
+pub mod doc;
 pub mod exec;
 pub mod fs;
 pub mod git;
@@ -6,6 +7,7 @@ pub mod infra;
 pub mod search;
 
 // ── Re-exports from sub-modules ─────────────────────────────────────────────
+pub use doc::*;
 pub use exec::*;
 pub use fs::*;
 pub use git::*;
@@ -145,6 +147,7 @@ impl ToolRegistry {
             Box::new(GitCommit::new(handle)),
             Box::new(FileUndo),
             Box::new(WriteTodos),
+            Box::new(MdToWord::new()),
         ];
 
         for tool in tools {
