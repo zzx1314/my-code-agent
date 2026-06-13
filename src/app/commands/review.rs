@@ -57,7 +57,6 @@ fn toggle_auto_review(app: &mut App) {
             }
         };
 
-        // Get unique ownership via Arc::get_mut (refcount should be 1)
         let orch = std::sync::Arc::get_mut(orchestrator)
             .expect("Orchestrator should have unique ownership at this point");
         let new_state = !orch.auto_review_enabled;
@@ -109,11 +108,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
         }
     };
 
-    // Take snapshot from chat_history
     let history_snapshot: Vec<crate::app::ChatEntry> = app.chat_history.clone();
-
-    // Capture the current review baseline for incremental diff
-    let baseline = app.review_baseline.clone();
 
     let (result_tx, result_rx) =
         tokio::sync::mpsc::channel::<crate::core::types::review::ReviewOutcome>(1);
@@ -122,11 +117,9 @@ fn spawn_review(app: &mut App, path: Option<String>) {
     app.review_event_rx = Some(event_rx);
     app.is_reviewing = true;
 
-    // Save result_rx for later result checking
     app.review_result_rx = Some(result_rx);
 
     tokio::spawn(async move {
-        // Convert chat entries to messages once (for both file detection and context extraction)
         let messages: Vec<crate::core::types::Message> = history_snapshot
             .iter()
             .map(|e| crate::core::types::Message {
@@ -147,8 +140,8 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                 diff: String::new(),
             }]
         } else {
-            // Pass review baseline for incremental diff (show only changes since last review)
-            crate::core::agent::orchestrator::detect_changed_files_from_git(baseline.as_deref())
+            // Always detect all changes from HEAD (like codebuff's approach)
+            crate::core::agent::orchestrator::detect_changed_files_from_git()
                 .await
         };
 
@@ -167,14 +160,12 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                     report_summary: String::new(),
                     report: None,
                     auto_trigger: false,
-                    review_baseline: baseline.clone(), // preserve existing baseline
                 })
                 .await;
             let _ = event_tx.send(ReviewEvent::Error { message: msg });
             return;
         }
 
-        // Extract user's original request from chat history as review context
         let context = ReviewAgent::extract_context_from_history(&messages);
         let context_opt = if context.is_empty() {
             None
@@ -182,10 +173,8 @@ fn spawn_review(app: &mut App, path: Option<String>) {
             Some(context)
         };
 
-        // Extract conversation history summary for consistency checking
         let history_summary = ReviewAgent::extract_history_summary(&messages);
 
-        // Use phased review with events — sends phase progress through event_tx
         match orchestrator
             .review_with_events(
                 changed_files,
@@ -196,10 +185,6 @@ fn spawn_review(app: &mut App, path: Option<String>) {
             .await
         {
             Ok(report) => {
-                // Create a new baseline after review completes, so the next review
-                // only shows changes made after this point (incremental diff).
-                let new_baseline = crate::core::agent::orchestrator::create_review_baseline();
-
                 let display_text = orchestrator.format_review_report(&report);
                 let verdict = report.summary.verdict.clone();
                 let report_summary = format!(
@@ -214,7 +199,6 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                         report_summary,
                         report: Some(report),
                         auto_trigger: false, // manual review: no auto-fix loop
-                        review_baseline: new_baseline,
                     })
                     .await;
             }
@@ -227,7 +211,6 @@ fn spawn_review(app: &mut App, path: Option<String>) {
                         report_summary: String::new(),
                         report: None,
                         auto_trigger: false,
-                        review_baseline: baseline.clone(), // preserve existing baseline on error
                     })
                     .await;
             }
@@ -235,5 +218,4 @@ fn spawn_review(app: &mut App, path: Option<String>) {
     });
 }
 
-// Re-export for app
 pub use crate::core::agent::review::ReviewEvent;

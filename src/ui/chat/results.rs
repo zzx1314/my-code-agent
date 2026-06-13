@@ -119,9 +119,6 @@ pub fn try_render_file_tool_result(
         cached.clone()
     } else {
         let mut git_args = vec!["diff", "--no-color"];
-        if let Some(ref baseline) = app.review_baseline {
-            git_args.push(baseline.as_str());
-        }
         git_args.push("--");
         git_args.push(path);
         let diff = match std::process::Command::new("git").args(&git_args).output() {

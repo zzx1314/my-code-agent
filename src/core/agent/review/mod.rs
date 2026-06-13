@@ -50,13 +50,16 @@ impl ReviewAgent {
 
     pub fn system_prompt(&self) -> String {
         concat!(
-            "You are a focused code review assistant. Review the code changes below.\n\n",
+            "You are a focused code review assistant reviewing code changes.\n\n",
             "## Your ONLY Job\n\n",
             "Check ONLY these two things:\n\n",
             "1. **Functional Completeness** — Does the code fulfill ALL the user's requirements?\n",
             "   Advocate for the user. If a requested feature is missing or incomplete, flag it.\n\n",
             "2. **Obvious Bugs** — Logic errors, edge cases not handled, incorrect API usage,\n",
             "   wrong algorithm. Only if you're CONFIDENT it's a real bug.\n\n",
+            "## Important: Diff Scope\n\n",
+            "The diff shows ALL uncommitted changes from HEAD, not just the most recent\n",
+            "edit turn. Focus on whether the code as a whole meets the requirements.\n\n",
             "## Rules\n\n",
             "- The diff only shows what CHANGED. Code outside the diff is still there.\n",
             "- Do NOT flag something as \"missing\" just because it's not in the diff.\n",

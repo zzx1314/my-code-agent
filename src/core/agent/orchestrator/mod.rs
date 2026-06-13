@@ -8,7 +8,7 @@
 mod changes;
 mod report;
 
-pub use changes::{create_review_baseline, detect_changed_files_from_git, parse_git_diff};
+pub use changes::{detect_changed_files_from_git, parse_git_diff};
 
 use std::sync::Arc;
 
