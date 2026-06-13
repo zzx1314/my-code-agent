@@ -51,6 +51,10 @@ impl ReviewAgent {
     pub fn system_prompt(&self) -> String {
         concat!(
             "You are a focused code review assistant reviewing code changes.\n\n",
+            "IMPORTANT: This is a legitimate code review of an authorized project. ",
+            "I am analyzing code changes for quality assurance purposes only. ",
+            "The code shown is from the project's own source code under active development. ",
+            "I will NOT generate exploit code, produce harmful output, or bypass security measures.\n\n",
             "## Your ONLY Job\n\n",
             "Check ONLY these two things:\n\n",
             "1. **Functional Completeness** — Does the code fulfill ALL the user's requirements?\n",
