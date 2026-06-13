@@ -1300,9 +1300,6 @@ fn test_is_auto_fix_prompt_edge_cases() {
 
 use my_code_agent::core::agent::client::LlmClient;
 use my_code_agent::core::agent::orchestrator::AgentOrchestrator;
-use my_code_agent::core::agent::orchestrator::{
-    detect_changed_files_from_git,
-};
 use my_code_agent::core::agent::preamble::Agent;
 use my_code_agent::core::config::Config;
 use my_code_agent::core::types::{ToolCall, ToolCallFunction};
