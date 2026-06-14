@@ -704,7 +704,7 @@ fn test_iteration_status_messages() {
 use my_code_agent::core::agent::review::ReviewAgent;
 use my_code_agent::core::types::Message;
 
-/// Test extract_context_from_history: multi-step includes BOTH original and latest user messages.
+/// Test extract_context_from_history: multi-step includes all user messages with latest highlighted.
 #[test]
 fn test_extract_context_from_history_multi_step_includes_both() {
     let history = vec![
@@ -717,10 +717,10 @@ fn test_extract_context_from_history_multi_step_includes_both() {
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Multi-step: should contain BOTH original and latest
+    // Multi-step: should contain all historical messages + latest highlighted
     assert!(
         context.contains("CSV parser"),
-        "Should include original requirement, got: {}",
+        "Should include first historical message, got: {}",
         context
     );
     assert!(
@@ -729,12 +729,12 @@ fn test_extract_context_from_history_multi_step_includes_both() {
         context
     );
     assert!(
-        context.contains("Original Requirement"),
-        "Should have Original Requirement section"
+        context.contains("Conversation History"),
+        "Should have Conversation History section"
     );
     assert!(
-        context.contains("Current Task"),
-        "Should have Current Task section"
+        context.contains("Current Task (Primary Focus)"),
+        "Should have Current Task (Primary Focus) section"
     );
 }
 
@@ -775,7 +775,7 @@ fn test_extract_context_from_history_only_fix_prompts() {
     );
 }
 
-/// Test extract_context_from_history: multi-step includes original + latest, skips middle.
+/// Test extract_context_from_history: multi-step includes ALL messages, latest highlighted.
 #[test]
 fn test_extract_context_from_history_multi_step_preserves_original_and_latest() {
     let history = vec![
@@ -788,27 +788,25 @@ fn test_extract_context_from_history_multi_step_preserves_original_and_latest() 
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain first message as original requirement
+    // Should contain ALL user messages
     assert!(
         context.contains("First question"),
-        "Should contain first question as original"
+        "Should contain first question in history"
     );
-    // Should contain last message as current task
+    assert!(
+        context.contains("Second question"),
+        "Should contain middle question in history"
+    );
     assert!(
         context.contains("Third question"),
         "Should contain third question as current task"
     );
-    // Middle messages are NOT included (only first + last)
+    // Conversation History should come before Current Task (Primary Focus)
+    let history_pos = context.find("Conversation History").unwrap();
+    let current_pos = context.find("Current Task (Primary Focus)").unwrap();
     assert!(
-        !context.contains("Second question"),
-        "Should NOT contain middle messages"
-    );
-    // Sections should be in correct order
-    let original_pos = context.find("Original Requirement").unwrap();
-    let current_pos = context.find("Current Task").unwrap();
-    assert!(
-        original_pos < current_pos,
-        "Original should come before Current Task"
+        history_pos < current_pos,
+        "Conversation History should come before Current Task (Primary Focus)"
     );
 }
 

@@ -1,4 +1,7 @@
-// Tests for extract_context_from_history - now includes both original and latest for multi-step
+// Tests for extract_context_from_history - now includes all valid messages with latest highlighted
+use my_code_agent::core::agent::review::ReviewAgent;
+use my_code_agent::core::types::Message;
+
 #[test]
 fn test_extract_context_from_history_single_message() {
     let history = vec![
@@ -13,13 +16,17 @@ fn test_extract_context_from_history_single_message() {
         "Single message should be returned directly"
     );
     assert!(
-        !context.contains("Original Requirement"),
-        "Should NOT have multi-step format"
+        !context.contains("Conversation History"),
+        "Should NOT have Conversation History section for single message"
+    );
+    assert!(
+        !context.contains("Current Task (Primary Focus)"),
+        "Should NOT have Current Task section for single message"
     );
 }
 
 #[test]
-fn test_extract_context_from_history_multi_step_includes_both() {
+fn test_extract_context_from_history_multi_step_includes_all() {
     let history = vec![
         Message::user("Implement user authentication with JWT and OAuth2"),
         Message::assistant("I'll implement the auth system..."),
@@ -30,26 +37,31 @@ fn test_extract_context_from_history_multi_step_includes_both() {
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain original requirement
+    // Should contain all historical messages in Conversation History
     assert!(
         context.contains("Implement user authentication"),
-        "Should include original requirement, got: {}",
+        "Should include first historical message, got: {}",
         context
     );
-    // Should contain current task
+    assert!(
+        context.contains("Now add database integration"),
+        "Should include second historical message, got: {}",
+        context
+    );
+    // Should contain current task highlighted
     assert!(
         context.contains("Create REST API endpoints"),
         "Should include current task, got: {}",
         context
     );
-    // Should have multi-step format
+    // Should have proper format
     assert!(
-        context.contains("Original Requirement"),
-        "Should have Original Requirement section"
+        context.contains("Conversation History"),
+        "Should have Conversation History section"
     );
     assert!(
-        context.contains("Current Task"),
-        "Should have Current Task section"
+        context.contains("Current Task (Primary Focus)"),
+        "Should have Current Task (Primary Focus) section"
     );
 }
 
@@ -114,26 +126,31 @@ fn test_extract_context_from_history_preserves_order() {
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain first message as original
+    // Should contain first message as historical
     assert!(
         context.contains("First question"),
-        "Should contain first question as original"
+        "Should contain first question in history"
     );
-    // Should contain last message as current
+    // Should contain second message as historical
+    assert!(
+        context.contains("Second question"),
+        "Should contain second question in history"
+    );
+    // Should contain last message as current task
     assert!(
         context.contains("Third question"),
-        "Should contain third question as current"
+        "Should contain third question as current task"
     );
-    // Original should come before Current in the output
-    let original_pos = context.find("Original Requirement").unwrap();
-    let current_pos = context.find("Current Task").unwrap();
+    // Conversation History should come before Current Task
+    let history_pos = context.find("Conversation History").unwrap();
+    let current_pos = context.find("Current Task (Primary Focus)").unwrap();
     assert!(
-        original_pos < current_pos,
-        "Original should come before Current Task"
+        history_pos < current_pos,
+        "Conversation History should come before Current Task (Primary Focus)"
     );
 }
 
-// Tests for extract_history_summary - now includes original for multi-step
+// Tests for extract_history_summary - now includes all messages with latest highlighted
 #[test]
 fn test_extract_history_summary_single_turn() {
     let history = vec![
@@ -146,17 +163,17 @@ fn test_extract_history_summary_single_turn() {
     assert!(summary.is_some(), "Should return summary for valid history");
     let summary = summary.unwrap();
     assert!(
-        summary.contains("Latest User Request"),
-        "Should have Latest User Request section"
+        summary.contains("Current Task (Primary Focus)"),
+        "Should have Current Task (Primary Focus) section"
     );
     assert!(
-        !summary.contains("Original Requirement"),
-        "Single-turn should NOT have Original Requirement"
+        !summary.contains("Conversation History"),
+        "Single-turn should NOT have Conversation History"
     );
 }
 
 #[test]
-fn test_extract_history_summary_multi_step_includes_original() {
+fn test_extract_history_summary_multi_step_includes_all() {
     let history = vec![
         Message::user("Build a web application with React frontend and Node.js backend"),
         Message::assistant("I'll start with the project structure..."),
@@ -169,18 +186,29 @@ fn test_extract_history_summary_multi_step_includes_original() {
 
     assert!(summary.is_some(), "Should return summary for multi-step");
     let summary = summary.unwrap();
+    // Should include all historical messages
     assert!(
         summary.contains("Build a web application"),
-        "Should include original requirement, got: {}",
+        "Should include first historical message, got: {}",
         summary
     );
     assert!(
+        summary.contains("Now add user authentication"),
+        "Should include second historical message, got: {}",
+        summary
+    );
+    // Should include latest request as primary focus
+    assert!(
         summary.contains("Create the database models"),
-        "Should include latest request"
+        "Should include latest request as current task"
     );
     assert!(
-        summary.contains("Original Requirement"),
-        "Should have Original Requirement section"
+        summary.contains("Conversation History"),
+        "Should have Conversation History section"
+    );
+    assert!(
+        summary.contains("Current Task (Primary Focus)"),
+        "Should have Current Task (Primary Focus) section"
     );
 }
 
@@ -252,5 +280,9 @@ fn test_extract_history_summary_includes_latest_assistant_reply() {
     assert!(
         summary.contains("Adding database integration"),
         "Should include latest assistant reply"
+    );
+    assert!(
+        summary.contains("Latest Assistant Reply"),
+        "Should have Latest Assistant Reply section"
     );
 }

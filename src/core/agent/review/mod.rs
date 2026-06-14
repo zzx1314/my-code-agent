@@ -260,57 +260,63 @@ impl ReviewAgent {
 
     /// Extract review context from conversation history.
     ///
-    /// For multi-step tasks, includes BOTH the original requirement (first user message)
-    /// and the latest user request to preserve full context.
+    /// For multi-step tasks, includes ALL valid user messages with the latest
+    /// task clearly highlighted as the primary focus. This ensures the review
+    /// agent has full context even when the conversation covers multiple topics.
     /// For simple single-turn tasks, only includes the latest message.
     pub fn extract_context_from_history(history: &[crate::core::types::Message]) -> String {
-        let user_indices: Vec<usize> = history
+        let user_messages: Vec<(usize, String)> = history
             .iter()
             .enumerate()
             .filter(|(_, m)| m.role == "user")
-            .filter(|(_, m)| {
+            .filter_map(|(i, m)| {
                 let cleaned = clean_review_content(&m.content);
-                !cleaned.is_empty() && !is_fix_prompt(&m.content)
+                if cleaned.is_empty() || is_fix_prompt(&m.content) {
+                    None
+                } else {
+                    Some((i, cleaned))
+                }
             })
-            .map(|(i, _)| i)
             .collect();
 
-        if user_indices.is_empty() {
+        if user_messages.is_empty() {
             return String::new();
         }
 
-        let latest_idx = *user_indices.last().unwrap();
-        let latest_content = clean_review_content(&history[latest_idx].content);
-        let latest_truncated = truncate_content(&latest_content, 600);
-
-        // Simple case: only one user message, or the latest is the only relevant one
-        if user_indices.len() == 1 {
-            return latest_truncated;
+        // Simple case: only one user message
+        if user_messages.len() == 1 {
+            return truncate_content(&user_messages[0].1, 600);
         }
 
-        // Multi-step: include first user message (original requirement) + latest
-        let first_idx = user_indices[0];
-        if first_idx == latest_idx {
-            return latest_truncated;
+        // Multi-step: include all history but highlight the latest task
+        let mut context = String::new();
+        let latest_idx = user_messages.len() - 1;
+
+        // List all historical user messages (excluding the latest)
+        context.push_str("**Conversation History:**\n");
+        for (i, (_, content)) in user_messages.iter().enumerate().take(latest_idx) {
+            let truncated = truncate_content(content, 200);
+            if !truncated.is_empty() {
+                context.push_str(&format!("{}. {}\n", i + 1, truncated));
+            }
         }
 
-        let first_content = clean_review_content(&history[first_idx].content);
-        let first_truncated = truncate_content(&first_content, 400);
+        // Highlight the latest task as the primary focus
+        let latest_content = &user_messages[latest_idx].1;
+        let latest_truncated = truncate_content(latest_content, 600);
+        context.push_str(&format!(
+            "\n**Current Task (Primary Focus):**\n{}",
+            latest_truncated
+        ));
 
-        if first_truncated.is_empty() {
-            return latest_truncated;
-        }
-
-        format!(
-            "**Original Requirement:**\n{}\n\n**Current Task:**\n{}",
-            first_truncated, latest_truncated
-        )
+        context
     }
 
     /// Extract conversation history context for consistency checking.
     ///
-    /// For multi-step tasks, includes the original requirement to preserve full context.
-    /// Also includes the latest user message and assistant reply.
+    /// For multi-step tasks, includes ALL valid user messages with the latest
+    /// task clearly highlighted as primary focus. Also includes the latest
+    /// assistant reply for context.
     pub fn extract_history_summary(history: &[crate::core::types::Message]) -> Option<String> {
         if history.is_empty() {
             return None;
@@ -335,23 +341,30 @@ impl ReviewAgent {
         let mut summary = String::new();
         let last_user_idx = *user_indices.last().unwrap();
 
-        // Include original requirement for multi-step tasks
+        // For multi-step tasks, list all historical user messages
         if user_indices.len() > 1 {
-            let first_idx = user_indices[0];
-            if first_idx != last_user_idx {
-                let first_content = history[first_idx].content.trim();
-                let truncated = truncate_content(first_content, 250);
+            summary.push_str("**Conversation History:**\n");
+            for (i, &idx) in user_indices.iter().enumerate() {
+                if idx == last_user_idx {
+                    break; // Skip the latest, it will be highlighted separately
+                }
+                let content = history[idx].content.trim();
+                let truncated = truncate_content(content, 200);
                 if !truncated.is_empty() {
-                    summary.push_str(&format!("**Original Requirement:**\n- {}\n\n", truncated));
+                    summary.push_str(&format!("{}. {}\n", i + 1, truncated));
                 }
             }
+            summary.push('\n');
         }
 
-        // Include latest user request
+        // Highlight latest user request as primary focus
         let last_content = history[last_user_idx].content.trim();
         let truncated = truncate_content(last_content, 300);
         if !truncated.is_empty() {
-            summary.push_str(&format!("**Latest User Request:**\n- {}\n\n", truncated));
+            summary.push_str(&format!(
+                "**Current Task (Primary Focus):**\n{}\n\n",
+                truncated
+            ));
         }
 
         // Find the latest assistant reply AFTER the last user message
@@ -365,7 +378,7 @@ impl ReviewAgent {
                 if !assistant_content.is_empty() {
                     let truncated = truncate_content(assistant_content, 200);
                     if !truncated.is_empty() {
-                        summary.push_str(&format!("**Latest Assistant Reply:**\n- {}\n", truncated));
+                        summary.push_str(&format!("**Latest Assistant Reply:**\n{}", truncated));
                     }
                 }
             }

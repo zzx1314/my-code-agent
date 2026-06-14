@@ -38,8 +38,9 @@ impl Tool for FileUpdate {
         ToolDefinition {
             name: self.name().to_string(),
             description: "Edit an existing file by specifying a line range to replace. \
-                Read the file first with file_read to see line numbers, then use file_update \
-                to replace lines at a specific position. \
+                IMPORTANT: Use file_outline first to get accurate function/struct line ranges, \
+                then use file_read to see the exact content before editing. \
+                Always calculate start_line and delete_count from the outline output. \
                 Set delete_count=0 to insert new lines without deleting anything. \
                 Set new_content=\"\" to delete lines without inserting anything. \
                 IMPORTANT: new_content must contain ONLY the lines being inserted — \
