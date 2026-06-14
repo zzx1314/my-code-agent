@@ -704,9 +704,9 @@ fn test_iteration_status_messages() {
 use my_code_agent::core::agent::review::ReviewAgent;
 use my_code_agent::core::types::Message;
 
-/// Test extract_context_from_history: keeps only the LAST user message (latest question).
+/// Test extract_context_from_history: multi-step includes BOTH original and latest user messages.
 #[test]
-fn test_extract_context_from_history_includes_last_user_message() {
+fn test_extract_context_from_history_multi_step_includes_both() {
     let history = vec![
         Message::user("Add a CSV parser that reads a file and sorts by column"),
         Message::assistant("Here is the code..."),
@@ -717,16 +717,45 @@ fn test_extract_context_from_history_includes_last_user_message() {
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain the LAST user request, not the first
+    // Multi-step: should contain BOTH original and latest
     assert!(
-        context.contains("add error handling"),
-        "Should keep latest user request, got: {}",
+        context.contains("CSV parser"),
+        "Should include original requirement, got: {}",
         context
     );
-    // Should NOT contain the first user request
     assert!(
-        !context.contains("CSV parser"),
-        "Should NOT contain first user request"
+        context.contains("add error handling"),
+        "Should include latest request, got: {}",
+        context
+    );
+    assert!(
+        context.contains("Original Requirement"),
+        "Should have Original Requirement section"
+    );
+    assert!(
+        context.contains("Current Task"),
+        "Should have Current Task section"
+    );
+}
+
+/// Test extract_context_from_history: single message returned directly without sections.
+#[test]
+fn test_extract_context_from_history_single_message() {
+    let history = vec![
+        Message::user("Add a CSV parser that reads a file and sorts by column"),
+        Message::assistant("Here is the code..."),
+    ];
+
+    let context = ReviewAgent::extract_context_from_history(&history);
+
+    // Single user message: returned directly without "Original Requirement" section
+    assert!(
+        context.contains("CSV parser"),
+        "Should contain the message content"
+    );
+    assert!(
+        !context.contains("Original Requirement"),
+        "Single message should NOT have sections"
     );
 }
 
@@ -746,32 +775,40 @@ fn test_extract_context_from_history_only_fix_prompts() {
     );
 }
 
-/// Test extract_context_from_history: includes only the last user message.
+/// Test extract_context_from_history: multi-step includes original + latest, skips middle.
 #[test]
-fn test_extract_context_from_history_returns_last_message_only() {
+fn test_extract_context_from_history_multi_step_preserves_original_and_latest() {
     let history = vec![
-        Message::user("First question"),
+        Message::user("First question about architecture"),
         Message::assistant("Answer 1"),
-        Message::user("Second question - follow up"),
+        Message::user("Second question about database"),
         Message::assistant("Answer 2"),
         Message::user("Third question - final request"),
     ];
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain the LAST user request
+    // Should contain first message as original requirement
+    assert!(
+        context.contains("First question"),
+        "Should contain first question as original"
+    );
+    // Should contain last message as current task
     assert!(
         context.contains("Third question"),
-        "Should contain latest request"
+        "Should contain third question as current task"
     );
-    // Should NOT contain earlier messages (only last user message retained)
-    assert!(
-        !context.contains("First question"),
-        "Should NOT contain first message"
-    );
+    // Middle messages are NOT included (only first + last)
     assert!(
         !context.contains("Second question"),
-        "Should NOT contain middle message"
+        "Should NOT contain middle messages"
+    );
+    // Sections should be in correct order
+    let original_pos = context.find("Original Requirement").unwrap();
+    let current_pos = context.find("Current Task").unwrap();
+    assert!(
+        original_pos < current_pos,
+        "Original should come before Current Task"
     );
 }
 

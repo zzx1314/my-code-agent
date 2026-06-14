@@ -258,58 +258,115 @@ impl ReviewAgent {
         Ok(full_content)
     }
 
-    /// Extract the latest user question from conversation history for review context.
+    /// Extract review context from conversation history.
+    ///
+    /// For multi-step tasks, includes BOTH the original requirement (first user message)
+    /// and the latest user request to preserve full context.
+    /// For simple single-turn tasks, only includes the latest message.
     pub fn extract_context_from_history(history: &[crate::core::types::Message]) -> String {
-        // Focus on the latest user message — that's the most relevant question
-        // for the review agent to check against. Keeping it short saves tokens.
-        if let Some(idx) = history.iter().rposition(|m| m.role == "user") {
-            let content = clean_review_content(&history[idx].content);
-            if !content.is_empty() {
-                let truncated = truncate_content(&content, 1000);
-                if !truncated.is_empty() {
-                    return truncated;
-                }
-            }
+        let user_indices: Vec<usize> = history
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.role == "user")
+            .filter(|(_, m)| {
+                let cleaned = clean_review_content(&m.content);
+                !cleaned.is_empty() && !is_fix_prompt(&m.content)
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if user_indices.is_empty() {
+            return String::new();
         }
-        String::new()
+
+        let latest_idx = *user_indices.last().unwrap();
+        let latest_content = clean_review_content(&history[latest_idx].content);
+        let latest_truncated = truncate_content(&latest_content, 600);
+
+        // Simple case: only one user message, or the latest is the only relevant one
+        if user_indices.len() == 1 {
+            return latest_truncated;
+        }
+
+        // Multi-step: include first user message (original requirement) + latest
+        let first_idx = user_indices[0];
+        if first_idx == latest_idx {
+            return latest_truncated;
+        }
+
+        let first_content = clean_review_content(&history[first_idx].content);
+        let first_truncated = truncate_content(&first_content, 400);
+
+        if first_truncated.is_empty() {
+            return latest_truncated;
+        }
+
+        format!(
+            "**Original Requirement:**\n{}\n\n**Current Task:**\n{}",
+            first_truncated, latest_truncated
+        )
     }
 
-    /// Extract the latest user message context for consistency checking.
-    /// Only processes the most recent user message and assistant reply, not the entire history.
+    /// Extract conversation history context for consistency checking.
+    ///
+    /// For multi-step tasks, includes the original requirement to preserve full context.
+    /// Also includes the latest user message and assistant reply.
     pub fn extract_history_summary(history: &[crate::core::types::Message]) -> Option<String> {
         if history.is_empty() {
             return None;
         }
 
-        // Find the last user message index
-        let last_user_idx = match history.iter().rposition(|m| m.role == "user") {
-            Some(idx) => idx,
-            None => return None,
-        };
+        // Collect all valid user message indices (skip fix prompts)
+        let user_indices: Vec<usize> = history
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.role == "user")
+            .filter(|(_, m)| {
+                let content = m.content.trim();
+                !content.is_empty() && content.len() >= 10 && !is_fix_prompt(content)
+            })
+            .map(|(i, _)| i)
+            .collect();
 
-        let content = history[last_user_idx].content.trim();
-        if content.is_empty() || content.len() < 10 {
-            return None;
-        }
-
-        if is_fix_prompt(content) {
+        if user_indices.is_empty() {
             return None;
         }
 
         let mut summary = String::new();
-        let truncated = truncate_content(content, 300);
+        let last_user_idx = *user_indices.last().unwrap();
+
+        // Include original requirement for multi-step tasks
+        if user_indices.len() > 1 {
+            let first_idx = user_indices[0];
+            if first_idx != last_user_idx {
+                let first_content = history[first_idx].content.trim();
+                let truncated = truncate_content(first_content, 250);
+                if !truncated.is_empty() {
+                    summary.push_str(&format!("**Original Requirement:**\n- {}\n\n", truncated));
+                }
+            }
+        }
+
+        // Include latest user request
+        let last_content = history[last_user_idx].content.trim();
+        let truncated = truncate_content(last_content, 300);
         if !truncated.is_empty() {
             summary.push_str(&format!("**Latest User Request:**\n- {}\n\n", truncated));
         }
 
         // Find the latest assistant reply AFTER the last user message
-        if let Some(assistant_idx) = history[last_user_idx + 1..].iter().rposition(|m| m.role == "assistant") {
-            let actual_idx = last_user_idx + 1 + assistant_idx;
-            let assistant_content = history[actual_idx].content.trim();
-            if !assistant_content.is_empty() {
-                let truncated = truncate_content(assistant_content, 200);
-                if !truncated.is_empty() {
-                    summary.push_str(&format!("**Latest Assistant Reply:**\n- {}\n", truncated));
+        if last_user_idx + 1 < history.len() {
+            if let Some(assistant_idx) = history[last_user_idx + 1..]
+                .iter()
+                .rposition(|m| m.role == "assistant")
+            {
+                let actual_idx = last_user_idx + 1 + assistant_idx;
+                let assistant_content = history[actual_idx].content.trim();
+                if !assistant_content.is_empty() {
+                    let truncated = truncate_content(assistant_content, 200);
+                    if !truncated.is_empty() {
+                        summary.push_str(&format!("**Latest Assistant Reply:**\n- {}\n", truncated));
+                    }
                 }
             }
         }
