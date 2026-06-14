@@ -258,11 +258,11 @@ impl ReviewAgent {
         Ok(full_content)
     }
 
-    /// Extract user's original request from conversation history for review context.
+    /// Extract the latest user question from conversation history for review context.
     pub fn extract_context_from_history(history: &[crate::core::types::Message]) -> String {
-        // Only include the first user message (original request) — that's usually
-        // enough to check functional completeness. Keeping it short saves tokens.
-        if let Some(idx) = history.iter().position(|m| m.role == "user") {
+        // Focus on the latest user message — that's the most relevant question
+        // for the review agent to check against. Keeping it short saves tokens.
+        if let Some(idx) = history.iter().rposition(|m| m.role == "user") {
             let content = clean_review_content(&history[idx].content);
             if !content.is_empty() {
                 let truncated = truncate_content(&content, 1000);
@@ -274,100 +274,44 @@ impl ReviewAgent {
         String::new()
     }
 
-    /// Extract conversation history summary for consistency checking.
+    /// Extract the latest user message context for consistency checking.
+    /// Only processes the most recent user message and assistant reply, not the entire history.
     pub fn extract_history_summary(history: &[crate::core::types::Message]) -> Option<String> {
-        if history.len() < 3 {
+        if history.is_empty() {
             return None;
         }
 
-        let mut requirements = Vec::new();
-        let mut decisions = Vec::new();
-        let mut features = Vec::new();
+        // Find the last user message index
+        let last_user_idx = match history.iter().rposition(|m| m.role == "user") {
+            Some(idx) => idx,
+            None => return None,
+        };
 
-        for msg in history.iter() {
-            if msg.role != "user" {
-                continue;
-            }
+        let content = history[last_user_idx].content.trim();
+        if content.is_empty() || content.len() < 10 {
+            return None;
+        }
 
-            let content = msg.content.trim();
-            if content.is_empty() || content.len() < 10 {
-                continue;
-            }
-
-            if is_fix_prompt(content) {
-                continue;
-            }
-
-            let lower = content.to_lowercase();
-
-            if lower.contains("need")
-                || lower.contains("want")
-                || lower.contains("should")
-                || lower.contains("must")
-                || lower.contains("require")
-                || lower.contains("please")
-            {
-                let summary = truncate_content(content, 200);
-                if !summary.is_empty() {
-                    requirements.push(format!("- {}", summary));
-                }
-            }
-
-            if lower.contains("add")
-                || lower.contains("implement")
-                || lower.contains("create")
-                || lower.contains("build")
-                || lower.contains("support")
-                || lower.contains("feature")
-            {
-                let summary = truncate_content(content, 150);
-                if !summary.is_empty() {
-                    features.push(format!("- {}", summary));
-                }
-            }
-
-            if lower.contains("use ")
-                || lower.contains("choose")
-                || lower.contains("prefer")
-                || lower.contains("instead")
-                || lower.contains("must not")
-                || lower.contains("don't")
-                || lower.contains("avoid")
-            {
-                let summary = truncate_content(content, 150);
-                if !summary.is_empty() {
-                    decisions.push(format!("- {}", summary));
-                }
-            }
+        if is_fix_prompt(content) {
+            return None;
         }
 
         let mut summary = String::new();
-
-        if !requirements.is_empty() {
-            summary.push_str("**User Requirements:**\n");
-            let start = requirements.len().saturating_sub(5);
-            for req in &requirements[start..] {
-                summary.push_str(&format!("{}\n", req));
-            }
-            summary.push_str("\n");
+        let truncated = truncate_content(content, 300);
+        if !truncated.is_empty() {
+            summary.push_str(&format!("**Latest User Request:**\n- {}\n\n", truncated));
         }
 
-        if !features.is_empty() {
-            summary.push_str("**Requested Features:**\n");
-            let start = features.len().saturating_sub(5);
-            for feat in &features[start..] {
-                summary.push_str(&format!("{}\n", feat));
+        // Find the latest assistant reply AFTER the last user message
+        if let Some(assistant_idx) = history[last_user_idx + 1..].iter().rposition(|m| m.role == "assistant") {
+            let actual_idx = last_user_idx + 1 + assistant_idx;
+            let assistant_content = history[actual_idx].content.trim();
+            if !assistant_content.is_empty() {
+                let truncated = truncate_content(assistant_content, 200);
+                if !truncated.is_empty() {
+                    summary.push_str(&format!("**Latest Assistant Reply:**\n- {}\n", truncated));
+                }
             }
-            summary.push_str("\n");
-        }
-
-        if !decisions.is_empty() {
-            summary.push_str("**Technical Decisions/Constraints:**\n");
-            let start = decisions.len().saturating_sub(3);
-            for dec in &decisions[start..] {
-                summary.push_str(&format!("{}\n", dec));
-            }
-            summary.push_str("\n");
         }
 
         if summary.is_empty() {

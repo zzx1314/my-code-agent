@@ -704,45 +704,34 @@ fn test_iteration_status_messages() {
 use my_code_agent::core::agent::review::ReviewAgent;
 use my_code_agent::core::types::Message;
 
-/// Test extract_context_from_history: keeps only the first user message.
+/// Test extract_context_from_history: keeps only the LAST user message (latest question).
 #[test]
-fn test_extract_context_from_history_includes_first_user_message() {
+fn test_extract_context_from_history_includes_last_user_message() {
     let history = vec![
         Message::user("Add a CSV parser that reads a file and sorts by column"),
         Message::assistant("Here is the code..."),
         Message::tool("call_1", "file_write result"),
-        Message::user("fix the issues found in the code review (iteration 1/3)"),
-        Message::assistant(
-            "The README language issue is not a real problem — the project uses English by convention. I'll fix the actual bugs though.",
-        ),
-        Message::user("Auto-Review Iteration 2/3 - Fix Required"),
+        Message::user("Now add error handling for missing files"),
+        Message::assistant("Adding error handling..."),
     ];
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain only the first (original) user request
+    // Should contain the LAST user request, not the first
     assert!(
-        context.contains("Add a CSV parser"),
-        "Should keep original user request"
+        context.contains("add error handling"),
+        "Should keep latest user request, got: {}",
+        context
     );
-    // Should NOT contain fix prompt content (filtered by clean_review_content)
+    // Should NOT contain the first user request
     assert!(
-        !context.contains("fix the issues found"),
-        "Should filter out fix prompts"
-    );
-    assert!(
-        !context.contains("Auto-Review Iteration"),
-        "Should filter out iteration messages"
-    );
-    // Should NOT include agent responses (only first user message retained)
-    assert!(
-        !context.contains("README language issue"),
-        "Should not include agent responses"
+        !context.contains("CSV parser"),
+        "Should NOT contain first user request"
     );
 }
 
 /// Test extract_context_from_history: returns empty string when all messages are
-/// fix prompts with no agent responses (no feedback to extract).
+/// fix prompts (filtered by clean_review_content).
 #[test]
 fn test_extract_context_from_history_only_fix_prompts() {
     let history = vec![
@@ -753,13 +742,13 @@ fn test_extract_context_from_history_only_fix_prompts() {
     let context = ReviewAgent::extract_context_from_history(&history);
     assert!(
         context.is_empty(),
-        "Should return empty when only fix prompts with no agent responses"
+        "Should return empty when only fix prompts"
     );
 }
 
-/// Test extract_context_from_history: includes only the first user message.
+/// Test extract_context_from_history: includes only the last user message.
 #[test]
-fn test_extract_context_from_history_returns_first_message_only() {
+fn test_extract_context_from_history_returns_last_message_only() {
     let history = vec![
         Message::user("First question"),
         Message::assistant("Answer 1"),
@@ -770,23 +759,23 @@ fn test_extract_context_from_history_returns_first_message_only() {
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain the first user request
+    // Should contain the LAST user request
     assert!(
-        context.contains("First question"),
-        "Should contain original request"
+        context.contains("Third question"),
+        "Should contain latest request"
     );
-    // Should NOT contain follow-up messages (only first user message retained)
+    // Should NOT contain earlier messages (only last user message retained)
+    assert!(
+        !context.contains("First question"),
+        "Should NOT contain first message"
+    );
     assert!(
         !context.contains("Second question"),
-        "Should NOT contain follow-up message"
-    );
-    // Should NOT contain messages after the first user
-    assert!(
-        !context.contains("Third question"),
-        "Should NOT contain message after first user"
+        "Should NOT contain middle message"
     );
 }
 
+// =============================================================================
 // =============================================================================
 // Tests for ReviewCategory::FunctionalCompleteness
 // =============================================================================
