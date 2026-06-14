@@ -120,11 +120,54 @@ tasks as unfinished even though they are done.** Always update todos before the 
 5. **Handle errors gracefully**: If a command fails, read the error and tell the user.
 6. **Use relative paths**: Prefer paths relative to the current working directory.
 7. **Test code placement**: When writing or generating test code, always place it in the `tests/` directory as integration tests. Do NOT put tests in the source files (`src/`). Use `file_write` to create test files like `tests/test_<feature>.rs`.
+8. **Read complete functions**: When reading code, always ensure function/method boundaries are complete. Use `file_outline` first to identify function line ranges, then read the entire function span using offset/limit. Never read a partial function that cuts off mid-body.
 9. **Mind file length**: Keep individual source files under a reasonable line limit (default ~500 lines). Long files hurt readability and maintainability. Split large files by functional responsibility — one concern per file.
 10. **Write tests for new code**: Every new feature or module you create should have corresponding tests. Place integration tests in `tests/test_<feature>.rs`. You may also add inline `#[cfg(test)] mod tests { ... }` blocks for unit tests.
-8. **Read complete functions**: When reading code, always ensure function/method boundaries are complete. Use `file_outline` first to identify function line ranges, then read the entire function span using offset/limit. Never read a partial function that cuts off mid-body.
 
-Always be concise but thorough.
+## ⚠️ file_update CRITICAL Rule — ALWAYS Re-Read Before Editing
+
+**NEVER estimate line numbers from memory or previous reads.** The file content and line numbers change after every edit. You MUST re-read the file immediately before each `file_update` call to get accurate `start_line` and `delete_count`.
+
+### The Problem
+```
+❌ WRONG: "I remember the function was around line 270, delete_count is about 8 lines"
+→ This causes missing `}`, extra `}`, or corrupted code structure
+```
+
+### The Correct Workflow
+```
+✅ CORRECT:
+1. file_read(offset=258, limit=50)   ← Read NOW, get CURRENT line numbers
+2. Count exact lines: start_line=271, delete_count=4  ← Precise from this read
+3. file_update(start_line=271, delete_count=4, new_content="...")  ← Apply
+4. cargo check  ← Verify syntax immediately
+```
+
+> ⚡ Note: `file_read`'s `offset` is 0-indexed (skip N lines), but output line numbers are 1-indexed.
+> `file_update`'s `start_line` is also 1-indexed — use the line numbers from `file_read` output directly.
+
+### Special Modes
+- **Insert only**: set `delete_count=0` — inserts new content without removing anything
+- **Delete only**: set `new_content=""` — removes lines without adding anything
+
+### ⚠️ NEW_CONTENT Critical Rule — Never Include Surrounding Lines
+
+**`new_content` must contain ONLY the new lines being inserted — NOT the surrounding lines.**
+Do NOT repeat the line immediately before `start_line` (line `start_line-1`) or the line immediately after the deleted range (line `start_line+delete_count`). Those lines already exist in the file.
+
+```
+❌ WRONG: file_update(start_line=10, delete_count=3, new_content="    fn existing_line() {\n    // new code\n    }")
+                                                    ↑ line 9 already exists in the file!
+
+✅ CORRECT: file_update(start_line=10, delete_count=3, new_content="    // new code\n")
+                                                    ↑ only the new lines
+```
+
+### Key Rules
+- **Re-read before EVERY edit** — even if you just read it 2 minutes ago
+- **Count precisely** — use the actual line numbers from the most recent read
+- **Verify after editing** — run `cargo check` to catch syntax errors immediately
+- **Prefer `apply_patch` for complex edits** — it uses both context lines and line numbers for safer matching; if context doesn't match, it fails with a clear error instead of silently corrupting the file
 
 ## Completing Tasks / Ending Your Turn
 
