@@ -398,6 +398,23 @@ pub async fn stream_response(
                                 tc.function.name, args_len, e, preview,
                             );
                             messages.push(Message::tool(&tc.id, content));
+                            // Remove the malformed tool call from the assistant message so it
+                            // doesn't get re-serialized and sent to the LLM provider on the next
+                            // request. If we keep it, client.rs falls back to Value::String for
+                            // the unparseable arguments, which many providers reject with
+                            // "Can only get item pairs from a mapping" (they expect a JSON object).
+                            if let Some(last_assistant) = messages
+                                .iter_mut()
+                                .rev()
+                                .find(|m| m.role == "assistant")
+                            {
+                                if let Some(ref mut calls) = last_assistant.tool_calls {
+                                    calls.retain(|c| c.id != tc.id);
+                                    if calls.is_empty() {
+                                        last_assistant.tool_calls = None;
+                                    }
+                                }
+                            }
                             continue;
                         }
                     };

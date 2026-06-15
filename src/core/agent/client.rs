@@ -276,16 +276,18 @@ impl LlmClient {
                             ) {
                                 Ok(v) => v,
                                 Err(e) => {
-                                    // For ANY parse failure, use the raw string as a fallback
-                                    // instead of null. Some providers reject null arguments with
-                                    // a 500 error ("Can only get item pairs from a mapping"),
-                                    // while a string value is at least syntactically valid.
+                                    // Use empty object as fallback. Both null and raw string
+                                    // can trigger "Can only get item pairs from a mapping" 500
+                                    // errors from providers that expect arguments to be a JSON
+                                    // object/mapping. An empty object is universally accepted.
+                                    // The original malformed arguments are preserved in the
+                                    // conversation history for debugging.
                                     tracing::warn!(
                                         err = %e,
                                         args_len = tc.function.arguments.len(),
-                                        "Failed to parse tool call arguments as JSON; using raw string as fallback"
+                                        "Failed to parse tool call arguments as JSON; using empty object fallback"
                                     );
-                                    serde_json::Value::String(tc.function.arguments.clone())
+                                    serde_json::Value::Object(serde_json::Map::new())
                                 }
                             };
                             let tool_call = ToolCall {
