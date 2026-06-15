@@ -269,17 +269,23 @@ impl LlmClient {
 
                     if !msg.content.is_empty() {
                         contents.push(AssistantContent::Text(Text::from(msg.content.clone())));
-                    }
-
-                    if let Some(ref tcs) = msg.tool_calls {
+                    }                        if let Some(ref tcs) = msg.tool_calls {
                         for tc in tcs {
                             let args: serde_json::Value = match serde_json::from_str(
                                 &tc.function.arguments,
                             ) {
                                 Ok(v) => v,
                                 Err(e) => {
-                                    tracing::warn!(err = %e, "Failed to parse tool call arguments as JSON; using null");
-                                    serde_json::Value::Null
+                                    // For ANY parse failure, use the raw string as a fallback
+                                    // instead of null. Some providers reject null arguments with
+                                    // a 500 error ("Can only get item pairs from a mapping"),
+                                    // while a string value is at least syntactically valid.
+                                    tracing::warn!(
+                                        err = %e,
+                                        args_len = tc.function.arguments.len(),
+                                        "Failed to parse tool call arguments as JSON; using raw string as fallback"
+                                    );
+                                    serde_json::Value::String(tc.function.arguments.clone())
                                 }
                             };
                             let tool_call = ToolCall {

@@ -147,7 +147,7 @@ impl ToolRegistry {
             Box::new(GitCommit::new(handle)),
             Box::new(FileUndo),
             Box::new(WriteTodos),
-            Box::new(MdToWord::new()),
+            Box::new(MdToWord::from_config(config)),
         ];
 
         for tool in tools {

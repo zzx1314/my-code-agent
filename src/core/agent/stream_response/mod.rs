@@ -367,8 +367,40 @@ pub async fn stream_response(
                     }
                     loop_detector.record(&tc.function.name, &tc.function.arguments);
 
-                    let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
-                        .unwrap_or(serde_json::Value::Null);
+                    let args: serde_json::Value = match serde_json::from_str(&tc.function.arguments) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            let args_len = tc.function.arguments.len();
+                            // Use char-level slicing to avoid panicking on multi-byte UTF-8 (e.g. Chinese)
+                            let preview = if args_len > 200 {
+                                let first_100: String =
+                                    tc.function.arguments.chars().take(100).collect();
+                                let last_100: String = tc.function.arguments
+                                    .chars()
+                                    .rev()
+                                    .take(100)
+                                    .collect::<Vec<_>>()
+                                    .into_iter()
+                                    .rev()
+                                    .collect();
+                                format!("{}...(truncated)...{}", first_100, last_100)
+                            } else {
+                                tc.function.arguments.chars().take(200).collect()
+                            };
+                            tracing::error!(
+                                tool = %tc.function.name,
+                                args_len = args_len,
+                                error = %e,
+                                "Tool call arguments are malformed JSON"
+                            );
+                            let content = format!(
+                                "[TOOL_ERROR] `{}` failed: invalid JSON arguments (length: {}, parse error: {}).\nArguments preview: `{}`\nStop retrying this tool call — the arguments are malformed and cannot be parsed.\n\nTry to split the large content into smaller chunks instead.",
+                                tc.function.name, args_len, e, preview,
+                            );
+                            messages.push(Message::tool(&tc.id, content));
+                            continue;
+                        }
+                    };
                     let result = tools.execute(&tc.function.name, args).await;
                     let content = match result {
                         Ok(output) => output,

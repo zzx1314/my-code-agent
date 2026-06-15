@@ -127,6 +127,14 @@ auto_review = true
 # Only issues at or above this severity will be reported. Default: "low"
 # severity_threshold = "low"
 
+# ── Document Conversion Settings (md_to_word) ──
+[doc]
+# Default reference .docx file for styling markdown-to-Word conversions.
+# The md_to_word tool uses this file via pandoc --reference-doc.
+# Path is relative to the project root.
+# Default: "template/template_标题不编号-列表第二行缩进.docx"
+reference_doc = "template/template_标题不编号-列表第二行缩进.docx"
+
 # ── WebSocket Client (Headless Mode) ──
 # Connect to a WebSocket server and receive commands remotely.
 # When enabled and configured, the app runs in headless mode (no TUI).

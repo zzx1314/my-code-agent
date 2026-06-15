@@ -96,6 +96,9 @@ pub struct Config {
     /// UI appearance settings.
     #[serde(default)]
     pub ui: UiConfig,
+    /// Document conversion settings (md_to_word tool).
+    #[serde(default)]
+    pub doc: DocConfig,
 }
 /// Code review settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -492,6 +495,28 @@ pub struct UiConfig {
     /// directly.  Leave empty / omit to use the dynamic detection.
     #[serde(default)]
     pub input_bg: Option<String>,
+}
+
+/// Document conversion settings (md_to_word tool).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DocConfig {
+    /// Default reference document (.docx) for styling markdown-to-Word conversions.
+    /// When set, the md_to_word tool uses this file by default via pandoc --reference-doc.
+    /// Default: "template/template_标题不编号-列表第二行缩进.docx"
+    #[serde(default = "default_reference_doc")]
+    pub reference_doc: String,
+}
+
+fn default_reference_doc() -> String {
+    "template/template_标题不编号-列表第二行缩进.docx".to_string()
+}
+
+impl Default for DocConfig {
+    fn default() -> Self {
+        Self {
+            reference_doc: default_reference_doc(),
+        }
+    }
 }
 
 /// WebSocket client settings (headless mode).

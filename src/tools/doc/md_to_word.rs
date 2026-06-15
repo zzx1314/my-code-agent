@@ -1,3 +1,4 @@
+use crate::core::config::Config;
 use crate::core::types::ToolDefinition;
 use crate::tools::Tool;
 use serde::{Deserialize, Serialize};
@@ -20,7 +21,7 @@ pub struct MdToWordArgs {
     /// Custom template file path (optional)
     #[serde(default)]
     pub template: Option<String>,
-    /// Reference document for styling (optional)
+    /// Reference document for styling (optional, defaults to config doc.reference_doc)
     #[serde(default)]
     pub reference_doc: Option<String>,
 }
@@ -34,11 +35,23 @@ pub struct MdToWordOutput {
 }
 
 #[derive(Debug, Clone)]
-pub struct MdToWord;
+pub struct MdToWord {
+    /// Default reference document path from config.
+    default_reference_doc: String,
+}
 
 impl MdToWord {
     pub fn new() -> Self {
-        Self
+        Self {
+            default_reference_doc: "template/template_标题不编号-列表第二行缩进.docx".to_string(),
+        }
+    }
+
+    /// Creates a new `MdToWord` tool with a config-specified default reference document.
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            default_reference_doc: config.doc.reference_doc.clone(),
+        }
     }
 
     fn get_default_output_path(input: &Path) -> PathBuf {
@@ -80,7 +93,7 @@ impl Tool for MdToWord {
                     },
                     "reference_doc": {
                         "type": "string",
-                        "description": "Path to a reference Word document for styling (e.g., custom fonts, margins)"
+                        "description": "Path to a reference Word document for styling (e.g., custom fonts, margins). Defaults to template/template_标题不编号-列表第二行缩进.docx if not specified."
                     }
                 },
                 "required": ["input_file"]
@@ -138,13 +151,17 @@ impl Tool for MdToWord {
             cmd.arg("--template").arg(template);
         }
 
-        // Add optional reference document
-        if let Some(reference_doc) = &args.reference_doc {
-            if !Path::new(reference_doc).exists() {
-                return Err(format!("Reference document not found: {}", reference_doc));
-            }
-            cmd.arg("--reference-doc").arg(reference_doc);
+        // Determine reference document: use configured default if none specified
+        let reference_doc = args.reference_doc.unwrap_or_else(|| {
+            self.default_reference_doc.clone()
+        });
+        if !Path::new(&reference_doc).exists() {
+            return Err(format!(
+                "Reference document not found: {}",
+                reference_doc
+            ));
         }
+        cmd.arg("--reference-doc").arg(&reference_doc);
 
         // Execute pandoc
         let output = cmd.output().await.map_err(|e| e.to_string())?;
