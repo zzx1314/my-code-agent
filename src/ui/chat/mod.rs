@@ -179,20 +179,16 @@ fn render_paragraph_with_scroll(
     lines: Vec<ratatui::text::Line>,
     area: Rect,
 ) {
+    // Build the paragraph first so we can query ratatui's exact line count,
+    // which uses the same WordWrapper as rendering — eliminating mismatch.
+    let paragraph = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().borders(Borders::NONE));
+
     let actual_lines = if area.width > 0 {
-        lines
-            .iter()
-            .map(|l| {
-                let w = l.width() as u16;
-                if w == 0 {
-                    1
-                } else {
-                    (w + area.width - 1) / area.width
-                }
-            })
-            .sum::<u16>()
+        paragraph.line_count(area.width) as u16
     } else {
-        lines.len() as u16
+        0
     };
 
     app.total_lines = actual_lines;
@@ -206,10 +202,7 @@ fn render_paragraph_with_scroll(
         app.scroll = app.scroll.min(max_scroll);
     }
 
-    let paragraph = Paragraph::new(lines)
-        .scroll((app.scroll, 0))
-        .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::NONE));
+    let paragraph = paragraph.scroll((app.scroll, 0));
     f.render_widget(paragraph, area);
 }
 
