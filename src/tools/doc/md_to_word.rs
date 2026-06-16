@@ -72,8 +72,8 @@ impl Tool for MdToWord {
             name: self.name().to_string(),
             description: "Convert a Markdown file to Word (docx) format using pandoc. Use this tool \
                 to create Word documents by first writing Markdown content with file_write, then \
-                converting it with md_to_word. The original .md file will be deleted after \
-                successful conversion. Supports optional custom templates and reference documents \
+                converting it with md_to_word. The original .md file will be preserved for \
+                future modifications. Supports optional custom templates and reference documents \
                 for styling."
                 .to_string(),
             parameters: json!({
@@ -167,22 +167,12 @@ impl Tool for MdToWord {
         let output = cmd.output().await.map_err(|e| e.to_string())?;
 
         if output.status.success() {
-            // Delete the original .md file after successful conversion
-            if let Err(e) = tokio::fs::remove_file(&args.input_file).await {
-                return Err(format!(
-                    "Converted to {}, but failed to delete original file {}: {}",
-                    output_path.display(),
-                    args.input_file,
-                    e
-                ));
-            }
-
             let result = MdToWordOutput {
                 success: true,
                 input_file: args.input_file.clone(),
                 output_file: output_path.display().to_string(),
                 message: format!(
-                    "Successfully converted {} to {} and deleted the original file",
+                    "Successfully converted {} to {}. The original .md file has been preserved for future modifications.",
                     args.input_file,
                     output_path.display()
                 ),
