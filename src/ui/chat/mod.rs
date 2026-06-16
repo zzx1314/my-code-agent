@@ -6,6 +6,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Wrap},
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
 use crate::ui::render::{render_full, render_streaming_markdown};
@@ -217,17 +218,34 @@ pub fn word_wrap_text(text: &str, max_width: usize) -> Vec<String> {
         }
         let mut remaining = source_line;
         while !remaining.is_empty() {
-            if remaining.len() <= max_width {
+            // Use display width (columns) instead of byte length.
+            // CJK characters are 3 bytes but 2 columns; emoji can be 4+ bytes
+            // but 2 columns. Using len() causes premature wrapping for non-ASCII text.
+            if remaining.width() <= max_width {
                 result.push(remaining.to_string());
                 break;
             }
-            // Use floor_char_boundary to avoid panicking on multi-byte characters
-            // (e.g. Chinese, Japanese, emoji). Byte-level slicing into a &str at a
-            // non-char boundary panics.
-            let boundary = remaining.floor_char_boundary(max_width);
-            let mut break_at = remaining[..boundary].rfind(' ').unwrap_or(boundary);
+            // Find the byte position where display width exceeds max_width
+            let mut byte_pos = 0;
+            let mut w = 0;
+            for ch in remaining.chars() {
+                let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+                if w + cw > max_width {
+                    break;
+                }
+                w += cw;
+                byte_pos += ch.len_utf8();
+            }
+            if byte_pos == 0 {
+                // Single character wider than max_width — emit it anyway to avoid infinite loop
+                let ch = remaining.chars().next().unwrap();
+                byte_pos = ch.len_utf8();
+            }
+            // Try to break at the last space within the width limit
+            let chunk = &remaining[..byte_pos];
+            let mut break_at = chunk.rfind(' ').unwrap_or(byte_pos);
             if break_at == 0 {
-                break_at = boundary;
+                break_at = byte_pos;
             }
             result.push(remaining[..break_at].to_string());
             remaining = remaining[break_at..].trim_start();
