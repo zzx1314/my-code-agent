@@ -210,8 +210,12 @@ fn empty_text_has_one_wrapped_line() {
 #[test]
 fn cjk_text_wrapping() {
     let t = ta("你好世界");
-    assert_eq!(t.desired_height(4), 2);
-    assert_eq!(t.desired_height(8), 1);
+    // desired_height takes total area width; left_pad=2 is subtracted internally.
+    // "你好世界" = 4 CJK chars × 2 cols = 8 content cols.
+    // Area width 6 → content width 4 → 2 CJK chars per line → 2 lines.
+    assert_eq!(t.desired_height(6), 2);
+    // Area width 10 → content width 8 → all 4 CJK chars fit → 1 line.
+    assert_eq!(t.desired_height(10), 1);
 }
 
 // ── CJK cursor movement ──────────────────────────────────────────────────────
