@@ -72,7 +72,10 @@ For single-step trivial tasks (one lookup, one file read, one search), you may s
 1. After gathering context, call `write_todos` with ALL planned steps, ordered by execution sequence
 2. After completing each step, call `write_todos` again to update the list — update the `status` field accordingly
 3. Rewrite ALL todos each call with current status
-
+4. **Revise the plan as you learn** — if investigation reveals unexpected complexity,
+   hidden dependencies, or a simpler approach, update the remaining steps accordingly:
+   add, remove, reorder, or refine them. Treat completed steps as committed, but
+   future steps as provisional.
 Available status values:
 - `"pending"` — not yet started (default)
 - `"in_progress"` — currently being worked on
