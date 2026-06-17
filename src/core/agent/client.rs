@@ -269,7 +269,8 @@ impl LlmClient {
 
                     if !msg.content.is_empty() {
                         contents.push(AssistantContent::Text(Text::from(msg.content.clone())));
-                    }                        if let Some(ref tcs) = msg.tool_calls {
+                    }
+                    if let Some(ref tcs) = msg.tool_calls {
                         for tc in tcs {
                             let args: serde_json::Value = match serde_json::from_str(
                                 &tc.function.arguments,
@@ -317,8 +318,9 @@ impl LlmClient {
                     }
                     rig_messages.push(RigMessage::Assistant {
                         id: None,
-                        content: OneOrMany::many(contents)
-                            .expect("assistant message contents should not be empty after placeholder"),
+                        content: OneOrMany::many(contents).expect(
+                            "assistant message contents should not be empty after placeholder",
+                        ),
                     });
                 }
                 "tool" => {
@@ -395,10 +397,7 @@ impl LlmClient {
         };
 
         for choice in choices {
-            let content = match choice
-                .get_mut("message")
-                .and_then(|m| m.get_mut("content"))
-            {
+            let content = match choice.get_mut("message").and_then(|m| m.get_mut("content")) {
                 Some(c) => c,
                 None => continue,
             };
@@ -577,9 +576,7 @@ impl LlmClient {
     /// (`UserContent::ToolResult`). We detect this case and extract the tool
     /// result text as the prompt instead, keeping all previous messages
     /// (including other tool results) in chat_history.
-    fn split_prompt_and_history(
-        rig_messages: Vec<RigMessage>,
-    ) -> (String, Vec<RigMessage>) {
+    fn split_prompt_and_history(rig_messages: Vec<RigMessage>) -> (String, Vec<RigMessage>) {
         // Check if the last message is a tool result (tool loop continuation)
         let is_tool_continuation = rig_messages.last().map_or(false, |m| match m {
             RigMessage::User { content } => content

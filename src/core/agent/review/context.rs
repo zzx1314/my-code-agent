@@ -3,7 +3,6 @@
 //! Utilities for extracting relevant context from conversation history
 //! and formatting it for the review LLM.
 
-
 /// Clean review content by filtering out auto-review fix prompt lines.
 pub(crate) fn clean_review_content(content: &str) -> String {
     content
@@ -32,8 +31,6 @@ pub fn is_fix_prompt(content: &str) -> bool {
         || content.contains("Fix Required")
 }
 
-
-
 /// Find the largest byte index ≤ `max` that is a valid UTF-8 char boundary.
 pub fn char_boundary_at_or_before(s: &str, max: usize) -> usize {
     s.char_indices()
@@ -54,5 +51,3 @@ pub fn truncate_content(content: &str, max_bytes: usize) -> String {
     s.push_str("...");
     s
 }
-
-

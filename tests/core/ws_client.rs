@@ -179,7 +179,10 @@ fn test_serialize_result_ok() {
     assert_eq!(obj["summary"], "Refactored module");
     assert_eq!(obj["full_response"], "Refactored the module successfully.");
     assert_eq!(obj["id"], "req-001");
-    assert!(!obj.contains_key("error"), "error should be skipped when None");
+    assert!(
+        !obj.contains_key("error"),
+        "error should be skipped when None"
+    );
 }
 
 #[test]
@@ -388,13 +391,22 @@ fn test_all_response_variants_serialize() {
 #[test]
 fn test_config_defaults_ws_client_disabled() {
     let config = Config::default();
-    assert!(!config.ws_client.enabled, "ws_client should be disabled by default");
-    assert!(config.ws_client.url.is_none(), "url should be None by default");
+    assert!(
+        !config.ws_client.enabled,
+        "ws_client should be disabled by default"
+    );
+    assert!(
+        config.ws_client.url.is_none(),
+        "url should be None by default"
+    );
     assert_eq!(
         config.ws_client.reconnect_interval_secs, 2,
         "default reconnect interval should be 2"
     );
-    assert!(config.ws_client.auth_token.is_none(), "auth_token should be None by default");
+    assert!(
+        config.ws_client.auth_token.is_none(),
+        "auth_token should be None by default"
+    );
 }
 
 #[test]

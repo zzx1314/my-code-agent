@@ -198,7 +198,6 @@ impl SessionData {
         Self::delete_file(&path)
     }
 
-
     /// Save the session data to the default session file.
     pub fn save_default(&self, save_file: Option<&str>) -> Result<(), String> {
         let path = Self::default_session_file_path(save_file);

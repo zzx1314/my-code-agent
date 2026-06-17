@@ -46,6 +46,9 @@ pub enum WsCommand {
         /// Optional request identifier for correlating responses.
         #[serde(default)]
         id: Option<String>,
+        /// Optional session ID for tracking which session this prompt belongs to.
+        #[serde(default)]
+        session_id: Option<String>,
     },
     /// Execute a slash command (e.g. `/status`, `/tokens`).
     #[serde(rename_all = "snake_case")]
@@ -141,23 +144,13 @@ pub enum WsResponse {
         id: Option<String>,
     },
     /// Streaming text delta from the agent.
-    TextDelta {
-        delta: String,
-    },
+    TextDelta { delta: String },
     /// Streaming reasoning delta from the agent.
-    ReasoningDelta {
-        delta: String,
-    },
+    ReasoningDelta { delta: String },
     /// Tool call started.
-    ToolCall {
-        name: String,
-        arguments: String,
-    },
+    ToolCall { name: String, arguments: String },
     /// Tool result received.
-    ToolResult {
-        name: String,
-        content: String,
-    },
+    ToolResult { name: String, content: String },
     /// File content data for transfer to client.
     FileData {
         path: String,
@@ -231,7 +224,9 @@ pub fn spawn(
     let url = match &config.ws_client.url {
         Some(u) if !u.is_empty() => u.clone(),
         _ => {
-            tracing::warn!("WebSocket client enabled but no URL configured in config.toml [ws_client]");
+            tracing::warn!(
+                "WebSocket client enabled but no URL configured in config.toml [ws_client]"
+            );
             return (cmd_rx, shutdown_tx);
         }
     };
@@ -241,7 +236,15 @@ pub fn spawn(
     let shutdown_rx = shutdown_tx.subscribe();
 
     tokio::spawn(async move {
-        run_ws_client(&url, auth_token, reconnect_secs, cmd_tx, resp_rx, shutdown_rx).await;
+        run_ws_client(
+            &url,
+            auth_token,
+            reconnect_secs,
+            cmd_tx,
+            resp_rx,
+            shutdown_rx,
+        )
+        .await;
     });
 
     (cmd_rx, shutdown_tx)

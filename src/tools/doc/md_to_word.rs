@@ -70,12 +70,13 @@ impl Tool for MdToWord {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: self.name().to_string(),
-            description: "Convert a Markdown file to Word (docx) format using pandoc. Use this tool \
+            description:
+                "Convert a Markdown file to Word (docx) format using pandoc. Use this tool \
                 to create Word documents by first writing Markdown content with file_write, then \
                 converting it with md_to_word. The original .md file will be preserved for \
                 future modifications. Supports optional custom templates and reference documents \
                 for styling."
-                .to_string(),
+                    .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -152,14 +153,11 @@ impl Tool for MdToWord {
         }
 
         // Determine reference document: use configured default if none specified
-        let reference_doc = args.reference_doc.unwrap_or_else(|| {
-            self.default_reference_doc.clone()
-        });
+        let reference_doc = args
+            .reference_doc
+            .unwrap_or_else(|| self.default_reference_doc.clone());
         if !Path::new(&reference_doc).exists() {
-            return Err(format!(
-                "Reference document not found: {}",
-                reference_doc
-            ));
+            return Err(format!("Reference document not found: {}", reference_doc));
         }
         cmd.arg("--reference-doc").arg(&reference_doc);
 

@@ -1,10 +1,10 @@
-use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::path::Path;
 
-use base64::Engine;
-use crate::tools::Tool;
 use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
+use base64::Engine;
 
 #[derive(Debug, Deserialize)]
 pub struct SendFileArgs {
@@ -35,7 +35,8 @@ impl Tool for SendFile {
         ToolDefinition {
             name: "send_file".to_string(),
             description: "Send a file from the local filesystem to the user's mobile device. "
-                .to_string() + "Use this when the user asks you to send a file to their phone. "
+                .to_string()
+                + "Use this when the user asks you to send a file to their phone. "
                 + "The file will be transferred and the user can save or share it. "
                 + "Works with any file type (code, documents, images, etc.).",
             parameters: json!({
@@ -56,18 +57,18 @@ impl Tool for SendFile {
     }
 
     async fn call(&self, args: serde_json::Value) -> Result<String, String> {
-        let args: SendFileArgs = serde_json::from_value(args)
-            .map_err(|e| format!("Invalid arguments: {}", e))?;
+        let args: SendFileArgs =
+            serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
 
         let path = Path::new(&args.path);
         if !path.exists() {
             return Err(format!("File not found: {}", args.path));
         }
 
-        let raw = std::fs::read(&args.path)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
+        let raw = std::fs::read(&args.path).map_err(|e| format!("Failed to read file: {}", e))?;
 
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
@@ -93,16 +94,14 @@ impl Tool for SendFile {
             message: args.message,
         };
 
-        serde_json::to_string(&output)
-            .map_err(|e| format!("Failed to serialize output: {}", e))
+        serde_json::to_string(&output).map_err(|e| format!("Failed to serialize output: {}", e))
     }
 }
 
 fn infer_mime(path: &Path) -> String {
     match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
-        "rs" | "js" | "ts" | "py" | "go" | "java" | "c" | "cpp"
-        | "rb" | "php" | "swift" | "kt" | "scala" | "h" | "hpp"
-        | "r" | "m" | "mm" | "dart" | "lua" => "text/plain".to_string(),
+        "rs" | "js" | "ts" | "py" | "go" | "java" | "c" | "cpp" | "rb" | "php" | "swift" | "kt"
+        | "scala" | "h" | "hpp" | "r" | "m" | "mm" | "dart" | "lua" => "text/plain".to_string(),
         "html" | "htm" => "text/html".to_string(),
         "css" => "text/css".to_string(),
         "json" => "application/json".to_string(),
@@ -116,9 +115,13 @@ fn infer_mime(path: &Path) -> String {
         "svg" => "image/svg+xml".to_string(),
         "ico" => "image/x-icon".to_string(),
         "pdf" => "application/pdf".to_string(),
-        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+        "docx" => {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()
+        }
         "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string(),
-        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string(),
+        "pptx" => {
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string()
+        }
         "zip" | "tar" | "gz" | "bz2" | "xz" => "application/zip".to_string(),
         "wasm" => "application/wasm".to_string(),
         _ => "application/octet-stream".to_string(),

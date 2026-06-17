@@ -12,5 +12,3 @@ pub fn check_file_too_long(path: &Path, max_lines: usize) -> bool {
     let line_count = content.lines().count();
     line_count > max_lines
 }
-
-

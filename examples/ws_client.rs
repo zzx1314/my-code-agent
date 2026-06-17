@@ -82,7 +82,9 @@ async fn main() {
                 "ping" => {
                     let msg = serde_json::json!({"type": "ping", "id": "client"});
                     if ws_sink
-                        .send(tokio_tungstenite::tungstenite::Message::text(msg.to_string()))
+                        .send(tokio_tungstenite::tungstenite::Message::text(
+                            msg.to_string(),
+                        ))
                         .await
                         .is_err()
                     {
@@ -93,7 +95,9 @@ async fn main() {
                 "interrupt" => {
                     let msg = serde_json::json!({"type": "interrupt", "id": "client"});
                     if ws_sink
-                        .send(tokio_tungstenite::tungstenite::Message::text(msg.to_string()))
+                        .send(tokio_tungstenite::tungstenite::Message::text(
+                            msg.to_string(),
+                        ))
                         .await
                         .is_err()
                     {
@@ -105,7 +109,9 @@ async fn main() {
                 "history" => {
                     let msg = serde_json::json!({"type": "get_history", "id": "client"});
                     if ws_sink
-                        .send(tokio_tungstenite::tungstenite::Message::text(msg.to_string()))
+                        .send(tokio_tungstenite::tungstenite::Message::text(
+                            msg.to_string(),
+                        ))
                         .await
                         .is_err()
                     {
@@ -136,7 +142,9 @@ async fn main() {
                     });
 
                     if ws_sink
-                        .send(tokio_tungstenite::tungstenite::Message::text(msg.to_string()))
+                        .send(tokio_tungstenite::tungstenite::Message::text(
+                            msg.to_string(),
+                        ))
                         .await
                         .is_err()
                     {
@@ -164,7 +172,9 @@ async fn main() {
                     });
 
                     if ws_sink
-                        .send(tokio_tungstenite::tungstenite::Message::text(msg.to_string()))
+                        .send(tokio_tungstenite::tungstenite::Message::text(
+                            msg.to_string(),
+                        ))
                         .await
                         .is_err()
                     {

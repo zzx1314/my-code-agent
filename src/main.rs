@@ -61,11 +61,17 @@ struct PromptResult {
 
 /// Result of handling an immediate command.
 enum CommandResult {
+    /// Session created, return the session ID.
+    SessionCreated {
+        session_id: Option<String>,
+        session_name: Option<String>,
+    },
     /// Regular response sent, no state change.
     ResponseSent,
     /// Session switched, return new state.
     SessionSwitched {
         messages: Vec<Message>,
+        session_id: Option<String>,
         session_usage: TokenUsage,
         session_name: String,
     },
@@ -129,6 +135,8 @@ async fn run_headless(
 
     // ── Current async prompt task (None = idle) ───────────────────────────
     let mut pending: Option<PendingPrompt> = None;
+    let mut current_session_id: Option<String> = None;
+    let mut current_session_name: Option<String> = None;
 
     // ── Main command loop ─────────────────────────────────────────────────
     loop {
@@ -157,10 +165,21 @@ async fn run_headless(
                                 CommandResult::SessionSwitched {
                                     messages: new_messages,
                                     session_usage: new_usage,
+                                    session_name: new_session_name,
+                                    session_id: new_session_id,
                                     ..
                                 } => {
                                     messages = new_messages;
                                     session_usage = new_usage;
+                                    current_session_id = new_session_id;
+                                    current_session_name = Some(new_session_name);
+                                }
+                                CommandResult::SessionCreated {
+                                    session_id: new_session_id,
+                                    session_name: new_session_name,
+                                } => {
+                                    current_session_id = new_session_id;
+                                    current_session_name = new_session_name;
                                 }
                                 CommandResult::ResponseSent => {}
                             }
@@ -180,6 +199,29 @@ async fn run_headless(
                             session_usage = pr.session_usage;
                             context_manager = pr.context_manager;
                             send_prompt_result(pr.stream, &resp_tx, id).await;
+                            // Auto-save session after each prompt
+                            let saved_at = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            let session_data = my_code_agent::core::session::SessionData {
+                                chat_history: messages.clone(),
+                                token_usage: session_usage.clone(),
+                                last_reasoning: String::new(),
+                                saved_at,
+                                name: current_session_name.clone(),
+                                id: current_session_id.clone(),
+                            };
+                            if let Some(ref sid) = current_session_id {
+                                if let Err(e) = session_data.save_with_id(sid) {
+                                    tracing::warn!(error = %e, "Failed to auto-save session");
+                                }
+                            } else if let Some(ref name) = current_session_name {
+                                // Fallback: save by name for backward compatibility
+                                if let Err(e) = session_data.save_with_name(name) {
+                                    tracing::warn!(error = %e, "Failed to auto-save session by name");
+                                }
+                            }
                             pending = None;
                         }
                         None => {
@@ -210,8 +252,13 @@ async fn run_headless(
             tokio::select! {
                 cmd = cmd_rx.recv() => {
                     match cmd {
-                        Some(WsCommand::Prompt { text, id }) => {
+                        Some(WsCommand::Prompt { text, id, session_id }) => {
                             tracing::info!(text_len = text.len(), "Starting prompt");
+
+                            // Update current session_id from prompt if provided
+                            if let Some(ref sid) = session_id {
+                                current_session_id = Some(sid.clone());
+                            }
 
                             let _ = resp_tx.send(WsResponse::Status {
                                 streaming: true,
@@ -271,15 +318,25 @@ async fn run_headless(
                                 CommandResult::SessionSwitched {
                                     messages: new_messages,
                                     session_usage: new_usage,
+                                    session_name: new_session_name,
+                                    session_id: new_session_id,
                                     ..
                                 } => {
                                     messages = new_messages;
                                     session_usage = new_usage;
+                                    current_session_id = new_session_id;
+                                    current_session_name = Some(new_session_name);
+                                }
+                                CommandResult::SessionCreated {
+                                    session_id: new_session_id,
+                                    session_name: new_session_name,
+                                } => {
+                                    current_session_id = new_session_id;
+                                    current_session_name = new_session_name;
                                 }
                                 CommandResult::ResponseSent => {}
                             }
                         }
-
                         None => {
                             tracing::info!("Command channel closed, exiting");
                             break;
@@ -563,7 +620,7 @@ async fn handle_immediate_command(
             };
             match session_data.save_with_id(&session_id) {
                 Ok(_) => {
-                    let display_name = name.unwrap_or_else(|| session_id.clone());
+                    let display_name = name.clone().unwrap_or_else(|| session_id.clone());
                     let _ = resp_tx.send(WsResponse::Result {
                         ok: true,
                         summary: format!("Session {} created", display_name),
@@ -579,7 +636,8 @@ async fn handle_immediate_command(
                     });
                 }
             }
-            CommandResult::ResponseSent
+            CommandResult::SessionCreated {
+                            session_id: Some(session_id.clone()), session_name: name.clone() }
         }
 
         WsCommand::SwitchSession { session_id, name, id } => {
@@ -614,7 +672,7 @@ async fn handle_immediate_command(
                     CommandResult::SessionSwitched {
                         messages: new_messages,
                         session_usage: new_usage,
-                        session_name: display_name,
+                        session_name: display_name,                        session_id: session_data.id.clone(),
                     }
                 }
                 Some(Err(e)) => {

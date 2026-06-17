@@ -45,10 +45,22 @@ struct AgentConnection {
 
 /// Events from agent connections forwarded to the display loop.
 enum DisplayEvent {
-    AgentConnected { agent_id: AgentId, addr: String },
-    AgentDisconnected { agent_id: AgentId, addr: String },
-    AgentResponse { agent_id: AgentId, addr: String, json: String },
-    Log { message: String },
+    AgentConnected {
+        agent_id: AgentId,
+        addr: String,
+    },
+    AgentDisconnected {
+        agent_id: AgentId,
+        addr: String,
+    },
+    AgentResponse {
+        agent_id: AgentId,
+        addr: String,
+        json: String,
+    },
+    Log {
+        message: String,
+    },
 }
 
 /// Parsed agent response (for pretty-printing on the server).
@@ -82,24 +94,16 @@ enum AgentResponse {
         id: Option<String>,
     },
     /// Streaming text delta from the agent.
-    TextDelta {
-        delta: String,
-    },
+    TextDelta { delta: String },
     /// Streaming reasoning delta.
     ReasoningDelta {
         #[allow(dead_code)]
         delta: String,
     },
     /// Tool call started.
-    ToolCall {
-        name: String,
-        arguments: String,
-    },
+    ToolCall { name: String, arguments: String },
     /// Tool result received.
-    ToolResult {
-        name: String,
-        content: String,
-    },
+    ToolResult { name: String, content: String },
 }
 
 // ── Args ─────────────────────────────────────────────────────────────────────
@@ -141,7 +145,10 @@ fn parse_args() -> Args {
         }
         i += 1;
     }
-    Args { agent_port, client_port }
+    Args {
+        agent_port,
+        client_port,
+    }
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -208,7 +215,11 @@ async fn main() {
     // ── Display loop ─────────────────────────────────────────────────────
     while let Some(event) = display_rx.recv().await {
         match event {
-            DisplayEvent::AgentResponse { agent_id, addr, json } => {
+            DisplayEvent::AgentResponse {
+                agent_id,
+                addr,
+                json,
+            } => {
                 if let Ok(response) = serde_json::from_str::<AgentResponse>(&json) {
                     print_response(agent_id, &addr, response);
                 } else {
@@ -254,10 +265,13 @@ async fn accept_agents(
                                 let mut s = state.lock().await;
                                 let id = s.next_id;
                                 s.next_id += 1;
-                                s.agents.insert(id, AgentConnection {
-                                    tx: cmd_tx,
-                                    addr: peer_addr.clone(),
-                                });
+                                s.agents.insert(
+                                    id,
+                                    AgentConnection {
+                                        tx: cmd_tx,
+                                        addr: peer_addr.clone(),
+                                    },
+                                );
                                 id
                             };
 
@@ -271,7 +285,9 @@ async fn accept_agents(
                             let cmd_fwd = tokio::spawn(async move {
                                 while let Some(cmd_json) = cmd_rx.recv().await {
                                     if ws_sink
-                                        .send(tokio_tungstenite::tungstenite::Message::text(cmd_json))
+                                        .send(tokio_tungstenite::tungstenite::Message::text(
+                                            cmd_json,
+                                        ))
                                         .await
                                         .is_err()
                                     {
@@ -324,7 +340,9 @@ async fn accept_agents(
                         }
                         Err(e) => {
                             let _ = display_tx.send(DisplayEvent::Log {
-                                message: format!("WebSocket handshake failed from {peer_addr}: {e}"),
+                                message: format!(
+                                    "WebSocket handshake failed from {peer_addr}: {e}"
+                                ),
                             });
                         }
                     }
@@ -420,7 +438,9 @@ async fn accept_clients(
                         }
                         Err(e) => {
                             let _ = display_tx.send(DisplayEvent::Log {
-                                message: format!("Client WS handshake failed from {peer_addr}: {e}"),
+                                message: format!(
+                                    "Client WS handshake failed from {peer_addr}: {e}"
+                                ),
                             });
                         }
                     }
@@ -491,7 +511,10 @@ async fn repl_loop(state: Arc<Mutex<AppState>>, display_tx: mpsc::UnboundedSende
             }
             "history" => {
                 send_to_all_agents(&mut state, r#"{"type":"get_history","id":"cli"}"#);
-                println!("  📜 History requested from {} agent(s).", state.agents.len());
+                println!(
+                    "  📜 History requested from {} agent(s).",
+                    state.agents.len()
+                );
             }
             _ if line.starts_with("prompt:") || line.starts_with("prompt ") => {
                 let text = line
@@ -515,7 +538,10 @@ async fn repl_loop(state: Arc<Mutex<AppState>>, display_tx: mpsc::UnboundedSende
                 });
 
                 send_to_all_agents(&mut state, &cmd.to_string());
-                println!("  📤 Prompt sent to {} agent(s): {text:.80}", state.agents.len());
+                println!(
+                    "  📤 Prompt sent to {} agent(s): {text:.80}",
+                    state.agents.len()
+                );
             }
             _ if line.starts_with("command:") || line.starts_with("command ") => {
                 let cmd_text = line
@@ -536,7 +562,10 @@ async fn repl_loop(state: Arc<Mutex<AppState>>, display_tx: mpsc::UnboundedSende
                 });
 
                 send_to_all_agents(&mut state, &cmd.to_string());
-                println!("  📤 Command sent to {} agent(s): {cmd_text}", state.agents.len());
+                println!(
+                    "  📤 Command sent to {} agent(s): {cmd_text}",
+                    state.agents.len()
+                );
             }
             _ => {
                 println!("  ❓ Unknown command: {line}. Type 'help' for available commands.");
@@ -553,14 +582,22 @@ fn send_to_all_agents(state: &mut AppState, json: &str) {
     if state.agents.is_empty() {
         return;
     }
-    state.agents.retain(|_id, conn| conn.tx.send(json.to_string()).is_ok());
+    state
+        .agents
+        .retain(|_id, conn| conn.tx.send(json.to_string()).is_ok());
 }
 
 // ── Response display ────────────────────────────────────────────────────────
 
 fn print_response(agent_id: AgentId, addr: &str, response: AgentResponse) {
     match response {
-        AgentResponse::Result { ok, summary, full_response, error, .. } => {
+        AgentResponse::Result {
+            ok,
+            summary,
+            full_response,
+            error,
+            ..
+        } => {
             let icon = if ok { "✅" } else { "❌" };
             // Print the full response body; fall back to summary if empty
             if let Some(ref body) = full_response {
@@ -579,7 +616,10 @@ fn print_response(agent_id: AgentId, addr: &str, response: AgentResponse) {
             }
         }
         AgentResponse::History { messages, .. } => {
-            println!("  📜 [agent #{agent_id} @ {addr}] History ({} messages):", messages.len());
+            println!(
+                "  📜 [agent #{agent_id} @ {addr}] History ({} messages):",
+                messages.len()
+            );
             for (i, msg) in messages.iter().enumerate() {
                 let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("?");
                 let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("");

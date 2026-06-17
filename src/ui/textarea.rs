@@ -633,7 +633,11 @@ impl TextArea {
 
     /// Total display width consumed by non-text overhead (borders or left padding).
     fn border_overhead(&self) -> u16 {
-        if self.block.is_some() { 2 } else { self.left_pad }
+        if self.block.is_some() {
+            2
+        } else {
+            self.left_pad
+        }
     }
 
     fn wrapped_lines(&self, width: u16) -> Vec<Range<usize>> {

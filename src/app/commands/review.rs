@@ -141,8 +141,7 @@ fn spawn_review(app: &mut App, path: Option<String>) {
             }]
         } else {
             // Always detect all changes from HEAD (like codebuff's approach)
-            crate::core::agent::orchestrator::detect_changed_files_from_git()
-                .await
+            crate::core::agent::orchestrator::detect_changed_files_from_git().await
         };
 
         if changed_files.is_empty() {

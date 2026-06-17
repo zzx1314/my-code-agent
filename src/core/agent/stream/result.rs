@@ -243,8 +243,7 @@ pub fn trigger_auto_review(app: &mut App) {
 
                 // Always detect all changes from HEAD (like codebuff's approach)
                 let changed_files =
-                    crate::core::agent::orchestrator::detect_changed_files_from_git()
-                    .await;
+                    crate::core::agent::orchestrator::detect_changed_files_from_git().await;
 
                 if changed_files.is_empty() {
                     tracing::info!("Auto-review: no changed files detected");
@@ -555,9 +554,7 @@ fn last_user_is_continuation(updated_history: &[crate::core::types::Message]) ->
 
 /// Returns true if the model's most recent response (last assistant message
 /// before any tool results) included tool calls, indicating active work.
-fn last_response_had_tool_calls(
-    updated_history: &[crate::core::types::Message],
-) -> bool {
+fn last_response_had_tool_calls(updated_history: &[crate::core::types::Message]) -> bool {
     let mut saw_tool_result = false;
     for m in updated_history.iter().rev() {
         match m.role.as_str() {
@@ -576,10 +573,7 @@ fn last_response_had_tool_calls(
 
 /// Read `.mycode/.todos.json` and push a continuation prompt to the message queue
 /// when there are still pending or in-progress tasks.
-fn check_todo_continuation(
-    app: &mut App,
-    updated_history: &[crate::core::types::Message],
-) {
+fn check_todo_continuation(app: &mut App, updated_history: &[crate::core::types::Message]) {
     if app.continuation_count >= MAX_AUTO_CONTINUATIONS {
         return;
     }
@@ -607,10 +601,7 @@ fn check_todo_continuation(
             .get("status")
             .and_then(|s| s.as_str())
             .unwrap_or("pending");
-        let task = todo
-            .get("task")
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let task = todo.get("task").and_then(|t| t.as_str()).unwrap_or("");
         match status {
             "pending" | "in_progress" => {
                 if !task.is_empty() {
@@ -638,9 +629,7 @@ fn check_todo_continuation(
     let total = completed_count + pending_tasks.len();
     let msg = format!(
         "Continue working on the plan. Remaining tasks ({}/{}):\n{}",
-        completed_count,
-        total,
-        list,
+        completed_count, total, list,
     );
     app.message_queue.push(msg);
 }

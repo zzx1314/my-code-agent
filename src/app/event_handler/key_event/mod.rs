@@ -137,20 +137,26 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 let mut reasoning = std::mem::take(&mut app.streaming_reasoning);
                 for seg in app.completed_pre_text_segments.drain(..) {
                     if !seg.trim_end().is_empty() {
-                        if !reasoning.is_empty() { reasoning.push('\n'); }
+                        if !reasoning.is_empty() {
+                            reasoning.push('\n');
+                        }
                         reasoning.push_str(seg.trim_end());
                     }
                 }
                 for seg in app.completed_post_text_segments.drain(..) {
                     if !seg.trim_end().is_empty() {
-                        if !reasoning.is_empty() { reasoning.push('\n'); }
+                        if !reasoning.is_empty() {
+                            reasoning.push('\n');
+                        }
                         reasoning.push_str(seg.trim_end());
                     }
                 }
                 if !app.post_text_reasoning.is_empty() {
                     let trimmed = app.post_text_reasoning.trim_end();
                     if !trimmed.is_empty() {
-                        if !reasoning.is_empty() { reasoning.push('\n'); }
+                        if !reasoning.is_empty() {
+                            reasoning.push('\n');
+                        }
                         reasoning.push_str(trimmed);
                     }
                     app.post_text_reasoning.clear();
@@ -161,7 +167,9 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                         .push(crate::app::ChatEntry::assistant(display));
                 } else {
                     app.chat_history
-                        .push(crate::app::ChatEntry::assistant_with_reasoning(display, &reasoning));
+                        .push(crate::app::ChatEntry::assistant_with_reasoning(
+                            display, &reasoning,
+                        ));
                 }
                 app.show_inline_reasoning = !reasoning.is_empty();
                 app.auto_scroll = true;

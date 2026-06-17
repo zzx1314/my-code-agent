@@ -367,7 +367,8 @@ pub async fn stream_response(
                     }
                     loop_detector.record(&tc.function.name, &tc.function.arguments);
 
-                    let args: serde_json::Value = match serde_json::from_str(&tc.function.arguments) {
+                    let args: serde_json::Value = match serde_json::from_str(&tc.function.arguments)
+                    {
                         Ok(v) => v,
                         Err(e) => {
                             let args_len = tc.function.arguments.len();
@@ -378,7 +379,9 @@ pub async fn stream_response(
                             let preview = if args_len > 200 {
                                 let first_100: String =
                                     tc.function.arguments.chars().take(100).collect();
-                                let last_100: String = tc.function.arguments
+                                let last_100: String = tc
+                                    .function
+                                    .arguments
                                     .chars()
                                     .rev()
                                     .take(100)
@@ -400,9 +403,7 @@ pub async fn stream_response(
                                         original_len = args_len,
                                         "Tool call arguments were truncated — auto-recovered JSON"
                                     );
-                                    let result = tools
-                                        .execute(&tc.function.name, recovered)
-                                        .await;
+                                    let result = tools.execute(&tc.function.name, recovered).await;
                                     let content = match result {
                                         Ok(output) => {
                                             let note = "\n\n⚠️ **Note**: Your tool call arguments were truncated mid-stream (the content was too long). \
@@ -436,10 +437,8 @@ pub async fn stream_response(
                                     tc.function.name, args_len, e, preview,
                                 );
                                 messages.push(Message::tool(&tc.id, content));
-                                if let Some(last_assistant) = messages
-                                    .iter_mut()
-                                    .rev()
-                                    .find(|m| m.role == "assistant")
+                                if let Some(last_assistant) =
+                                    messages.iter_mut().rev().find(|m| m.role == "assistant")
                                 {
                                     if let Some(ref mut calls) = last_assistant.tool_calls {
                                         calls.retain(|c| c.id != tc.id);
@@ -467,10 +466,8 @@ pub async fn stream_response(
                             // request. If we keep it, client.rs falls back to Value::String for
                             // the unparseable arguments, which many providers reject with
                             // "Can only get item pairs from a mapping" (they expect a JSON object).
-                            if let Some(last_assistant) = messages
-                                .iter_mut()
-                                .rev()
-                                .find(|m| m.role == "assistant")
+                            if let Some(last_assistant) =
+                                messages.iter_mut().rev().find(|m| m.role == "assistant")
                             {
                                 if let Some(ref mut calls) = last_assistant.tool_calls {
                                     calls.retain(|c| c.id != tc.id);

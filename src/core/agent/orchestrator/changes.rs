@@ -125,7 +125,12 @@ pub async fn detect_changed_files_from_git() -> Vec<ChangedFile> {
     if files.is_empty() {
         tracing::info!("detect_changed_files_from_git: no changes");
     } else {
-        tracing::info!(count = files.len(), tracked = has_tracked_changes, untracked = untracked_files.len(), "detect_changed_files_from_git: found changes");
+        tracing::info!(
+            count = files.len(),
+            tracked = has_tracked_changes,
+            untracked = untracked_files.len(),
+            "detect_changed_files_from_git: found changes"
+        );
     }
 
     files

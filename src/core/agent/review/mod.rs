@@ -15,9 +15,7 @@ mod types;
 
 // Re-export types and free functions from sub-modules for backward compatibility.
 pub(crate) use self::checks::check_file_too_long;
-pub(crate) use self::context::{
-    clean_review_content, is_fix_prompt, truncate_content,
-};
+pub(crate) use self::context::{clean_review_content, is_fix_prompt, truncate_content};
 pub use self::types::{ReviewEvent, ReviewRequest};
 
 /// Code Review Agent
@@ -542,8 +540,6 @@ impl ReviewAgent {
                     });
                 }
             }
-
-
         }
 
         issues
