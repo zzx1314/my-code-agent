@@ -69,6 +69,35 @@ pub enum WsCommand {
         #[serde(default)]
         id: Option<String>,
     },
+    /// List all saved sessions.
+    ListSessions {
+        #[serde(default)]
+        id: Option<String>,
+    },
+    /// Create a new session with optional name.
+    CreateSession {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        id: Option<String>,
+    },
+    /// Switch to a specific session by name.
+    SwitchSession {
+        name: String,
+        #[serde(default)]
+        id: Option<String>,
+    },
+    /// Delete a specific session by name.
+    DeleteSession {
+        name: String,
+        #[serde(default)]
+        id: Option<String>,
+    },
+    /// Get current session info.
+    GetSessionInfo {
+        #[serde(default)]
+        id: Option<String>,
+    },
 }
 
 /// Response sent back to the WebSocket server.
@@ -121,7 +150,6 @@ pub enum WsResponse {
         name: String,
         content: String,
     },
-    /// Unrecoverable error (e.g. invalid JSON command).
     /// File content data for transfer to client.
     FileData {
         path: String,
@@ -133,11 +161,33 @@ pub enum WsResponse {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// Session list response.
+    SessionList {
+        sessions: Vec<SessionInfo>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    /// Session info response.
+    SessionInfoResponse {
+        name: String,
+        message_count: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    /// Error response.
     Error {
         message: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+}
+
+/// Lightweight session info for WebSocket responses.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionInfo {
+    pub name: String,
+    pub message_count: usize,
+    pub saved_at: u64,
 }
 
 /// Spawn the WebSocket client as a background task.
@@ -355,5 +405,10 @@ fn extract_id(cmd: &WsCommand) -> Option<String> {
         WsCommand::GetHistory { id, .. } => id.clone(),
         WsCommand::Interrupt { id, .. } => id.clone(),
         WsCommand::Ping { id, .. } => id.clone(),
+        WsCommand::ListSessions { id, .. } => id.clone(),
+        WsCommand::CreateSession { id, .. } => id.clone(),
+        WsCommand::SwitchSession { id, .. } => id.clone(),
+        WsCommand::DeleteSession { id, .. } => id.clone(),
+        WsCommand::GetSessionInfo { id, .. } => id.clone(),
     }
 }

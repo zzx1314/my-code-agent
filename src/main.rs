@@ -11,7 +11,7 @@ use my_code_agent::core::agent::stream_response::{StreamEvent, StreamResult, str
 use my_code_agent::core::context::context_manager::ContextManager;
 use my_code_agent::core::context::token_usage::TokenUsage;
 use my_code_agent::core::types::Message;
-use my_code_agent::core::ws_client::{WsCommand, WsResponse};
+use my_code_agent::core::ws_client::{WsCommand, WsResponse, SessionInfo};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -57,6 +57,18 @@ struct PromptResult {
     session_usage: TokenUsage,
     /// Updated context manager state.
     context_manager: ContextManager,
+}
+
+/// Result of handling an immediate command.
+enum CommandResult {
+    /// Regular response sent, no state change.
+    ResponseSent,
+    /// Session switched, return new state.
+    SessionSwitched {
+        messages: Vec<Message>,
+        session_usage: TokenUsage,
+        session_name: String,
+    },
 }
 
 /// Tracks a prompt that is currently being processed in a background task.
@@ -138,10 +150,20 @@ async fn run_headless(
                             pending = None;
                         }
                         Some(other) => {
-                            handle_immediate_command(
+                            match handle_immediate_command(
                                 other, &messages, &session_usage,
                                 &config, &resp_tx,
-                            ).await;
+                            ).await {
+                                CommandResult::SessionSwitched {
+                                    messages: new_messages,
+                                    session_usage: new_usage,
+                                    ..
+                                } => {
+                                    messages = new_messages;
+                                    session_usage = new_usage;
+                                }
+                                CommandResult::ResponseSent => {}
+                            }
                         }
                         None => {
                             tracing::info!("Command channel closed, exiting");
@@ -242,10 +264,20 @@ async fn run_headless(
                         }
 
                         Some(other) => {
-                            handle_immediate_command(
+                            match handle_immediate_command(
                                 other, &messages, &session_usage,
                                 &config, &resp_tx,
-                            ).await;
+                            ).await {
+                                CommandResult::SessionSwitched {
+                                    messages: new_messages,
+                                    session_usage: new_usage,
+                                    ..
+                                } => {
+                                    messages = new_messages;
+                                    session_usage = new_usage;
+                                }
+                                CommandResult::ResponseSent => {}
+                            }
                         }
 
                         None => {
@@ -420,14 +452,14 @@ async fn handle_immediate_command(
     session_usage: &TokenUsage,
     _config: &my_code_agent::core::config::Config,
     resp_tx: &mpsc::UnboundedSender<WsResponse>,
-) {
+) -> CommandResult {
     match cmd {
         WsCommand::GetHistory { id } => {
-            let response = WsResponse::History {
+            let _ = resp_tx.send(WsResponse::History {
                 messages: messages.to_vec(),
                 id,
-            };
-            let _ = resp_tx.send(response);
+            });
+            CommandResult::ResponseSent
         }
 
         WsCommand::Command { cmd, id } => {
@@ -446,35 +478,33 @@ async fn handle_immediate_command(
                         id,
                     }
                 }
-                "/tokens" => {
-                    WsResponse::Result {
-                        ok: true,
-                        summary: format!(
-                            "Total tokens: {} (input: {}, output: {})",
-                            session_usage.total_tokens(),
-                            session_usage.input_tokens(),
-                            session_usage.output_tokens(),
-                        ),
-                        full_response: None,
-                        error: None,
-                        id,
-                    }
-                }
-                "/clear" => {
-                    WsResponse::Result {
-                        ok: true,
-                        summary: "Use /clear on an idle agent (not supported during active prompt).".to_string(),
-                        full_response: None,
-                        error: None,
-                        id,
-                    }
-                }
+                "/tokens" => WsResponse::Result {
+                    ok: true,
+                    summary: format!(
+                        "Total tokens: {} (input: {}, output: {})",
+                        session_usage.total_tokens(),
+                        session_usage.input_tokens(),
+                        session_usage.output_tokens(),
+                    ),
+                    full_response: None,
+                    error: None,
+                    id,
+                },
+                "/clear" => WsResponse::Result {
+                    ok: true,
+                    summary: "Use /clear on an idle agent (not supported during active prompt)."
+                        .to_string(),
+                    full_response: None,
+                    error: None,
+                    id,
+                },
                 _ => WsResponse::Error {
                     message: format!("Unsupported command in headless mode: {}", cmd),
                     id,
                 },
             };
             let _ = resp_tx.send(response);
+            CommandResult::ResponseSent
         }
 
         WsCommand::Interrupt { id } => {
@@ -485,15 +515,128 @@ async fn handle_immediate_command(
                 error: None,
                 id,
             });
+            CommandResult::ResponseSent
         }
 
         WsCommand::Ping { id } => {
             let _ = resp_tx.send(WsResponse::Pong { id });
+            CommandResult::ResponseSent
         }
 
-        // Prompt should never reach here — handled in the main loop
-        WsCommand::Prompt { .. } => {
-            // silently ignore
+        WsCommand::ListSessions { id } => {
+            let sessions = my_code_agent::core::session::SessionData::list_sessions();
+            let session_infos: Vec<SessionInfo> = sessions
+                .into_iter()
+                .map(|s| SessionInfo {
+                    name: s.name,
+                    message_count: s.turns,
+                    saved_at: s.saved_at,
+                })
+                .collect();
+            let _ = resp_tx.send(WsResponse::SessionList {
+                sessions: session_infos,
+                id,
+            });
+            CommandResult::ResponseSent
         }
+
+        WsCommand::CreateSession { name, id } => {
+            let session_name = name.unwrap_or_else(my_code_agent::core::session::generate_session_name);
+            let session_data = my_code_agent::core::session::SessionData::new(
+                Vec::new(),
+                TokenUsage::new(),
+                String::new(),
+            );
+            match session_data.save_with_name(&session_name) {
+                Ok(_) => {
+                    let _ = resp_tx.send(WsResponse::Result {
+                        ok: true,
+                        summary: format!("Session '{}' created", session_name),
+                        full_response: None,
+                        error: None,
+                        id,
+                    });
+                }
+                Err(e) => {
+                    let _ = resp_tx.send(WsResponse::Error {
+                        message: format!("Failed to create session: {}", e),
+                        id,
+                    });
+                }
+            }
+            CommandResult::ResponseSent
+        }
+
+        WsCommand::SwitchSession { name, id } => {
+            match my_code_agent::core::session::SessionData::load_by_name(&name) {
+                Some(Ok(session_data)) => {
+                    let new_messages: Vec<Message> = session_data.chat_history;
+                    let new_usage = session_data.token_usage.clone();
+                    let _ = resp_tx.send(WsResponse::Result {
+                        ok: true,
+                        summary: format!(
+                            "Switched to session '{}' ({} messages)",
+                            name,
+                            new_messages.len()
+                        ),
+                        full_response: None,
+                        error: None,
+                        id,
+                    });
+                    CommandResult::SessionSwitched {
+                        messages: new_messages,
+                        session_usage: new_usage,
+                        session_name: name,
+                    }
+                }
+                Some(Err(e)) => {
+                    let _ = resp_tx.send(WsResponse::Error {
+                        message: format!("Failed to load session: {}", e),
+                        id,
+                    });
+                    CommandResult::ResponseSent
+                }
+                None => {
+                    let _ = resp_tx.send(WsResponse::Error {
+                        message: format!("Session '{}' not found", name),
+                        id,
+                    });
+                    CommandResult::ResponseSent
+                }
+            }
+        }
+
+        WsCommand::DeleteSession { name, id } => {
+            match my_code_agent::core::session::SessionData::delete_by_name(&name) {
+                Ok(_) => {
+                    let _ = resp_tx.send(WsResponse::Result {
+                        ok: true,
+                        summary: format!("Session '{}' deleted", name),
+                        full_response: None,
+                        error: None,
+                        id,
+                    });
+                }
+                Err(e) => {
+                    let _ = resp_tx.send(WsResponse::Error {
+                        message: format!("Failed to delete session: {}", e),
+                        id,
+                    });
+                }
+            }
+            CommandResult::ResponseSent
+        }
+
+        WsCommand::GetSessionInfo { id } => {
+            let turn_count = messages.iter().filter(|m| m.role == "user").count();
+            let _ = resp_tx.send(WsResponse::SessionInfoResponse {
+                name: "current".to_string(),
+                message_count: turn_count,
+                id,
+            });
+            CommandResult::ResponseSent
+        }
+
+        WsCommand::Prompt { .. } => CommandResult::ResponseSent,
     }
 }
