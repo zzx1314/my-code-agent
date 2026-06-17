@@ -77,19 +77,27 @@ pub enum WsCommand {
     /// Create a new session with optional name.
     CreateSession {
         #[serde(default)]
+        session_id: Option<String>,
+        #[serde(default)]
         name: Option<String>,
         #[serde(default)]
         id: Option<String>,
     },
     /// Switch to a specific session by name.
     SwitchSession {
-        name: String,
+        #[serde(default)]
+        session_id: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
         #[serde(default)]
         id: Option<String>,
     },
     /// Delete a specific session by name.
     DeleteSession {
-        name: String,
+        #[serde(default)]
+        session_id: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
         #[serde(default)]
         id: Option<String>,
     },
@@ -188,6 +196,8 @@ pub struct SessionInfo {
     pub name: String,
     pub message_count: usize,
     pub saved_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 /// Spawn the WebSocket client as a background task.

@@ -428,7 +428,8 @@ async fn send_prompt_result(
         .find(|l| !l.trim().is_empty())
         .map(|s| {
             if s.len() > 150 {
-                format!("{}…", &s[..147])
+                let truncated: String = s.chars().take(147).collect();
+                format!("{}…", truncated)
             } else {
                 s.to_string()
             }
@@ -531,6 +532,7 @@ async fn handle_immediate_command(
                     name: s.name,
                     message_count: s.turns,
                     saved_at: s.saved_at,
+                    id: s.id,
                 })
                 .collect();
             let _ = resp_tx.send(WsResponse::SessionList {
@@ -539,19 +541,32 @@ async fn handle_immediate_command(
             });
             CommandResult::ResponseSent
         }
-
-        WsCommand::CreateSession { name, id } => {
-            let session_name = name.unwrap_or_else(my_code_agent::core::session::generate_session_name);
-            let session_data = my_code_agent::core::session::SessionData::new(
-                Vec::new(),
-                TokenUsage::new(),
-                String::new(),
-            );
-            match session_data.save_with_name(&session_name) {
+        WsCommand::CreateSession { session_id, name, id } => {
+            let session_id = session_id.unwrap_or_else(|| {
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                format!("sess-{}-{}", timestamp, std::process::id())
+            });
+            let saved_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let session_data = my_code_agent::core::session::SessionData {
+                chat_history: Vec::new(),
+                token_usage: TokenUsage::new(),
+                last_reasoning: String::new(),
+                saved_at,
+                name: name.clone(),
+                id: Some(session_id.clone()),
+            };
+            match session_data.save_with_id(&session_id) {
                 Ok(_) => {
+                    let display_name = name.unwrap_or_else(|| session_id.clone());
                     let _ = resp_tx.send(WsResponse::Result {
                         ok: true,
-                        summary: format!("Session '{}' created", session_name),
+                        summary: format!("Session {} created", display_name),
                         full_response: None,
                         error: None,
                         id,
@@ -567,16 +582,29 @@ async fn handle_immediate_command(
             CommandResult::ResponseSent
         }
 
-        WsCommand::SwitchSession { name, id } => {
-            match my_code_agent::core::session::SessionData::load_by_name(&name) {
+        WsCommand::SwitchSession { session_id, name, id } => {
+            // Try loading by session_id first, fall back to name for backward compatibility
+            let load_result = session_id
+                .as_ref()
+                .and_then(|sid| my_code_agent::core::session::SessionData::load_by_id(sid))
+                .or_else(|| {
+                    name.as_ref()
+                        .and_then(|n| my_code_agent::core::session::SessionData::load_by_name(n))
+                });
+            let display_name = name.clone().unwrap_or_else(|| session_id.clone().unwrap_or_default());
+            match load_result {
                 Some(Ok(session_data)) => {
                     let new_messages: Vec<Message> = session_data.chat_history;
                     let new_usage = session_data.token_usage.clone();
+                    let _ = resp_tx.send(WsResponse::History {
+                        messages: new_messages.clone(),
+                        id: id.clone(),
+                    });
                     let _ = resp_tx.send(WsResponse::Result {
                         ok: true,
                         summary: format!(
-                            "Switched to session '{}' ({} messages)",
-                            name,
+                            "Switched to session {} ({} messages)",
+                            display_name,
                             new_messages.len()
                         ),
                         full_response: None,
@@ -586,7 +614,7 @@ async fn handle_immediate_command(
                     CommandResult::SessionSwitched {
                         messages: new_messages,
                         session_usage: new_usage,
-                        session_name: name,
+                        session_name: display_name,
                     }
                 }
                 Some(Err(e)) => {
@@ -597,21 +625,31 @@ async fn handle_immediate_command(
                     CommandResult::ResponseSent
                 }
                 None => {
+                    let err_name = name.clone().unwrap_or_else(|| session_id.clone().unwrap_or_default());
                     let _ = resp_tx.send(WsResponse::Error {
-                        message: format!("Session '{}' not found", name),
+                        message: format!("Session {} not found", err_name),
                         id,
                     });
                     CommandResult::ResponseSent
                 }
             }
         }
-
-        WsCommand::DeleteSession { name, id } => {
-            match my_code_agent::core::session::SessionData::delete_by_name(&name) {
+        WsCommand::DeleteSession { session_id, name, id } => {
+            // Try deleting by session_id first, fall back to name
+            let result = match session_id {
+                Some(ref sid) => my_code_agent::core::session::SessionData::delete_by_id(sid),
+                None => {
+                    match name {
+                        Some(ref n) => my_code_agent::core::session::SessionData::delete_by_name(n),
+                        None => Err("Neither session_id nor name provided".to_string()),
+                    }
+                }
+            };
+            match result {
                 Ok(_) => {
                     let _ = resp_tx.send(WsResponse::Result {
                         ok: true,
-                        summary: format!("Session '{}' deleted", name),
+                        summary: "Session deleted".to_string(),
                         full_response: None,
                         error: None,
                         id,
