@@ -89,6 +89,42 @@ struct PendingPrompt {
     id: Option<String>,
 }
 
+/// Grouped mutable state carried through the headless command loop.
+struct HeadlessState {
+    messages: Vec<Message>,
+    session_usage: TokenUsage,
+    context_manager: ContextManager,
+    current_session_id: Option<String>,
+    current_session_name: Option<String>,
+}
+
+impl HeadlessState {
+    /// Apply a `CommandResult`, updating the state in-place.
+    fn apply_command_result(&mut self, result: CommandResult) {
+        match result {
+            CommandResult::SessionSwitched {
+                messages,
+                session_usage,
+                session_name,
+                session_id,
+            } => {
+                self.messages = messages;
+                self.session_usage = session_usage;
+                self.current_session_id = session_id;
+                self.current_session_name = Some(session_name);
+            }
+            CommandResult::SessionCreated {
+                session_id,
+                session_name,
+            } => {
+                self.current_session_id = session_id;
+                self.current_session_name = session_name;
+            }
+            CommandResult::ResponseSent => {}
+        }
+    }
+}
+
 // ── Headless loop ────────────────────────────────────────────────────────────
 
 async fn run_headless(
@@ -96,13 +132,13 @@ async fn run_headless(
     agent: std::sync::Arc<my_code_agent::core::agent::preamble::Agent>,
     chat_history: Vec<my_code_agent::app::ChatEntry>,
     token_usage: TokenUsage,
-    mut context_manager: ContextManager,
+    context_manager: ContextManager,
     interrupt_tx: tokio::sync::broadcast::Sender<()>,
 ) -> Result<()> {
     let system_prompt = build_preamble();
 
-    // Convert chat_history from ChatEntry → Message
-    let mut messages: Vec<Message> = chat_history
+    // ── Convert chat_history from ChatEntry → Message ────────────────────
+    let messages: Vec<Message> = chat_history
         .into_iter()
         .map(|e| Message {
             role: e.role,
@@ -113,9 +149,16 @@ async fn run_headless(
         })
         .collect();
 
-    let mut session_usage = token_usage;
+    // ── Headless state ────────────────────────────────────────────────────
+    let mut state = HeadlessState {
+        messages,
+        session_usage: token_usage,
+        context_manager,
+        current_session_id: None,
+        current_session_name: None,
+    };
 
-    // Channels for communicating with the WebSocket client
+    // ── Channels for communicating with the WebSocket client ──────────────
     let (resp_tx, resp_rx) = mpsc::unbounded_channel::<WsResponse>();
     let (mut cmd_rx, _shutdown_tx) =
         my_code_agent::core::ws_client::spawn(&config, resp_rx);
@@ -135,59 +178,17 @@ async fn run_headless(
 
     // ── Current async prompt task (None = idle) ───────────────────────────
     let mut pending: Option<PendingPrompt> = None;
-    let mut current_session_id: Option<String> = None;
-    let mut current_session_name: Option<String> = None;
 
     // ── Main command loop ─────────────────────────────────────────────────
     loop {
         if let Some(ref mut pp) = pending {
-            // ── We have a prompt in-flight ────────────────────────────────
+            // ── Prompt in-flight ──────────────────────────────────────────
             tokio::select! {
                 cmd = cmd_rx.recv() => {
-                    match cmd {
-                        Some(WsCommand::Interrupt { id }) => {
-                            tracing::info!("Processing interrupt during prompt");
-                            let _ = interrupt_tx.send(());
-                            let _ = resp_tx.send(WsResponse::Result {
-                                ok: true,
-                                summary: "Interrupted".to_string(),
-                                full_response: None,
-                                error: None,
-                                id,
-                            });
-                            pending = None;
-                        }
-                        Some(other) => {
-                            match handle_immediate_command(
-                                other, &messages, &session_usage,
-                                &config, &resp_tx,
-                            ).await {
-                                CommandResult::SessionSwitched {
-                                    messages: new_messages,
-                                    session_usage: new_usage,
-                                    session_name: new_session_name,
-                                    session_id: new_session_id,
-                                    ..
-                                } => {
-                                    messages = new_messages;
-                                    session_usage = new_usage;
-                                    current_session_id = new_session_id;
-                                    current_session_name = Some(new_session_name);
-                                }
-                                CommandResult::SessionCreated {
-                                    session_id: new_session_id,
-                                    session_name: new_session_name,
-                                } => {
-                                    current_session_id = new_session_id;
-                                    current_session_name = new_session_name;
-                                }
-                                CommandResult::ResponseSent => {}
-                            }
-                        }
-                        None => {
-                            tracing::info!("Command channel closed, exiting");
-                            break;
-                        }
+                    match handle_command_while_pending(cmd, &mut state, &config, &resp_tx, &interrupt_tx).await {
+                        PendingCmdAction::Break => break,
+                        PendingCmdAction::Interrupted => pending = None,
+                        PendingCmdAction::Handled => {}
                     }
                 }
 
@@ -195,33 +196,11 @@ async fn run_headless(
                     match result {
                         Some(pr) => {
                             let id = pp.id.take();
-                            messages = pr.messages;
-                            session_usage = pr.session_usage;
-                            context_manager = pr.context_manager;
+                            state.messages = pr.messages;
+                            state.session_usage = pr.session_usage;
+                            state.context_manager = pr.context_manager;
                             send_prompt_result(pr.stream, &resp_tx, id).await;
-                            // Auto-save session after each prompt
-                            let saved_at = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_secs())
-                                .unwrap_or(0);
-                            let session_data = my_code_agent::core::session::SessionData {
-                                chat_history: messages.clone(),
-                                token_usage: session_usage.clone(),
-                                last_reasoning: String::new(),
-                                saved_at,
-                                name: current_session_name.clone(),
-                                id: current_session_id.clone(),
-                            };
-                            if let Some(ref sid) = current_session_id {
-                                if let Err(e) = session_data.save_with_id(sid) {
-                                    tracing::warn!(error = %e, "Failed to auto-save session");
-                                }
-                            } else if let Some(ref name) = current_session_name {
-                                // Fallback: save by name for backward compatibility
-                                if let Err(e) = session_data.save_with_name(name) {
-                                    tracing::warn!(error = %e, "Failed to auto-save session by name");
-                                }
-                            }
+                            auto_save_session(&state);
                             pending = None;
                         }
                         None => {
@@ -253,89 +232,18 @@ async fn run_headless(
                 cmd = cmd_rx.recv() => {
                     match cmd {
                         Some(WsCommand::Prompt { text, id, session_id }) => {
-                            tracing::info!(text_len = text.len(), "Starting prompt");
-
-                            // Update current session_id from prompt if provided
-                            if let Some(ref sid) = session_id {
-                                current_session_id = Some(sid.clone());
-                            }
-
-                            let _ = resp_tx.send(WsResponse::Status {
-                                streaming: true,
-                                message: Some("Processing prompt...".to_string()),
-                            });
-
-                            // ── Spawn the agent in a background task ──────
-                            let (result_tx, result_rx) = mpsc::channel(1);
-                            let (event_tx, event_rx) = mpsc::unbounded_channel();
-                            let agent_clone = agent.clone();
-                            let sys_prompt = system_prompt.clone();
-                            let agent_config = config.agent.clone();
-                            let reasoning_field = config.llm.reasoning_field.clone();
-                            let mut interrupt_rx = interrupt_tx.subscribe();
-                            // Clone current state for the task
-                            let mut task_messages = messages.clone();
-                            let mut task_ctx = context_manager.clone();
-                            let mut task_usage = session_usage.clone();
-
-                            let handle = tokio::spawn(async move {
-                                let result = stream_response(
-                                    &agent_clone.client,
-                                    &sys_prompt,
-                                    &text,
-                                    &mut task_messages,
-                                    &agent_clone.tools,
-                                    &mut task_usage,
-                                    &mut interrupt_rx,
-                                    &mut task_ctx,
-                                    &agent_config,
-                                    Some(event_tx),
-                                    &reasoning_field,
-                                )
-                                .await;
-
-                                let _ = result_tx.send(PromptResult {
-                                    stream: result,
-                                    messages: task_messages,
-                                    session_usage: task_usage,
-                                    context_manager: task_ctx,
-                                }).await;
-                            });
-
-                            pending = Some(PendingPrompt {
-                                _handle: handle,
-                                result_rx,
-                                event_rx,
-                                id,
-                            });
+                            pending = handle_prompt_command(
+                                text, id, session_id, &mut state,
+                                &agent, &system_prompt, &config,
+                                &interrupt_tx, &resp_tx,
+                            ).await;
                         }
-
                         Some(other) => {
-                            match handle_immediate_command(
-                                other, &messages, &session_usage,
+                            let result = handle_immediate_command(
+                                other, &state.messages, &state.session_usage,
                                 &config, &resp_tx,
-                            ).await {
-                                CommandResult::SessionSwitched {
-                                    messages: new_messages,
-                                    session_usage: new_usage,
-                                    session_name: new_session_name,
-                                    session_id: new_session_id,
-                                    ..
-                                } => {
-                                    messages = new_messages;
-                                    session_usage = new_usage;
-                                    current_session_id = new_session_id;
-                                    current_session_name = Some(new_session_name);
-                                }
-                                CommandResult::SessionCreated {
-                                    session_id: new_session_id,
-                                    session_name: new_session_name,
-                                } => {
-                                    current_session_id = new_session_id;
-                                    current_session_name = new_session_name;
-                                }
-                                CommandResult::ResponseSent => {}
-                            }
+                            ).await;
+                            state.apply_command_result(result);
                         }
                         None => {
                             tracing::info!("Command channel closed, exiting");
@@ -359,6 +267,145 @@ async fn run_headless(
 
     tracing::info!("Headless mode shut down");
     Ok(())
+}
+
+/// Result of processing a command while a prompt is in-flight.
+enum PendingCmdAction {
+    /// Channel closed — caller should break out of the main loop.
+    Break,
+    /// An interrupt was processed — caller should clear `pending`.
+    Interrupted,
+    /// Non-interrupt command handled normally.
+    Handled,
+}
+
+/// Handle a command received while a prompt is in-flight.
+async fn handle_command_while_pending(
+    cmd: Option<WsCommand>,
+    state: &mut HeadlessState,
+    config: &my_code_agent::core::config::Config,
+    resp_tx: &mpsc::UnboundedSender<WsResponse>,
+    interrupt_tx: &tokio::sync::broadcast::Sender<()>,
+) -> PendingCmdAction {
+    match cmd {
+        Some(WsCommand::Interrupt { id }) => {
+            tracing::info!("Processing interrupt during prompt");
+            let _ = interrupt_tx.send(());
+            let _ = resp_tx.send(WsResponse::Result {
+                ok: true,
+                summary: "Interrupted".to_string(),
+                full_response: None,
+                error: None,
+                id,
+            });
+            PendingCmdAction::Interrupted
+        }
+        Some(other) => {
+            let result = handle_immediate_command(
+                other, &state.messages, &state.session_usage,
+                config, resp_tx,
+            ).await;
+            state.apply_command_result(result);
+            PendingCmdAction::Handled
+        }
+        None => {
+            tracing::info!("Command channel closed, exiting");
+            PendingCmdAction::Break
+        }
+    }
+}
+
+/// Handle a `Prompt` command: spawn the agent in a background task.
+async fn handle_prompt_command(
+    text: String,
+    id: Option<String>,
+    session_id: Option<String>,
+    state: &mut HeadlessState,
+    agent: &std::sync::Arc<my_code_agent::core::agent::preamble::Agent>,
+    system_prompt: &str,
+    config: &my_code_agent::core::config::Config,
+    interrupt_tx: &tokio::sync::broadcast::Sender<()>,
+    resp_tx: &mpsc::UnboundedSender<WsResponse>,
+) -> Option<PendingPrompt> {
+    tracing::info!(text_len = text.len(), "Starting prompt");
+
+    // Update current session_id from prompt if provided
+    if let Some(ref sid) = session_id {
+        state.current_session_id = Some(sid.clone());
+    }
+
+    let _ = resp_tx.send(WsResponse::Status {
+        streaming: true,
+        message: Some("Processing prompt...".to_string()),
+    });
+
+    let (result_tx, result_rx) = mpsc::channel(1);
+    let (event_tx, event_rx) = mpsc::unbounded_channel();
+    let agent_clone = agent.clone();
+    let sys_prompt = system_prompt.to_string();
+    let agent_config = config.agent.clone();
+    let reasoning_field = config.llm.reasoning_field.clone();
+    let mut interrupt_rx = interrupt_tx.subscribe();
+    let mut task_messages = state.messages.clone();
+    let mut task_ctx = state.context_manager.clone();
+    let mut task_usage = state.session_usage.clone();
+
+    let handle = tokio::spawn(async move {
+        let result = stream_response(
+            &agent_clone.client,
+            &sys_prompt,
+            &text,
+            &mut task_messages,
+            &agent_clone.tools,
+            &mut task_usage,
+            &mut interrupt_rx,
+            &mut task_ctx,
+            &agent_config,
+            Some(event_tx),
+            &reasoning_field,
+        )
+        .await;
+
+        let _ = result_tx.send(PromptResult {
+            stream: result,
+            messages: task_messages,
+            session_usage: task_usage,
+            context_manager: task_ctx,
+        }).await;
+    });
+
+    Some(PendingPrompt {
+        _handle: handle,
+        result_rx,
+        event_rx,
+        id,
+    })
+}
+
+/// Auto-save the current session after a prompt completes.
+fn auto_save_session(state: &HeadlessState) {
+    let saved_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let session_data = my_code_agent::core::session::SessionData {
+        chat_history: state.messages.clone(),
+        token_usage: state.session_usage.clone(),
+        last_reasoning: String::new(),
+        saved_at,
+        name: state.current_session_name.clone(),
+        id: state.current_session_id.clone(),
+    };
+    if let Some(ref sid) = state.current_session_id {
+        if let Err(e) = session_data.save_with_id(sid) {
+            tracing::warn!(error = %e, "Failed to auto-save session");
+        }
+    } else if let Some(ref name) = state.current_session_name {
+        // Fallback: save by name for backward compatibility
+        if let Err(e) = session_data.save_with_name(name) {
+            tracing::warn!(error = %e, "Failed to auto-save session by name");
+        }
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
