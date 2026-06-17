@@ -110,6 +110,11 @@ async fn run_headless(
         message: Some("Agent ready".to_string()),
     });
 
+    // ── Signal handling (Ctrl+C) ──────────────────────────────────────────
+    let mut interrupt_signal = tokio::signal::unix::signal(
+        tokio::signal::unix::SignalKind::interrupt(),
+    ).expect("Failed to set up SIGINT handler");
+
     // ── Current async prompt task (None = idle) ───────────────────────────
     let mut pending: Option<PendingPrompt> = None;
 
@@ -133,8 +138,6 @@ async fn run_headless(
                             pending = None;
                         }
                         Some(other) => {
-                            // Queue and handle immediately — interrupts are
-                            // the only command that needs to cut through.
                             handle_immediate_command(
                                 other, &messages, &session_usage,
                                 &config, &resp_tx,
@@ -151,7 +154,6 @@ async fn run_headless(
                     match result {
                         Some(pr) => {
                             let id = pp.id.take();
-                            // ⚡ Sync state back from the spawned task
                             messages = pr.messages;
                             session_usage = pr.session_usage;
                             context_manager = pr.context_manager;
@@ -165,11 +167,20 @@ async fn run_headless(
                     }
                 }
 
-                // ══ Stream streaming events from agent → WebSocket ══
                 event = pp.event_rx.recv() => {
                     if let Some(event) = event {
                         forward_stream_event(&event, &resp_tx);
                     }
+                }
+
+                // ── Ctrl+C ───────────────────────────────────────────────
+                _ = interrupt_signal.recv() => {
+                    tracing::info!("SIGINT received, shutting down");
+                    let _ = resp_tx.send(WsResponse::Status {
+                        streaming: false,
+                        message: Some("Shutting down (SIGINT)".to_string()),
+                    });
+                    break;
                 }
             }
         } else {
@@ -242,6 +253,16 @@ async fn run_headless(
                             break;
                         }
                     }
+                }
+
+                // ── Ctrl+C ───────────────────────────────────────────────
+                _ = interrupt_signal.recv() => {
+                    tracing::info!("SIGINT received, shutting down");
+                    let _ = resp_tx.send(WsResponse::Status {
+                        streaming: false,
+                        message: Some("Shutting down (SIGINT)".to_string()),
+                    });
+                    break;
                 }
             }
         }
