@@ -122,6 +122,17 @@ pub enum WsResponse {
         content: String,
     },
     /// Unrecoverable error (e.g. invalid JSON command).
+    /// File content data for transfer to client.
+    FileData {
+        path: String,
+        name: String,
+        mime: String,
+        data: String,
+        size: u64,
+        encoding: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
     Error {
         message: String,
         #[serde(skip_serializing_if = "Option::is_none")]

@@ -620,7 +620,11 @@ fn print_response(agent_id: AgentId, addr: &str, response: AgentResponse) {
         AgentResponse::ToolResult { name, content } => {
             let preview = content.lines().next().unwrap_or("").to_string();
             let preview = if preview.len() > 120 {
-                format!("{}…", &preview[..117])
+                let mut end = 117.min(preview.len());
+                while end > 0 && !preview.is_char_boundary(end) {
+                    end -= 1;
+                }
+                format!("{}…", &preview[..end])
             } else {
                 preview
             };

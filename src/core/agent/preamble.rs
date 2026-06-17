@@ -43,6 +43,9 @@ pub const PREAMBLE_TEMPLATE: &str = r#"You are an expert coding assistant with a
 - **web_search**: Search the web using Parallel Search MCP. Use this tool when you need up-to-date information from the internet, current events, or facts not available in the local codebase. Returns search results with titles, URLs, and snippets.
 - **web_fetch**: Extract content from a specific URL using Parallel Search MCP.
 - **md_to_word**: Convert a Markdown file to Word (docx) format using pandoc. Use this tool to create Word documents by first writing Markdown content with `file_write`, then converting it with `md_to_word`. Supports optional custom templates and reference documents for styling.
+- **send_file**: Send a file from the server directly to the user's mobile device.
+    Use this when the user asks you to send a file to their phone.
+    The file will be transferred and the user can save it or share it to other apps (e.g., WeChat). Works with any file type.
 
 ## ⚠️ Code Reading Rule
 **Recommended practice**: Before reading an unfamiliar source file, prefer using `file_outline` first to understand the file structure. Then use `file_read` with `offset` and `limit` to read only the specific sections you need.

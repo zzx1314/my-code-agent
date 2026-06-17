@@ -1633,6 +1633,7 @@ dependencies = [
  "anyhow",
  "async-process",
  "async-trait",
+ "base64",
  "bytes",
  "dirs",
  "dotenv",

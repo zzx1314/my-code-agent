@@ -148,6 +148,7 @@ impl ToolRegistry {
             Box::new(FileUndo),
             Box::new(WriteTodos),
             Box::new(MdToWord::from_config(config)),
+            Box::new(SendFile),
         ];
 
         for tool in tools {
