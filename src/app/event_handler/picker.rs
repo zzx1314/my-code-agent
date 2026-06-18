@@ -168,6 +168,50 @@ pub fn handle_session_picker_key(key: event::KeyEvent, app: &mut App) -> bool {
 
                 match SessionData::load_by_name(&session_name) {
                     Some(Ok(session_data)) => {
+                        // ── Clear all streaming & async state ──
+                        // Prevents stale receivers (response_rx, streaming_events_rx, compact_rx)
+                        // from firing on the next lifecycle frame and overwriting the loaded history.
+                        app.response_rx = None;
+                        app.streaming_events_rx = None;
+                        app.compact_rx = None;
+                        app.is_streaming = false;
+                        app.message_queue.clear();
+                        app.streaming_text.clear();
+                        app.streaming_reasoning.clear();
+                        app.post_text_reasoning.clear();
+                        app.completed_pre_text_segments.clear();
+                        app.completed_post_text_segments.clear();
+                        app.text_segment_boundaries.clear();
+                        app.is_reasoning_active = false;
+                        app.current_tool_call = None;
+                        app.streaming_tool_result = None;
+                        app.streaming_status.clear();
+                        app.streaming_reasoning_header = None;
+                        app.streaming_todos = None;
+                        app.current_response.clear();
+                        app.status_messages.clear();
+                        app.turn_usage_line = None;
+                        app.show_inline_reasoning = false;
+                        app.last_reasoning.clear();
+                        // ── Clear review state from previous session ──
+                        app.is_reviewing = false;
+                        app.review_event_rx = None;
+                        app.review_result_rx = None;
+                        app.review_iteration = 0;
+                        app.review_complete_message = None;
+                        app.review_complete_verdict = None;
+                        app.review_complete_timer = 0;
+                        app.review_reasoning.clear();
+                        app.review_feedback.clear();
+                        app.previous_review_issues.clear();
+                        // ── Clear translation state ──
+                        app.translating = false;
+                        app.translation_rx = None;
+                        app.translation_original.clear();
+                        // ── Reset other session-scoped state ──
+                        app.continuation_count = 0;
+                        app.pending_confirmation = None;
+                        // ── Load session data ──
                         app.chat_history = session_data
                             .chat_history
                             .into_iter()

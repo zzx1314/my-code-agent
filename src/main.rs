@@ -118,6 +118,8 @@ impl HeadlessState {
                 session_name,
             } => {
                 self.current_session_id = session_id;
+                self.messages = Vec::new();
+                self.session_usage = TokenUsage::new();
                 self.current_session_name = session_name;
             }
             CommandResult::ResponseSent => {}

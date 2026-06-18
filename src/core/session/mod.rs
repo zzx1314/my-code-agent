@@ -407,36 +407,20 @@ fn extract_snippet(content: &str, keyword: &str, context_size: usize) -> String 
     let content_lower = content.to_lowercase();
     let keyword_lower = keyword.to_lowercase();
     if let Some(byte_pos) = content_lower.find(&keyword_lower) {
-        let char_pos = content
-            .char_indices()
-            .enumerate()
-            .find_map(|(char_idx, (byte_idx, _))| {
-                if byte_idx == byte_pos {
-                    Some(char_idx)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(0);
+        // Find character position using the lowercased string (byte_pos is valid in content_lower)
+        let char_pos = content_lower[..byte_pos].chars().count();
+        let total_chars = content.chars().count();
         let char_start = char_pos.saturating_sub(context_size / 2);
-        let char_end =
-            (char_pos + keyword.chars().count() + context_size / 2).min(content.chars().count());
-        let start_byte = content
-            .char_indices()
-            .nth(char_start)
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        let end_byte = content
-            .char_indices()
-            .nth(char_end)
-            .map(|(i, _)| i)
-            .unwrap_or(content.len());
+        let char_end = (char_pos + keyword.chars().count() + context_size / 2).min(total_chars);
         let mut snippet = String::new();
         if char_start > 0 {
             snippet.push_str("...");
         }
-        snippet.push_str(&content[start_byte..end_byte]);
-        if char_end < content.chars().count() {
+        // Build snippet using character iteration to avoid UTF-8 byte boundary panics
+        for c in content.chars().skip(char_start).take(char_end - char_start) {
+            snippet.push(c);
+        }
+        if char_end < total_chars {
             snippet.push_str("...");
         }
         snippet
