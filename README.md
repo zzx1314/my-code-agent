@@ -204,7 +204,7 @@ cargo install --path .
 
 This builds a release binary and installs it to `~/.cargo/bin/`, so you can run `my-code-agent` from anywhere (make sure `~/.cargo/bin` is in your `PATH`).
 
-#### Option 2: Build from Source
+#### Option 2: Build from Source (Linux)
 
 ```bash
 git clone <your-repo-url>
@@ -213,6 +213,28 @@ cargo build --release
 ```
 
 The binary will be at `target/release/my-code-agent`.
+
+#### Option 2b: Cross-Compile for Windows (from Linux)
+
+Prerequisites:
+
+```bash
+# Install MinGW cross-compiler
+sudo apt install mingw-w64
+
+# Add Windows GNU target
+rustup target add x86_64-pc-windows-gnu
+```
+
+Then build:
+
+```bash
+cargo build --release --target x86_64-pc-windows-gnu
+```
+
+The binary will be at `target/x86_64-pc-windows-gnu/release/my-code-agent.exe`.
+
+> 💡 The Windows build uses a simplified terminal background detection stub that always returns `None`, since the underlying OSC 11 query mechanism (Unix fd-level polling) does not map to Win32 console APIs.
 
 #### Option 3: Download Pre-built Binary
 
