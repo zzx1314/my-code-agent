@@ -432,9 +432,10 @@ fn test_review_reasoning_cleared_between_phases() {
     );
 }
 
-/// check_review_result clears review_reasoning when a completed outcome arrives.
+/// check_review_result preserves review_reasoning when a completed outcome arrives,
+/// so the user can still see the reasoning after the review finishes.
 #[test]
-fn test_check_review_result_clears_reasoning_on_completed() {
+fn test_check_review_result_preserves_reasoning_on_completed() {
     let mut app = make_review_test_app();
     let (tx, rx) = mpsc::channel::<ReviewOutcome>(1);
     app.review_result_rx = Some(rx);
@@ -458,10 +459,9 @@ fn test_check_review_result_clears_reasoning_on_completed() {
 
     check_review_result(&mut app);
 
-    assert!(
-        app.review_reasoning.is_empty(),
-        "review_reasoning should be cleared when review completes, got: {:?}",
-        app.review_reasoning
+    assert_eq!(
+        app.review_reasoning, "Final phase reasoning...",
+        "review_reasoning should be preserved after review completes"
     );
     assert!(
         !app.is_reviewing,
@@ -495,9 +495,10 @@ fn test_check_review_result_clears_reasoning_on_disconnect() {
     );
 }
 
-/// check_review_result clears review_reasoning on max iterations reached.
+/// check_review_result preserves review_reasoning on max iterations reached,
+/// so the user can still see the final reasoning.
 #[test]
-fn test_check_review_result_clears_reasoning_on_max_iterations() {
+fn test_check_review_result_preserves_reasoning_on_max_iterations() {
     let mut app = make_review_test_app();
     let (tx, rx) = mpsc::channel::<ReviewOutcome>(1);
     app.review_result_rx = Some(rx);
@@ -524,10 +525,9 @@ fn test_check_review_result_clears_reasoning_on_max_iterations() {
 
     check_review_result(&mut app);
 
-    assert!(
-        app.review_reasoning.is_empty(),
-        "review_reasoning should be cleared when max iterations reached, got: {:?}",
-        app.review_reasoning
+    assert_eq!(
+        app.review_reasoning, "Last attempt reasoning...",
+        "review_reasoning should be preserved when max iterations reached"
     );
     assert!(
         !app.is_reviewing,

@@ -531,7 +531,7 @@ pub fn render_review_reasoning(
     max_width: Option<usize>,
     max_height: u16,
 ) {
-    if !app.is_reviewing {
+    if !app.is_reviewing && app.review_reasoning.is_empty() {
         return;
     }
 

@@ -63,8 +63,9 @@ pub fn check_review_result(app: &mut App) {
                     && outcome.verdict != ReviewVerdict::Approved
                     && app.review_iteration < app.config.review.max_review_iterations;
 
-                // Clear review reasoning display
-                app.review_reasoning.clear();
+                // Don't clear review_reasoning here — it will be cleared
+                // when a new review iteration starts (Progress event) or
+                // kept for display after final completion.
 
                 if should_fix {
                     let iteration = app.review_iteration;
@@ -143,7 +144,6 @@ pub fn check_review_result(app: &mut App) {
                     app.review_result_rx = None;
                     app.review_iteration = 0; // Reset for next cycle
                     app.previous_review_issues.clear(); // Clear for next review cycle
-                    app.review_reasoning.clear();
                     app.review_feedback.clear();
                 }
             }
