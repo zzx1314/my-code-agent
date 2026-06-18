@@ -46,3 +46,5 @@ base64 = "0.22"
 [dev-dependencies]
 tempfile = "3"
 
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
