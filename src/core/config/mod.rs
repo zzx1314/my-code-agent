@@ -588,7 +588,73 @@ impl Config {
                 tracing::info!(path = %path.display(), "Config loaded");
                 config
             }
-            Err(_) => Self::default(),
+            Err(_) => {
+                // Auto-generate default config file when it doesn't exist
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Err(e) = std::fs::write(path, DEFAULT_CONFIG_TOML) {
+                    tracing::warn!(error = %e, path = %path.display(), "Failed to write default config");
+                } else {
+                    tracing::info!(path = %path.display(), "Generated default config file");
+                }
+                Self::default()
+            }
         }
     }
 }
+
+/// Default configuration content written to `config.toml` on first run.
+///
+/// This is embedded at compile time so there are no external file dependencies.
+/// Keep this in sync with the `Default` impls above.
+const DEFAULT_CONFIG_TOML: &str = r#"# ── My Code Agent Default Configuration ──
+# This file was auto-generated on first run. You can edit it to customize behavior.
+# All fields have sensible defaults — only override what you need.
+
+[llm]
+# Provider: deepseek (default), openai, anthropic, cohere, openrouter, custom
+provider = "deepseek"
+# Model name (empty = provider default)
+model = "deepseek-v4-flash"
+# Environment variable name for the API key
+api_key_env = "DEEPSEEK_API_KEY"
+
+[files]
+# Maximum lines returned by file_read when limit is not specified (default: 200)
+# default_read_limit = 200
+# Maximum lines from @filepath attachment (default: 500)
+# attach_max_lines = 500
+
+[context]
+# Model context window size in tokens (default: 1048576 = 1M tokens)
+window_size = 1048576
+warn_threshold_percent = 75
+critical_threshold_percent = 90
+
+[shell]
+# Default command timeout in seconds (default: 30)
+# default_timeout_secs = 30
+
+[agent]
+# Maximum tool-call turns per response (default: 100)
+max_turns = 10
+
+[session]
+# Session auto-save is disabled by default
+# enabled = false
+
+[mcp]
+# Enable web search tools (requires PARALLEL_API_KEY in .env for higher rate limits)
+enabled = true
+
+[review]
+enabled = true
+auto_review = true
+# Minimum lines changed to trigger auto-review (default: 5)
+# threshold_lines = 5
+
+[ws_client]
+# WebSocket client for headless mode (default: false)
+enabled = false
+"#;
