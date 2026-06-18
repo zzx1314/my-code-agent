@@ -6,10 +6,20 @@ on:
       - 'v*'  # 当推送v开头的tag时触发
 
 jobs:
-  build-release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: my-code-agent-linux
+            binary_name: my-code-agent
+          - os: windows-latest
+            asset_name: my-code-agent-windows.exe
+            binary_name: my-code-agent.exe
+    runs-on: ${{ matrix.os }}
     permissions:
-      contents: write  # 用于创建Release
+      contents: write
 
     steps:
     - name: Checkout code
@@ -34,6 +44,19 @@ jobs:
     - name: Build release binary
       run: cargo build --release --locked
 
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.asset_name }}
+        path: ./target/release/${{ matrix.binary_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
     - name: Create Release
       id: create_release
       uses: actions/create-release@v1
@@ -45,12 +68,34 @@ jobs:
         draft: false
         prerelease: false
 
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: my-code-agent-linux
+        path: ./artifacts/linux
+
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: my-code-agent-windows.exe
+        path: ./artifacts/windows
+
     - name: Upload Linux binary
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./target/release/my-code-agent
+        asset_path: ./artifacts/linux/my-code-agent
         asset_name: my-code-agent-linux
+        asset_content_type: application/octet-stream
+
+    - name: Upload Windows binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/windows/my-code-agent.exe
+        asset_name: my-code-agent-windows.exe
         asset_content_type: application/octet-stream
