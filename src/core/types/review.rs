@@ -173,6 +173,8 @@ pub struct ReviewReport {
     pub auto_fixable: Vec<ReviewIssue>,
     /// Natural language feedback from the review LLM (not parsed as JSON issues).
     pub llm_feedback: String,
+    /// Reasoning/thinking content from the review LLM.
+    pub reasoning: String,
 }
 
 /// Review summary

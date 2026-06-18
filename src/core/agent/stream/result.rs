@@ -13,9 +13,16 @@ pub fn process_review_events(app: &mut App) {
     if let Some(ref mut rx) = app.review_event_rx {
         loop {
             match rx.try_recv() {
-                Ok(ReviewEvent::Started { .. }) => {}
-                Ok(ReviewEvent::Progress { .. }) => {
+                Ok(ReviewEvent::Started { .. }) => {
+                    // Clear reasoning from any previous review so each new review
+                    // starts with a clean slate.
                     app.review_reasoning.clear();
+                }
+                Ok(ReviewEvent::Progress { .. }) => {
+                    // Don't clear review_reasoning here — Progress events may arrive
+                    // after the LLM has already streamed reasoning (via ReasoningDelta),
+                    // and clearing it would lose the accumulated thinking content before
+                    // the Completed event stores it in chat history.
                     app.review_feedback.clear();
                 }
                 Ok(ReviewEvent::ReasoningDelta(delta)) => {
@@ -45,9 +52,13 @@ pub fn check_review_result(app: &mut App) {
     if let Some(ref mut rx) = app.review_result_rx {
         match rx.try_recv() {
             Ok(outcome) => {
-                // Add the display text to chat history
+                let reasoning = std::mem::take(&mut app.review_reasoning);
+
                 app.chat_history
-                    .push(crate::app::ChatEntry::assistant(outcome.display_text));
+                    .push(crate::app::ChatEntry::assistant_with_reasoning(
+                        outcome.display_text,
+                        reasoning,
+                    ));
                 app.auto_scroll = true;
 
                 // Set the completion message for status bar display (~3 seconds)
@@ -62,10 +73,6 @@ pub fn check_review_result(app: &mut App) {
                 let should_fix = outcome.auto_trigger
                     && outcome.verdict != ReviewVerdict::Approved
                     && app.review_iteration < app.config.review.max_review_iterations;
-
-                // Don't clear review_reasoning here — it will be cleared
-                // when a new review iteration starts (Progress event) or
-                // kept for display after final completion.
 
                 if should_fix {
                     let iteration = app.review_iteration;
@@ -304,6 +311,7 @@ pub fn trigger_auto_review(app: &mut App) {
                                 &report.issues,
                                 &report.changed_files,
                                 &report.llm_feedback,
+                                &report.reasoning,
                             );
                         }
 

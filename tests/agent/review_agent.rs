@@ -103,6 +103,7 @@ fn test_review_report_creation() {
         },
         auto_fixable: vec![],
         llm_feedback: "".to_string(),
+        reasoning: String::new(),
     };
 
     assert_eq!(report.issues.len(), 2);
@@ -338,31 +339,60 @@ fn make_review_test_app() -> App {
     )
 }
 
-/// Progress event clears accumulated review_reasoning.
+/// Started event clears accumulated review_reasoning from a previous review.
 #[test]
-fn test_review_reasoning_cleared_on_progress() {
+fn test_review_reasoning_cleared_on_started() {
     let mut app = make_review_test_app();
     let (tx, rx) = mpsc::unbounded_channel::<ReviewEvent>();
     app.review_event_rx = Some(rx);
 
-    // Simulate accumulated reasoning from a phase
-    app.review_reasoning = "Previous phase reasoning content...".to_string();
+    // Simulate accumulated reasoning from a previous review
+    app.review_reasoning = "Previous review reasoning...".to_string();
     assert!(
         !app.review_reasoning.is_empty(),
-        "Reasoning should be non-empty before Progress"
+        "Reasoning should be non-empty before Started"
     );
 
-    // Send Progress event (indicating new phase starting)
-    tx.send(ReviewEvent::Progress {
-        message: "Starting phase 2".to_string(),
-    })
-    .expect("Failed to send Progress event");
+    // Send Started event (new review beginning)
+    tx.send(ReviewEvent::Started { file_count: 3 })
+        .expect("Failed to send Started event");
 
     process_review_events(&mut app);
 
     assert!(
         app.review_reasoning.is_empty(),
-        "review_reasoning should be cleared after Progress event (new phase started), got: {:?}",
+        "review_reasoning should be cleared after Started event, got: {:?}",
+        app.review_reasoning
+    );
+}
+
+/// Progress event does NOT clear accumulated review_reasoning.
+/// Reasoning must be preserved through phase transitions so it can be
+/// saved to chat history when the review completes.
+#[test]
+fn test_review_reasoning_not_cleared_on_progress() {
+    let mut app = make_review_test_app();
+    let (tx, rx) = mpsc::unbounded_channel::<ReviewEvent>();
+    app.review_event_rx = Some(rx);
+
+    // Simulate accumulated reasoning from the LLM call phase
+    app.review_reasoning = "Accumulated reasoning content...".to_string();
+    assert!(
+        !app.review_reasoning.is_empty(),
+        "Reasoning should be non-empty before Progress"
+    );
+
+    // Send Progress event (phase transition — e.g. "Checking code structure...")
+    tx.send(ReviewEvent::Progress {
+        message: "Checking code structure...".to_string(),
+    })
+    .expect("Failed to send Progress event");
+
+    process_review_events(&mut app);
+
+    assert_eq!(
+        app.review_reasoning, "Accumulated reasoning content...",
+        "review_reasoning should NOT be cleared by Progress event, got: {:?}",
         app.review_reasoning
     );
 }
@@ -391,57 +421,68 @@ fn test_review_reasoning_accumulates_delta() {
     );
 }
 
-/// Progress event clears reasoning between phases, then new phase's reasoning accumulates.
+/// Reasoning persists through Progress events and is only cleared on Started.
 #[test]
-fn test_review_reasoning_cleared_between_phases() {
+fn test_review_reasoning_persists_through_progress() {
     let mut app = make_review_test_app();
     let (tx, rx) = mpsc::unbounded_channel::<ReviewEvent>();
     app.review_event_rx = Some(rx);
 
-    // Phase 1: accumulate reasoning
+    // Phase 1: accumulate reasoning via LLM call
     tx.send(ReviewEvent::ReasoningDelta(
-        "Phase 1 reasoning... ".to_string(),
+        "LLM reasoning content... ".to_string(),
     ))
     .expect("Failed to send delta");
     process_review_events(&mut app);
     assert_eq!(
-        app.review_reasoning, "Phase 1 reasoning... ",
-        "Phase 1 reasoning should accumulate"
+        app.review_reasoning, "LLM reasoning content... ",
+        "LLM reasoning should accumulate"
     );
 
-    // Phase 1 → Phase 2 transition: Progress clears reasoning
+    // Phase 1 → Phase 2 transition: Progress should NOT clear reasoning
     tx.send(ReviewEvent::Progress {
-        message: "Starting phase 2".to_string(),
+        message: "Checking code structure...".to_string(),
     })
     .expect("Failed to send Progress");
     process_review_events(&mut app);
-    assert!(
-        app.review_reasoning.is_empty(),
-        "Reasoning should be cleared between phases"
+    assert_eq!(
+        app.review_reasoning, "LLM reasoning content... ",
+        "Reasoning should persist through Progress events"
     );
 
-    // Phase 2: new reasoning starts fresh
+    // Reasoning survives, additional delta appends
     tx.send(ReviewEvent::ReasoningDelta(
-        "Phase 2 reasoning...".to_string(),
+        "more thinking...".to_string(),
     ))
     .expect("Failed to send delta");
     process_review_events(&mut app);
     assert_eq!(
-        app.review_reasoning, "Phase 2 reasoning...",
-        "Phase 2 reasoning should start fresh after Progress"
+        app.review_reasoning, "LLM reasoning content... more thinking...",
+        "Reasoning should continue to accumulate after Progress"
+    );
+
+    // Only Started event clears reasoning
+    tx.send(ReviewEvent::Started { file_count: 3 })
+        .expect("Failed to send Started");
+    process_review_events(&mut app);
+    assert!(
+        app.review_reasoning.is_empty(),
+        "Reasoning should be cleared only by Started event"
     );
 }
 
-/// check_review_result preserves review_reasoning when a completed outcome arrives,
-/// so the user can still see the reasoning after the review finishes.
+/// check_review_result moves review_reasoning into chat_history via
+/// assistant_with_reasoning when a completed outcome arrives, so the user
+/// can see the reasoning after the review finishes.
 #[test]
-fn test_check_review_result_preserves_reasoning_on_completed() {
+fn test_check_review_result_moves_reasoning_to_chat_on_completed() {
     let mut app = make_review_test_app();
     let (tx, rx) = mpsc::channel::<ReviewOutcome>(1);
     app.review_result_rx = Some(rx);
 
     app.review_reasoning = "Final phase reasoning...".to_string();
     assert!(!app.review_reasoning.is_empty());
+    assert!(app.chat_history.is_empty());
 
     // Simulate a completed outcome
     let outcome = ReviewOutcome {
@@ -459,10 +500,24 @@ fn test_check_review_result_preserves_reasoning_on_completed() {
 
     check_review_result(&mut app);
 
-    assert_eq!(
-        app.review_reasoning, "Final phase reasoning...",
-        "review_reasoning should be preserved after review completes"
+    // review_reasoning is taken (emptied) and moved to chat_history
+    assert!(
+        app.review_reasoning.is_empty(),
+        "review_reasoning should be taken (emptied) after check_review_result, got: {:?}",
+        app.review_reasoning
     );
+
+    // Chat history should contain the outcome with reasoning attached
+    assert!(
+        !app.chat_history.is_empty(),
+        "chat_history should contain the review outcome"
+    );
+    assert_eq!(app.chat_history[0].content, "✅ Review complete");
+    assert_eq!(
+        app.chat_history[0].reasoning_content,
+        Some("Final phase reasoning...".to_string())
+    );
+
     assert!(
         !app.is_reviewing,
         "is_reviewing should be false after completed"
@@ -495,10 +550,9 @@ fn test_check_review_result_clears_reasoning_on_disconnect() {
     );
 }
 
-/// check_review_result preserves review_reasoning on max iterations reached,
-/// so the user can still see the final reasoning.
+/// check_review_result moves reasoning to chat_history on max iterations reached.
 #[test]
-fn test_check_review_result_preserves_reasoning_on_max_iterations() {
+fn test_check_review_result_moves_reasoning_on_max_iterations() {
     let mut app = make_review_test_app();
     let (tx, rx) = mpsc::channel::<ReviewOutcome>(1);
     app.review_result_rx = Some(rx);
@@ -508,8 +562,7 @@ fn test_check_review_result_preserves_reasoning_on_max_iterations() {
     app.review_reasoning = "Last attempt reasoning...".to_string();
     assert!(!app.review_reasoning.is_empty());
 
-    // Send outcome with NeedsRevision (which would normally trigger fix loop,
-    // but since iteration >= max_iterations, it won't)
+    // Send outcome with NeedsRevision
     let outcome = ReviewOutcome {
         display_text: "🔄 Needs revision".to_string(),
         verdict: ReviewVerdict::NeedsRevision,
@@ -525,10 +578,21 @@ fn test_check_review_result_preserves_reasoning_on_max_iterations() {
 
     check_review_result(&mut app);
 
-    assert_eq!(
-        app.review_reasoning, "Last attempt reasoning...",
-        "review_reasoning should be preserved when max iterations reached"
+    // review_reasoning is taken (emptied) and moved to chat_history
+    assert!(
+        app.review_reasoning.is_empty(),
+        "review_reasoning should be taken (emptied) after check_review_result, got: {:?}",
+        app.review_reasoning
     );
+    assert!(
+        !app.chat_history.is_empty(),
+        "chat_history should contain the review outcome"
+    );
+    assert_eq!(
+        app.chat_history[0].reasoning_content,
+        Some("Last attempt reasoning...".to_string())
+    );
+
     assert!(
         !app.is_reviewing,
         "is_reviewing should be false after max iterations"
@@ -900,6 +964,7 @@ fn test_verdict_with_functional_completeness_issue_is_needs_revision() {
         },
         auto_fixable: vec![],
         llm_feedback: "".to_string(),
+        reasoning: String::new(),
     };
 
     // NeedsRevision should trigger fix loop
@@ -1097,6 +1162,7 @@ fn test_review_coverage_table_format() {
         },
         auto_fixable: vec![],
         llm_feedback: "".to_string(),
+        reasoning: String::new(),
     };
 
     // Simulate format_review_coverage output
@@ -1194,6 +1260,7 @@ fn test_fix_prompt_contains_coverage_section() {
         },
         auto_fixable: vec![],
         llm_feedback: "".to_string(),
+        reasoning: String::new(),
     };
 
     // Verify the coverage table header format
@@ -1239,6 +1306,7 @@ fn test_review_coverage_empty_report() {
         },
         auto_fixable: vec![],
         llm_feedback: "".to_string(),
+        reasoning: String::new(),
     };
 
     // All categories should be "Passed" with "—" for count

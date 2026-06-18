@@ -94,7 +94,7 @@ impl ReviewAgent {
         let (response, _reasoning) = self.call_llm(&user_message).await?;
 
         let structural = self.check_code_structure(&request.changed_files);
-        Ok(self.build_report_inner(&response, &structural, &request.changed_files))
+        Ok(self.build_report_inner(&response, &_reasoning, &structural, &request.changed_files))
     }
 
     pub async fn review_with_events(
@@ -113,13 +113,13 @@ impl ReviewAgent {
         let user_message =
             self.build_user_message(&changes_summary, &request.context, &request.history_summary);
 
-        let response = self.call_llm_stream(&user_message, &event_tx).await?;
+        let (response, reasoning) = self.call_llm_stream(&user_message, &event_tx).await?;
 
         let _ = event_tx.send(ReviewEvent::Progress {
             message: "Checking code structure...".to_string(),
         });
         let structural = self.check_code_structure(&request.changed_files);
-        let report = self.build_report_inner(&response, &structural, &request.changed_files);
+        let report = self.build_report_inner(&response, &reasoning, &structural, &request.changed_files);
 
         let _ = event_tx.send(ReviewEvent::Completed {
             report: report.clone(),
@@ -179,13 +179,13 @@ impl ReviewAgent {
 
         Ok((content, reasoning))
     }
-
     /// Call LLM with streaming, sending reasoning deltas via event_tx in real-time.
+    /// Returns (content, reasoning).
     async fn call_llm_stream(
         &self,
         user_message: &str,
         event_tx: &tokio::sync::mpsc::UnboundedSender<ReviewEvent>,
-    ) -> Result<String> {
+    ) -> Result<(String, String)> {
         use crate::core::types::Message;
         use crate::ui::render::StatefulTagStripper;
         let mut tag_stripper = StatefulTagStripper::new();
@@ -247,13 +247,13 @@ impl ReviewAgent {
                     "call_llm_stream: content was empty, falling back to reasoning_content ({} chars)",
                     reasoning_buf.len()
                 );
-                return Ok(reasoning_buf);
+                return Ok((reasoning_buf.clone(), reasoning_buf));
             } else {
                 tracing::error!("call_llm_stream: both content and reasoning_content were empty");
             }
         }
 
-        Ok(full_content)
+        Ok((full_content, reasoning_buf))
     }
 
     /// Extract review context from conversation history.
@@ -421,6 +421,7 @@ impl ReviewAgent {
     fn build_report_inner(
         &self,
         llm_feedback: &str,
+        reasoning: &str,
         issues: &[ReviewIssue],
         changed_files: &[ChangedFile],
     ) -> ReviewReport {
@@ -472,6 +473,7 @@ impl ReviewAgent {
             },
             auto_fixable,
             llm_feedback: llm_feedback.to_string(),
+            reasoning: reasoning.to_string(),
         }
     }
 
@@ -502,10 +504,10 @@ impl ReviewAgent {
         issues: &[ReviewIssue],
         changed_files: &[ChangedFile],
         llm_feedback: &str,
+        reasoning: &str,
     ) -> ReviewReport {
-        self.build_report_inner(llm_feedback, issues, changed_files)
+        self.build_report_inner(llm_feedback, reasoning, issues, changed_files)
     }
-
     /// Perform deterministic code structure checks that don't require an LLM.
     pub fn check_code_structure(&self, files: &[ChangedFile]) -> Vec<ReviewIssue> {
         let mut issues = Vec::new();
