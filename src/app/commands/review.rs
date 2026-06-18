@@ -32,14 +32,14 @@ pub fn handle(app: &mut App, input: &str, _context_manager: &mut ContextManager)
                     path_str
                 )));
             spawn_review(app, Some(path_str));
-            false
+            true
         }
         None => {
             app.chat_history.push(crate::app::ChatEntry::assistant(
                 "🔍 Reviewing recent code changes...".to_string(),
             ));
             spawn_review(app, None);
-            false
+            true
         }
     }
 }
