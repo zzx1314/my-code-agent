@@ -25,5 +25,3 @@ mod token_usage;
 
 #[path = "core/skill.rs"]
 mod skill;
-#[path = "core/ws_client.rs"]
-mod ws_client;
