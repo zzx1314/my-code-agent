@@ -623,11 +623,7 @@ fn print_response(agent_id: AgentId, addr: &str, response: AgentResponse) {
             for (i, msg) in messages.iter().enumerate() {
                 let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("?");
                 let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                let display = if content.len() > 120 {
-                    format!("{}…", &content[..117])
-                } else {
-                    content.to_string()
-                };
+                let display = safe_truncate(content, 117);
                 println!("     [{i}] {role}: {display}");
             }
         }
@@ -650,11 +646,7 @@ fn print_response(agent_id: AgentId, addr: &str, response: AgentResponse) {
             // but forwarded to clients via the broadcast channel
         }
         AgentResponse::ToolCall { name, arguments } => {
-            let args_preview = if arguments.len() > 80 {
-                format!("{}…", &arguments[..77])
-            } else {
-                arguments.clone()
-            };
+            let args_preview = safe_truncate(&arguments, 77);
             println!("  🛠  [agent #{agent_id} @ {addr}] Tool: {name}({args_preview})");
         }
         AgentResponse::ToolResult { name, content } => {
@@ -677,6 +669,20 @@ fn print_response(agent_id: AgentId, addr: &str, response: AgentResponse) {
             println!("  ⚠️  [agent #{agent_id} @ {addr}] Error: {message}");
         }
     }
+}
+
+/// Truncate a string to at most `max` bytes, ensuring we never split a
+/// multi-byte UTF-8 character (e.g. Chinese, emoji).
+fn safe_truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    // Walk backwards from `max` until we find a char boundary
+    let end = (0..=max.min(s.len()))
+        .rev()
+        .find(|&i| s.is_char_boundary(i))
+        .unwrap_or(0);
+    format!("{}…", &s[..end])
 }
 
 fn print_help() {

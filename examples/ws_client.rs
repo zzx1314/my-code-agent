@@ -238,11 +238,7 @@ async fn main() {
                                 for (i, m) in messages.iter().enumerate() {
                                     let role = m["role"].as_str().unwrap_or("?");
                                     let content = m["content"].as_str().unwrap_or("");
-                                    let display = if content.len() > 200 {
-                                        format!("{}…", &content[..197])
-                                    } else {
-                                        content.to_string()
-                                    };
+                                    let display = safe_truncate(content, 197);
                                     // Indent to align with "History" line
                                     println!("     [{i}] {role}: {display}");
                                 }
@@ -285,22 +281,14 @@ async fn main() {
                         "tool_call" => {
                             let name = json["name"].as_str().unwrap_or("?");
                             let args = json["arguments"].as_str().unwrap_or("");
-                            let preview = if args.len() > 60 {
-                                format!("{}…", &args[..57])
-                            } else {
-                                args.to_string()
-                            };
+                            let preview = safe_truncate(args, 57);
                             println!("\n  🛠  Tool: {name}({preview})");
                         }
                         "tool_result" => {
                             let name = json["name"].as_str().unwrap_or("?");
                             let content = json["content"].as_str().unwrap_or("");
                             let preview = content.lines().next().unwrap_or("").to_string();
-                            let preview = if preview.len() > 100 {
-                                format!("{}…", &preview[..97])
-                            } else {
-                                preview
-                            };
+                            let preview = safe_truncate(&preview, 97);
                             println!("  ✅ Tool result: {name} → {preview}");
                         }
                         "pong" => {
@@ -333,6 +321,19 @@ async fn main() {
 
     stdin_task.abort();
     println!("\n🔌 Disconnected.");
+}
+
+/// Truncate a string to at most `max` bytes, ensuring we never split a
+/// multi-byte UTF-8 character (e.g. Chinese, emoji).
+fn safe_truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let end = (0..=max.min(s.len()))
+        .rev()
+        .find(|&i| s.is_char_boundary(i))
+        .unwrap_or(0);
+    format!("{}…", &s[..end])
 }
 
 fn parse_args() -> String {
