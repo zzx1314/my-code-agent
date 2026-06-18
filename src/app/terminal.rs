@@ -50,6 +50,9 @@ pub fn disable_mouse_tracking() {
 
 /// Query the terminal's default background color via OSC 11.
 ///
+/// **Unix only.** On Windows the terminal subsystem doesn't support the same
+/// fd-level polling primitives, so the query always returns `None`.
+///
 /// **Must be called after crossterm raw mode is enabled** (i.e. after
 /// [`enter_terminal`]).  Raw mode disables `ICANON` so the OSC 11 response
 /// (which ends with `ST` `\x1b\\`, not a newline) is immediately readable.
@@ -57,6 +60,7 @@ pub fn disable_mouse_tracking() {
 /// Uses `dup()` + `O_NONBLOCK` on a cloned stdin fd — the original fd 0 is
 /// never touched, so crossterm's event stream is not affected.  No termios
 /// manipulation: raw mode is already active from [`enter_terminal`].
+#[cfg(unix)]
 pub fn query_terminal_bg_color() -> Option<(u8, u8, u8)> {
     use std::os::unix::io::{AsRawFd, FromRawFd};
     use std::time::{Duration, Instant};
@@ -153,6 +157,13 @@ pub fn query_terminal_bg_color() -> Option<(u8, u8, u8)> {
     parse_osc_11_response(&response)
 }
 
+/// Windows stub — OSC 11 terminal queries are not feasible with Win32 console
+/// APIs, so we simply report no known background colour.
+#[cfg(windows)]
+pub fn query_terminal_bg_color() -> Option<(u8, u8, u8)> {
+    None
+}
+
 /// Parse an OSC 11 response into an 8‑bit RGB triple.
 ///
 /// Expected format from the terminal:
@@ -166,6 +177,7 @@ pub fn query_terminal_bg_color() -> Option<(u8, u8, u8)> {
 /// We first locate the `rgb:` / `rgba:` prefix, then find the first valid
 /// OSC terminator after it, so trailing junk (including the terminator itself)
 /// never reaches the hex parser.
+#[cfg(unix)]
 fn parse_osc_11_response(raw: &[u8]) -> Option<(u8, u8, u8)> {
     // Find the start of the colour payload — "rgb:" or "rgba:" anywhere in
     // the buffer (there may be other DSR / probe responses mixed in).

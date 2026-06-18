@@ -170,11 +170,6 @@ async fn run_headless(
         message: Some("Agent ready".to_string()),
     });
 
-    // ── Signal handling (Ctrl+C) ──────────────────────────────────────────
-    let mut interrupt_signal = tokio::signal::unix::signal(
-        tokio::signal::unix::SignalKind::interrupt(),
-    ).expect("Failed to set up SIGINT handler");
-
     // ── Current async prompt task (None = idle) ───────────────────────────
     let mut pending: Option<PendingPrompt> = None;
 
@@ -216,7 +211,7 @@ async fn run_headless(
                 }
 
                 // ── Ctrl+C ───────────────────────────────────────────────
-                _ = interrupt_signal.recv() => {
+                _ = tokio::signal::ctrl_c() => {
                     tracing::info!("SIGINT received, shutting down");
                     let _ = resp_tx.send(WsResponse::Status {
                         streaming: false,
@@ -252,7 +247,7 @@ async fn run_headless(
                 }
 
                 // ── Ctrl+C ───────────────────────────────────────────────
-                _ = interrupt_signal.recv() => {
+                _ = tokio::signal::ctrl_c() => {
                     tracing::info!("SIGINT received, shutting down");
                     let _ = resp_tx.send(WsResponse::Status {
                         streaming: false,
