@@ -6,6 +6,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Wrap},
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
 use crate::ui::render::{render_full, render_streaming_markdown};
@@ -179,20 +180,16 @@ fn render_paragraph_with_scroll(
     lines: Vec<ratatui::text::Line>,
     area: Rect,
 ) {
+    // Build the paragraph first so we can query ratatui's exact line count,
+    // which uses the same WordWrapper as rendering — eliminating mismatch.
+    let paragraph = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().borders(Borders::NONE));
+
     let actual_lines = if area.width > 0 {
-        lines
-            .iter()
-            .map(|l| {
-                let w = l.width() as u16;
-                if w == 0 {
-                    1
-                } else {
-                    (w + area.width - 1) / area.width
-                }
-            })
-            .sum::<u16>()
+        paragraph.line_count(area.width) as u16
     } else {
-        lines.len() as u16
+        0
     };
 
     app.total_lines = actual_lines;
@@ -206,10 +203,7 @@ fn render_paragraph_with_scroll(
         app.scroll = app.scroll.min(max_scroll);
     }
 
-    let paragraph = Paragraph::new(lines)
-        .scroll((app.scroll, 0))
-        .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::NONE));
+    let paragraph = paragraph.scroll((app.scroll, 0));
     f.render_widget(paragraph, area);
 }
 
@@ -224,13 +218,34 @@ pub fn word_wrap_text(text: &str, max_width: usize) -> Vec<String> {
         }
         let mut remaining = source_line;
         while !remaining.is_empty() {
-            if remaining.len() <= max_width {
+            // Use display width (columns) instead of byte length.
+            // CJK characters are 3 bytes but 2 columns; emoji can be 4+ bytes
+            // but 2 columns. Using len() causes premature wrapping for non-ASCII text.
+            if remaining.width() <= max_width {
                 result.push(remaining.to_string());
                 break;
             }
-            let mut break_at = remaining[..max_width].rfind(' ').unwrap_or(max_width);
+            // Find the byte position where display width exceeds max_width
+            let mut byte_pos = 0;
+            let mut w = 0;
+            for ch in remaining.chars() {
+                let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+                if w + cw > max_width {
+                    break;
+                }
+                w += cw;
+                byte_pos += ch.len_utf8();
+            }
+            if byte_pos == 0 {
+                // Single character wider than max_width — emit it anyway to avoid infinite loop
+                let ch = remaining.chars().next().unwrap();
+                byte_pos = ch.len_utf8();
+            }
+            // Try to break at the last space within the width limit
+            let chunk = &remaining[..byte_pos];
+            let mut break_at = chunk.rfind(' ').unwrap_or(byte_pos);
             if break_at == 0 {
-                break_at = max_width;
+                break_at = byte_pos;
             }
             result.push(remaining[..break_at].to_string());
             remaining = remaining[break_at..].trim_start();

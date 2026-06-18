@@ -263,6 +263,7 @@ async fn test_markdown_header() {
     let md = call_tool(todos).await;
 
     // Should start with h2 markdown header with emoji
+    // (newlines are added when appending to assistant messages, not in the tool output)
     assert!(md.starts_with("## 📋 Todos"));
 }
 

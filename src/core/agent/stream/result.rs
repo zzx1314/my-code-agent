@@ -13,27 +13,18 @@ pub fn process_review_events(app: &mut App) {
     if let Some(ref mut rx) = app.review_event_rx {
         loop {
             match rx.try_recv() {
-                Ok(ReviewEvent::Started { .. }) => {
-                    // Already shown via the "Auto-Review Started" or "Reviewing..." message
-                    // in result.rs or commands/review.rs respectively.
-                    // Just leave it as visible status.
-                }
+                Ok(ReviewEvent::Started { .. }) => {}
                 Ok(ReviewEvent::Progress { .. }) => {
-                    // Clear accumulated reasoning and feedback when a new progress event arrives.
                     app.review_reasoning.clear();
                     app.review_feedback.clear();
                 }
                 Ok(ReviewEvent::ReasoningDelta(delta)) => {
-                    // Accumulate reasoning deltas from streaming for frontend display.
-                    // NOT added to chat history — only shown transiently in the UI.
                     app.review_reasoning.push_str(&delta);
                 }
                 Ok(ReviewEvent::ReviewFeedbackDelta(delta)) => {
                     app.review_feedback.push_str(&delta);
                 }
-                Ok(ReviewEvent::Completed { .. }) => {
-                    // Handled by check_review_result — it sends the final display_text
-                }
+                Ok(ReviewEvent::Completed { .. }) => {}
                 Ok(ReviewEvent::Error { message }) => {
                     app.chat_history
                         .push(ChatEntry::assistant(format!("❌ {}", message)));
@@ -54,11 +45,6 @@ pub fn check_review_result(app: &mut App) {
     if let Some(ref mut rx) = app.review_result_rx {
         match rx.try_recv() {
             Ok(outcome) => {
-                // ── Update review baseline for incremental diff ──────────
-                // Always update the baseline from the outcome. None is harmless —
-                // it either preserves None or replaces a stale baseline on error.
-                app.review_baseline = outcome.review_baseline;
-
                 // Add the display text to chat history
                 app.chat_history
                     .push(crate::app::ChatEntry::assistant(outcome.display_text));
@@ -77,8 +63,9 @@ pub fn check_review_result(app: &mut App) {
                     && outcome.verdict != ReviewVerdict::Approved
                     && app.review_iteration < app.config.review.max_review_iterations;
 
-                // Clear review reasoning display
-                app.review_reasoning.clear();
+                // Don't clear review_reasoning here — it will be cleared
+                // when a new review iteration starts (Progress event) or
+                // kept for display after final completion.
 
                 if should_fix {
                     let iteration = app.review_iteration;
@@ -157,7 +144,6 @@ pub fn check_review_result(app: &mut App) {
                     app.review_result_rx = None;
                     app.review_iteration = 0; // Reset for next cycle
                     app.previous_review_issues.clear(); // Clear for next review cycle
-                    app.review_reasoning.clear();
                     app.review_feedback.clear();
                 }
             }
@@ -242,8 +228,6 @@ pub fn trigger_auto_review(app: &mut App) {
             let history_snapshot = app.chat_history.clone();
             // Pass previous review issues for fingerprint-based deduplication
             let previous_issues = app.previous_review_issues.clone();
-            // Capture review baseline for incremental diff
-            let baseline = app.review_baseline.clone();
 
             tokio::spawn(async move {
                 let messages: Vec<crate::core::types::Message> = history_snapshot
@@ -257,11 +241,9 @@ pub fn trigger_auto_review(app: &mut App) {
                     })
                     .collect();
 
+                // Always detect all changes from HEAD (like codebuff's approach)
                 let changed_files =
-                    crate::core::agent::orchestrator::detect_changed_files_from_git(
-                        baseline.as_deref(),
-                    )
-                    .await;
+                    crate::core::agent::orchestrator::detect_changed_files_from_git().await;
 
                 if changed_files.is_empty() {
                     tracing::info!("Auto-review: no changed files detected");
@@ -275,7 +257,6 @@ pub fn trigger_auto_review(app: &mut App) {
                         report_summary: String::new(),
                         report: None,
                         auto_trigger: false,
-                        review_baseline: baseline.clone(), // preserve existing baseline
                     };
                     let _ = result_tx.send(outcome).await;
                     return;
@@ -306,12 +287,6 @@ pub fn trigger_auto_review(app: &mut App) {
                 {
                     Ok(mut report) => {
                         // ── Fingerprint-based deduplication ─────────────────────
-                        // Filter out issues that have the same fingerprint as
-                        // issues from the previous review iteration AND whose
-                        // file was NOT modified in this iteration.
-                        // This prevents repeated false positives across the
-                        // auto-review loop (e.g., language nits that the main
-                        // agent chose to ignore).
                         let before = report.issues.len();
                         report.issues =
                             crate::core::types::review::ReviewIssue::deduplicate_against(
@@ -325,8 +300,6 @@ pub fn trigger_auto_review(app: &mut App) {
                                 count = dedup_count,
                                 "Auto-review: filtered duplicate issues from previous iteration"
                             );
-                            // Rebuild the report with the filtered issues
-                            // (summary, metrics, verdict all need to be recalculated)
                             report = orchestrator.review_agent.rebuild_report(
                                 &report.issues,
                                 &report.changed_files,
@@ -351,18 +324,12 @@ pub fn trigger_auto_review(app: &mut App) {
                             "Auto-review completed"
                         );
 
-                        // Create a new baseline after review completes, so the next
-                        // review (e.g. after fix iteration) only shows incremental changes.
-                        let new_baseline =
-                            crate::core::agent::orchestrator::create_review_baseline();
-
                         let outcome = ReviewOutcome {
                             display_text,
                             verdict,
                             report_summary,
                             report: Some(report),
                             auto_trigger: true, // auto-review triggers iterative fix loop
-                            review_baseline: new_baseline,
                         };
                         let _ = result_tx.send(outcome).await;
                     }
@@ -373,8 +340,7 @@ pub fn trigger_auto_review(app: &mut App) {
                             verdict: ReviewVerdict::NeedsRevision,
                             report_summary: String::new(),
                             report: None,
-                            auto_trigger: false,       // don't loop on errors
-                            review_baseline: baseline, // preserve existing baseline on error
+                            auto_trigger: false, // don't loop on errors
                         };
                         let _ = result_tx.send(outcome).await;
                     }
@@ -403,35 +369,19 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     app.streaming_text.clear();
     app.streaming_status.clear();
 
-    // Clear the completed tool result from the status bar.
-    // Without this, the status bar would keep showing "✅ tool complete"
-    // even after the stream ends, especially when the model's response
-    // is only reasoning_content (no regular text content) — in that case
-    // streaming_tool_result is never cleared by a Text event.
     app.streaming_tool_result = None;
 
-    // The UI has already accumulated all reasoning segments from streaming
-    // events (ReasoningDelta + ReasoningActive). When tools are called, the
-    // backend ReasoningTracker is reset between turns (reset_total in
-    // stream_response/mod.rs), so result.last_reasoning only contains the
-    // LAST turn's reasoning — prefer the UI-accumulated version which has
-    // the complete cross-turn picture.
     if !app.last_reasoning.is_empty() {
-        // UI has accumulated reasoning from streaming events — keep it.
         app.streaming_reasoning.clear();
     } else if !result.last_reasoning.is_empty() {
-        // Fallback: use backend's result (single-turn or first-turn only).
         app.last_reasoning = result.last_reasoning;
         app.streaming_reasoning.clear();
     } else if !app.streaming_reasoning.is_empty() {
-        // Last resort: streaming content not yet moved to last_reasoning.
         app.last_reasoning = std::mem::take(&mut app.streaming_reasoning);
     } else {
         app.streaming_reasoning.clear();
     }
 
-    // Merge archived pre-text reasoning segments (reasoning that appeared
-    // before any text content, each archived separately during streaming).
     for segment in app.completed_pre_text_segments.drain(..) {
         let trimmed = segment.trim_end();
         if !trimmed.is_empty() {
@@ -442,9 +392,6 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         }
     }
 
-    // Merge archived post-text reasoning segments into last_reasoning.
-    // Trim each segment to avoid blank-line cascades from trailing newlines
-    // in LLM reasoning output.
     for segment in app.completed_post_text_segments.drain(..) {
         let trimmed = segment.trim_end();
         if !trimmed.is_empty() {
@@ -454,7 +401,6 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
             app.last_reasoning.push_str(trimmed);
         }
     }
-    // Merge the final (still in-progress) post-text reasoning, if any.
     if !app.post_text_reasoning.is_empty() {
         let trimmed = app.post_text_reasoning.trim_end();
         if !trimmed.is_empty() {
@@ -469,11 +415,8 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     app.current_tool_call = None;
     app.streaming_events_rx = None;
 
-    // ── Todo continuation: auto-advance pending plan tasks ────────────────────
-    // Must run BEFORE partial moves of `result` below.
     check_todo_continuation(app, &result.updated_history);
 
-    // Sync the full backend history first.
     if !result.updated_history.is_empty() {
         let pruned: Vec<crate::app::ChatEntry> = result
             .updated_history
@@ -492,8 +435,6 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         }
     }
 
-    // Hide auto-fix prompts from chat display — they contain the full review report
-    // which is too verbose for the user. Replace with a concise status message.
     if app.review_iteration > 0 {
         if let Some(idx) = app
             .chat_history
@@ -509,14 +450,36 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
         }
     }
 
-    // Deduplicate reasoning prefix from the response.
-    let has_assistant = app.chat_history.last().map(|e| e.role.as_str()) == Some("assistant");
-    if has_assistant {
-        let last = app.chat_history.last_mut().unwrap();
-        let deduped = build_response_display(&last.content, &app.last_reasoning);
-        last.content = deduped;
-        if !app.last_reasoning.is_empty() && last.reasoning_content.is_none() {
-            last.reasoning_content = Some(app.last_reasoning.clone());
+    if let Some(last) = app.chat_history.last_mut() {
+        if last.role == "assistant" {
+            let deduped = build_response_display(&last.content, &app.last_reasoning);
+            last.content = deduped;
+            if !app.last_reasoning.is_empty() && last.reasoning_content.is_none() {
+                last.reasoning_content = Some(app.last_reasoning.clone());
+            }
+        } else {
+            let display_text = build_response_display(&result.full_response, &app.last_reasoning);
+            if !display_text.is_empty() {
+                if !app.last_reasoning.is_empty() {
+                    app.chat_history
+                        .push(crate::app::ChatEntry::assistant_with_reasoning(
+                            display_text,
+                            &app.last_reasoning,
+                        ));
+                } else {
+                    app.chat_history
+                        .push(crate::app::ChatEntry::assistant(display_text));
+                }
+            } else if !app.last_reasoning.is_empty() {
+                app.chat_history
+                    .push(crate::app::ChatEntry::assistant_with_reasoning(
+                        "",
+                        &app.last_reasoning,
+                    ));
+            } else {
+                app.chat_history
+                    .push(crate::app::ChatEntry::assistant("_(no response)_"));
+            }
         }
     } else {
         let display_text = build_response_display(&result.full_response, &app.last_reasoning);
@@ -544,14 +507,13 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     }
     app.show_inline_reasoning = !app.last_reasoning.is_empty();
 
-    // ── Preserve streaming_todos after completion ──────────────────────────
-    // Append the final plan to the assistant's message so it stays visible
-    // at the bottom of the response, rather than being buried earlier in the
-    // chat history as a separate tool entry.
     if let Some(ref todos_md) = final_todos {
         if !todos_md.is_empty() {
             if let Some(last) = app.chat_history.last_mut() {
                 if last.role == "assistant" {
+                    // Add newline separator so the markdown header doesn't merge
+                    // with the assistant's preceding text.
+                    last.content.push('\n');
                     last.content.push_str(todos_md);
                 }
             }
@@ -563,9 +525,6 @@ fn process_stream_result(app: &mut App, result: crate::core::agent::stream_respo
     app.turn_usage_line = result.turn_usage_line;
     app.auto_scroll = true;
 
-    // ── Response cooldown: delay before next user message ───────────────────
-    // When response_interval_ms is configured, set a cooldown deadline so the
-    // user has time to read the response before the next message is sent.
     let interval_ms = app.config.agent.response_interval_ms;
     if interval_ms > 0 {
         app.response_cooldown_until =
@@ -595,18 +554,12 @@ fn last_user_is_continuation(updated_history: &[crate::core::types::Message]) ->
 
 /// Returns true if the model's most recent response (last assistant message
 /// before any tool results) included tool calls, indicating active work.
-fn last_response_had_tool_calls(
-    updated_history: &[crate::core::types::Message],
-) -> bool {
-    // Walk backwards to find the last assistant message that is NOT followed
-    // by tool results (i.e. the assistant message from the current turn).
+fn last_response_had_tool_calls(updated_history: &[crate::core::types::Message]) -> bool {
     let mut saw_tool_result = false;
     for m in updated_history.iter().rev() {
         match m.role.as_str() {
             "tool" => saw_tool_result = true,
             "assistant" => {
-                // This is the last assistant message. If it has tool_calls
-                // or is followed by tool results, the model was working.
                 if m.tool_calls.is_some() || saw_tool_result {
                     return true;
                 }
@@ -620,16 +573,11 @@ fn last_response_had_tool_calls(
 
 /// Read `.mycode/.todos.json` and push a continuation prompt to the message queue
 /// when there are still pending or in-progress tasks.
-fn check_todo_continuation(
-    app: &mut App,
-    updated_history: &[crate::core::types::Message],
-) {
+fn check_todo_continuation(app: &mut App, updated_history: &[crate::core::types::Message]) {
     if app.continuation_count >= MAX_AUTO_CONTINUATIONS {
         return;
     }
 
-    // Only continue if we're already in a continuation loop OR the last
-    // model response involved tool calls (active work, not just chatting).
     let is_continuation = last_user_is_continuation(updated_history);
     let was_working = last_response_had_tool_calls(updated_history);
     if !is_continuation && !was_working {
@@ -653,10 +601,7 @@ fn check_todo_continuation(
             .get("status")
             .and_then(|s| s.as_str())
             .unwrap_or("pending");
-        let task = todo
-            .get("task")
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let task = todo.get("task").and_then(|t| t.as_str()).unwrap_or("");
         match status {
             "pending" | "in_progress" => {
                 if !task.is_empty() {
@@ -684,9 +629,7 @@ fn check_todo_continuation(
     let total = completed_count + pending_tasks.len();
     let msg = format!(
         "Continue working on the plan. Remaining tasks ({}/{}):\n{}",
-        completed_count,
-        total,
-        list,
+        completed_count, total, list,
     );
     app.message_queue.push(msg);
 }
@@ -714,9 +657,6 @@ fn build_response_display(full_response: &str, last_reasoning: &str) -> String {
 }
 
 /// Check if a message content is an auto-fix prompt that should be hidden from chat display.
-///
-/// Auto-fix prompts are generated by `build_fix_prompt` in the orchestrator and
-/// contain the full review report with all issues listed — too verbose for the user.
 pub fn is_auto_fix_prompt(content: &str) -> bool {
     content.starts_with("## 🔄 Code Review - Iteration")
         || content.starts_with("Please fix the issues found in the code review")

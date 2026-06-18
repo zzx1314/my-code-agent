@@ -280,10 +280,6 @@ pub struct App {
     /// Used for fingerprint-based deduplication to prevent repeated false positives.
     /// Cleared when the review loop ends (approved or max iterations reached).
     pub previous_review_issues: Vec<crate::core::types::review::ReviewIssue>,
-    /// Git baseline SHA for incremental review diff detection.
-    /// After each review completes, `git stash create` saves the current state.
-    /// Next review will `git diff <baseline>` to show only changes since last review.
-    pub review_baseline: Option<String>,
     // === Performance caches ===
     /// Cache of rendered markdown lines keyed by content string.
     /// Avoids re-parsing markdown on every frame for unchanged content.
@@ -442,7 +438,6 @@ impl App {
             review_reasoning: String::new(),
             review_feedback: String::new(),
             previous_review_issues: Vec::new(),
-            review_baseline: None,
             rendered_cache: HashMap::new(),
             git_diff_cache: HashMap::new(),
             translating: false,
@@ -489,6 +484,7 @@ pub fn model_display_name(model: &str) -> String {
         "deepseek/deepseek-v4-flash" => "DS V4 Flash".to_string(),
         "deepseek/deepseek-v4-pro" => "DS V4 Pro".to_string(),
         "openrouter/owl-alpha" => "Owl Alpha".to_string(),
+        "moonshotai/kimi-k2.6:free" => "Kimi-k2.6".to_string(),
         // ── DeepSeek aliases ──
         "deepseek-v4-flash" => "DS V4 Flash".to_string(),
         "deepseek-v4-pro" => "DS V4 Pro".to_string(),
@@ -513,6 +509,7 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
             "deepseek/deepseek-v4-flash".to_string(),
             "deepseek/deepseek-v4-pro".to_string(),
             "openrouter/owl-alpha".to_string(),
+            "moonshotai/kimi-k2.6:free".to_string(),
         ],
         "ollama" => fetch_ollama_models(),
         "custom" => vec!["custom-model".to_string()],

@@ -10,25 +10,20 @@ use crate::core::types::review::*;
 /// This is more reliable than parsing tool outputs, as it always reflects
 /// the actual working tree state.
 ///
-/// If `baseline` is `Some(sha)`, diff against that baseline commit instead of HEAD.
-/// This enables incremental reviews: after each review completes, a baseline is
-/// created via `git stash create`, and subsequent reviews only show changes since
-/// that baseline.
+/// Always diffs against HEAD so the review LLM sees the complete picture of
+/// all uncommitted changes. Designed after codebuff's approach: the review
+/// agent receives the full diff and relies on its system prompt to focus on
+/// the most relevant changes.
 ///
 /// Also detects untracked files (e.g., from `mv` via shell tool) so the review
 /// LLM has complete context — without this, a moved file would appear only as
 /// "Deleted" with no corresponding "Added" entry, causing false positives.
-pub async fn detect_changed_files_from_git(baseline: Option<&str>) -> Vec<ChangedFile> {
+pub async fn detect_changed_files_from_git() -> Vec<ChangedFile> {
     let mut files = Vec::new();
 
-    // Step 1: Get tracked changes via git diff
-    let mut args = vec!["diff", "--no-color"];
-    if let Some(base) = baseline {
-        args.push(base);
-    }
-
+    // Step 1: Get tracked changes via git diff (always against HEAD)
     let has_tracked_changes = match tokio::process::Command::new("git")
-        .args(&args)
+        .args(["diff", "--no-color"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()
@@ -130,56 +125,15 @@ pub async fn detect_changed_files_from_git(baseline: Option<&str>) -> Vec<Change
     if files.is_empty() {
         tracing::info!("detect_changed_files_from_git: no changes");
     } else {
-        tracing::info!(count = files.len(), tracked = has_tracked_changes, untracked = untracked_files.len(), baseline = ?baseline, "detect_changed_files_from_git: found changes");
+        tracing::info!(
+            count = files.len(),
+            tracked = has_tracked_changes,
+            untracked = untracked_files.len(),
+            "detect_changed_files_from_git: found changes"
+        );
     }
 
     files
-}
-
-/// Create a review baseline by running `git stash create`.
-///
-/// This creates a lightweight dangling commit that captures the current working
-/// tree state, and returns its SHA. The next call to `detect_changed_files_from_git`
-/// with this SHA as the baseline will only show changes made *after* this point.
-///
-/// This enables incremental reviews when the user hasn't committed between
-/// agent change rounds, preventing previously reviewed changes from being
-/// re-reviewed in each iteration.
-pub fn create_review_baseline() -> Option<String> {
-    let output = match std::process::Command::new("git")
-        .args(["stash", "create"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            tracing::warn!(
-                "create_review_baseline: failed to run git stash create: {}",
-                e
-            );
-            return None;
-        }
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::warn!(
-            "create_review_baseline: git stash create failed: {}",
-            stderr
-        );
-        return None;
-    }
-
-    let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if sha.is_empty() {
-        // Clean working tree — nothing to baseline against
-        tracing::info!("create_review_baseline: clean working tree, no baseline created");
-        None
-    } else {
-        tracing::info!(sha = %sha, "create_review_baseline: created baseline");
-        Some(sha)
-    }
 }
 
 /// Parse unified diff output from `git diff` into per-file `ChangedFile` entries.

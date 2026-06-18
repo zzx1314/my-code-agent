@@ -5,7 +5,7 @@ use my_code_agent::tools::ToolRegistry;
 fn test_all_tools_count() {
     let config = Config::default();
     let tools = ToolRegistry::from_config(&config);
-    assert_eq!(tools.len(), 20);
+    assert_eq!(tools.len(), 21);
 }
 
 #[test]
@@ -33,4 +33,5 @@ fn test_all_tools_names() {
     assert!(names.contains(&"git_commit".to_string()));
     assert!(names.contains(&"file_undo".to_string()));
     assert!(names.contains(&"write_todos".to_string()));
+    assert!(names.contains(&"md_to_word".to_string()));
 }

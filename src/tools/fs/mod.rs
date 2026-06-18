@@ -8,6 +8,7 @@ pub mod file_write;
 pub mod glob;
 pub mod list_dir;
 pub mod propose_str_replace;
+pub mod send_file;
 
 pub use apply_patch::ApplyPatch;
 pub use file_delete::FileDelete;
@@ -21,6 +22,7 @@ pub use file_write::FileWrite;
 pub use glob::GlobSearch;
 pub use list_dir::ListDir;
 pub use propose_str_replace::ProposeStrReplace;
+pub use send_file::SendFile;
 
 use crate::core::context::tool_dedup::get_global_tool_dedup;
 use crate::tools::infra::undo_history;

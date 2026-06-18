@@ -126,3 +126,31 @@ auto_review = true
 # Review severity threshold: "critical" | "high" | "medium" | "low"
 # Only issues at or above this severity will be reported. Default: "low"
 # severity_threshold = "low"
+
+# ── Document Conversion Settings (md_to_word) ──
+[doc]
+# Default reference .docx file for styling markdown-to-Word conversions.
+# The md_to_word tool uses this file via pandoc --reference-doc.
+# Path is relative to the project root.
+# Default: "template/template_标题不编号-列表第二行缩进.docx"
+reference_doc = "template/template_标题不编号-列表第二行缩进.docx"
+
+# ── WebSocket Client (Headless Mode) ──
+# Connect to a WebSocket server and receive commands remotely.
+# When enabled and configured, the app runs in headless mode (no TUI).
+# See src/core/ws_client/ for the protocol definition.
+[ws_client]
+# Enable WebSocket client (headless mode). Default: false
+enabled = false
+
+# WebSocket server URL to connect to.
+# url = "ws://localhost:8080/agent"
+
+# Reconnection interval in seconds (exponential backoff starts here).
+# Default: 2
+# reconnect_interval_secs = 2
+
+# Authentication token (sent as first message after connecting).
+# Optional — omit if the server doesn't require auth.
+# auth_token = "your-auth-token"
+

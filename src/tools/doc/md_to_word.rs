@@ -1,0 +1,184 @@
+use crate::core::config::Config;
+use crate::core::types::ToolDefinition;
+use crate::tools::Tool;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, thiserror::Error)]
+pub enum MdToWordError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct MdToWordArgs {
+    /// Path to the input Markdown file
+    pub input_file: String,
+    /// Path to the output Word file (optional, defaults to same name with .docx extension)
+    #[serde(default)]
+    pub output_file: Option<String>,
+    /// Custom template file path (optional)
+    #[serde(default)]
+    pub template: Option<String>,
+    /// Reference document for styling (optional, defaults to config doc.reference_doc)
+    #[serde(default)]
+    pub reference_doc: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct MdToWordOutput {
+    pub success: bool,
+    pub input_file: String,
+    pub output_file: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct MdToWord {
+    /// Default reference document path from config.
+    default_reference_doc: String,
+}
+
+impl MdToWord {
+    pub fn new() -> Self {
+        Self {
+            default_reference_doc: "template/template_标题不编号-列表第二行缩进.docx".to_string(),
+        }
+    }
+
+    /// Creates a new `MdToWord` tool with a config-specified default reference document.
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            default_reference_doc: config.doc.reference_doc.clone(),
+        }
+    }
+
+    fn get_default_output_path(input: &Path) -> PathBuf {
+        let mut output = input.to_path_buf();
+        output.set_extension("docx");
+        output
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for MdToWord {
+    fn name(&self) -> &str {
+        "md_to_word"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: self.name().to_string(),
+            description:
+                "Convert a Markdown file to Word (docx) format using pandoc. Use this tool \
+                to create Word documents by first writing Markdown content with file_write, then \
+                converting it with md_to_word. The original .md file will be preserved for \
+                future modifications. Supports optional custom templates and reference documents \
+                for styling."
+                    .to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "input_file": {
+                        "type": "string",
+                        "description": "Path to the input Markdown file (.md)"
+                    },
+                    "output_file": {
+                        "type": "string",
+                        "description": "Path to the output Word file (.docx). If not specified, uses the same name as input with .docx extension."
+                    },
+                    "template": {
+                        "type": "string",
+                        "description": "Path to a custom Pandoc template file for formatting"
+                    },
+                    "reference_doc": {
+                        "type": "string",
+                        "description": "Path to a reference Word document for styling (e.g., custom fonts, margins). Defaults to template/template_标题不编号-列表第二行缩进.docx if not specified."
+                    }
+                },
+                "required": ["input_file"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: serde_json::Value) -> Result<String, String> {
+        let args: MdToWordArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
+
+        let input_path = Path::new(&args.input_file);
+
+        // Validate input file exists
+        if !input_path.exists() {
+            return Err(format!("Input file not found: {}", args.input_file));
+        }
+
+        // Validate input file extension
+        if input_path.extension().and_then(|e| e.to_str()) != Some("md") {
+            return Err("Input file must have .md extension".to_string());
+        }
+
+        // Determine output path
+        let output_path = match &args.output_file {
+            Some(path) => PathBuf::from(path),
+            None => Self::get_default_output_path(input_path),
+        };
+
+        // Check if pandoc is available
+        let pandoc_check = tokio::process::Command::new("pandoc")
+            .arg("--version")
+            .output()
+            .await;
+
+        if let Err(e) = pandoc_check {
+            return Err(format!(
+                "Pandoc is not installed or not in PATH. Please install pandoc first. Error: {}",
+                e
+            ));
+        }
+
+        // Build pandoc command
+        let mut cmd = tokio::process::Command::new("pandoc");
+        cmd.arg(&args.input_file)
+            .arg("-o")
+            .arg(&output_path)
+            .arg("--to")
+            .arg("docx");
+
+        // Add optional template
+        if let Some(template) = &args.template {
+            if !Path::new(template).exists() {
+                return Err(format!("Template file not found: {}", template));
+            }
+            cmd.arg("--template").arg(template);
+        }
+
+        // Determine reference document: use configured default if none specified
+        let reference_doc = args
+            .reference_doc
+            .unwrap_or_else(|| self.default_reference_doc.clone());
+        if !Path::new(&reference_doc).exists() {
+            return Err(format!("Reference document not found: {}", reference_doc));
+        }
+        cmd.arg("--reference-doc").arg(&reference_doc);
+
+        // Execute pandoc
+        let output = cmd.output().await.map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            let result = MdToWordOutput {
+                success: true,
+                input_file: args.input_file.clone(),
+                output_file: output_path.display().to_string(),
+                message: format!(
+                    "Successfully converted {} to {}. The original .md file has been preserved for future modifications.",
+                    args.input_file,
+                    output_path.display()
+                ),
+            };
+            serde_json::to_string(&result).map_err(|e| e.to_string())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Pandoc conversion failed: {}", stderr))
+        }
+    }
+}

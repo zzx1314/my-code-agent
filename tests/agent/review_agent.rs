@@ -226,7 +226,6 @@ fn test_review_outcome_approved() {
         report_summary: "Score: 95/100".to_string(),
         report: None,
         auto_trigger: true,
-        review_baseline: None,
     };
     assert_eq!(outcome.verdict, ReviewVerdict::Approved);
     assert!(outcome.auto_trigger);
@@ -244,7 +243,6 @@ fn test_review_outcome_needs_revision() {
         report_summary: "Score: 65/100, 3 issues".to_string(),
         report: None,
         auto_trigger: true,
-        review_baseline: None,
     };
     assert_eq!(outcome.verdict, ReviewVerdict::NeedsRevision);
     // NeedsRevision + auto_trigger = SHOULD trigger fix loop
@@ -261,7 +259,6 @@ fn test_review_outcome_manual_no_trigger() {
         report_summary: "Score: 50/100".to_string(),
         report: None,
         auto_trigger: false,
-        review_baseline: None,
     };
     // Even with NeedsRevision, auto_trigger=false = should NOT trigger fix loop
     let should_fix = outcome.auto_trigger && outcome.verdict != ReviewVerdict::Approved;
@@ -435,9 +432,10 @@ fn test_review_reasoning_cleared_between_phases() {
     );
 }
 
-/// check_review_result clears review_reasoning when a completed outcome arrives.
+/// check_review_result preserves review_reasoning when a completed outcome arrives,
+/// so the user can still see the reasoning after the review finishes.
 #[test]
-fn test_check_review_result_clears_reasoning_on_completed() {
+fn test_check_review_result_preserves_reasoning_on_completed() {
     let mut app = make_review_test_app();
     let (tx, rx) = mpsc::channel::<ReviewOutcome>(1);
     app.review_result_rx = Some(rx);
@@ -452,7 +450,6 @@ fn test_check_review_result_clears_reasoning_on_completed() {
         report_summary: "Score: 95/100".to_string(),
         report: None,
         auto_trigger: true,
-        review_baseline: None,
     };
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -462,10 +459,9 @@ fn test_check_review_result_clears_reasoning_on_completed() {
 
     check_review_result(&mut app);
 
-    assert!(
-        app.review_reasoning.is_empty(),
-        "review_reasoning should be cleared when review completes, got: {:?}",
-        app.review_reasoning
+    assert_eq!(
+        app.review_reasoning, "Final phase reasoning...",
+        "review_reasoning should be preserved after review completes"
     );
     assert!(
         !app.is_reviewing,
@@ -499,9 +495,10 @@ fn test_check_review_result_clears_reasoning_on_disconnect() {
     );
 }
 
-/// check_review_result clears review_reasoning on max iterations reached.
+/// check_review_result preserves review_reasoning on max iterations reached,
+/// so the user can still see the final reasoning.
 #[test]
-fn test_check_review_result_clears_reasoning_on_max_iterations() {
+fn test_check_review_result_preserves_reasoning_on_max_iterations() {
     let mut app = make_review_test_app();
     let (tx, rx) = mpsc::channel::<ReviewOutcome>(1);
     app.review_result_rx = Some(rx);
@@ -519,7 +516,6 @@ fn test_check_review_result_clears_reasoning_on_max_iterations() {
         report_summary: "Score: 60/100".to_string(),
         report: None,
         auto_trigger: true,
-        review_baseline: None,
     };
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -529,10 +525,9 @@ fn test_check_review_result_clears_reasoning_on_max_iterations() {
 
     check_review_result(&mut app);
 
-    assert!(
-        app.review_reasoning.is_empty(),
-        "review_reasoning should be cleared when max iterations reached, got: {:?}",
-        app.review_reasoning
+    assert_eq!(
+        app.review_reasoning, "Last attempt reasoning...",
+        "review_reasoning should be preserved when max iterations reached"
     );
     assert!(
         !app.is_reviewing,
@@ -709,61 +704,63 @@ fn test_iteration_status_messages() {
 use my_code_agent::core::agent::review::ReviewAgent;
 use my_code_agent::core::types::Message;
 
-/// Test extract_context_from_history: keeps user messages, includes main agent's
-/// response to fix prompts as Previous Iteration Feedback, filters out fix prompt content itself.
+/// Test extract_context_from_history: multi-step includes all user messages with latest highlighted.
 #[test]
-fn test_extract_context_from_history_includes_agent_feedback() {
+fn test_extract_context_from_history_multi_step_includes_both() {
     let history = vec![
         Message::user("Add a CSV parser that reads a file and sorts by column"),
         Message::assistant("Here is the code..."),
         Message::tool("call_1", "file_write result"),
-        // Simulated fix prompt from auto-review loop - content should be filtered
-        Message::user("fix the issues found in the code review (iteration 1/3)"),
-        Message::assistant(
-            "The README language issue is not a real problem — the project uses English by convention. I'll fix the actual bugs though.",
-        ),
-        // Another fix prompt
-        Message::user("Auto-Review Iteration 2/3 - Fix Required"),
+        Message::user("Now add error handling for missing files"),
+        Message::assistant("Adding error handling..."),
     ];
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain the original user request
+    // Multi-step: should contain all historical messages + latest highlighted
     assert!(
-        context.contains("Add a CSV parser"),
-        "Should keep original user request"
-    );
-    // Should NOT contain fix prompt content
-    assert!(
-        !context.contains("fix the issues found"),
-        "Should filter out fix prompts"
+        context.contains("CSV parser"),
+        "Should include first historical message, got: {}",
+        context
     );
     assert!(
-        !context.contains("Auto-Review Iteration"),
-        "Should filter out iteration messages"
+        context.contains("add error handling"),
+        "Should include latest request, got: {}",
+        context
     );
     assert!(
-        !context.contains("Fix Required"),
-        "Should filter out fix required messages"
-    );
-    // Should include the main agent's response as Previous Iteration Feedback
-    assert!(
-        context.contains("Previous Iteration Feedback"),
-        "Should include feedback section"
+        context.contains("Conversation History"),
+        "Should have Conversation History section"
     );
     assert!(
-        context.contains("README language issue is not a real problem"),
-        "Should include agent's response to review"
+        context.contains("Current Task (Primary Focus)"),
+        "Should have Current Task (Primary Focus) section"
     );
-    // Should NOT contain "What Was Implemented" since last assistant follows a fix prompt
+}
+
+/// Test extract_context_from_history: single message returned directly without sections.
+#[test]
+fn test_extract_context_from_history_single_message() {
+    let history = vec![
+        Message::user("Add a CSV parser that reads a file and sorts by column"),
+        Message::assistant("Here is the code..."),
+    ];
+
+    let context = ReviewAgent::extract_context_from_history(&history);
+
+    // Single user message: returned directly without "Original Requirement" section
     assert!(
-        !context.contains("What Was Implemented"),
-        "Should skip What Was Implemented for fix responses"
+        context.contains("CSV parser"),
+        "Should contain the message content"
+    );
+    assert!(
+        !context.contains("Original Requirement"),
+        "Single message should NOT have sections"
     );
 }
 
 /// Test extract_context_from_history: returns empty string when all messages are
-/// fix prompts with no agent responses (no feedback to extract).
+/// fix prompts (filtered by clean_review_content).
 #[test]
 fn test_extract_context_from_history_only_fix_prompts() {
     let history = vec![
@@ -774,46 +771,46 @@ fn test_extract_context_from_history_only_fix_prompts() {
     let context = ReviewAgent::extract_context_from_history(&history);
     assert!(
         context.is_empty(),
-        "Should return empty when only fix prompts with no agent responses"
+        "Should return empty when only fix prompts"
     );
 }
 
-/// Test extract_context_from_history: includes original request + recent follow-up
-/// and should NOT include Previous Iteration Feedback when there are no fix prompts.
+/// Test extract_context_from_history: multi-step includes ALL messages, latest highlighted.
 #[test]
-fn test_extract_context_from_history_includes_original_and_recent() {
+fn test_extract_context_from_history_multi_step_preserves_original_and_latest() {
     let history = vec![
-        Message::user("First question"),
+        Message::user("First question about architecture"),
         Message::assistant("Answer 1"),
-        Message::user("Second question - follow up"),
+        Message::user("Second question about database"),
         Message::assistant("Answer 2"),
         Message::user("Third question - final request"),
     ];
 
     let context = ReviewAgent::extract_context_from_history(&history);
 
-    // Should contain the original request (always included)
+    // Should contain ALL user messages
     assert!(
         context.contains("First question"),
-        "Should contain original request"
+        "Should contain first question in history"
     );
-    // Should contain the follow-up (between first user and last assistant)
     assert!(
         context.contains("Second question"),
-        "Should contain follow-up message"
+        "Should contain middle question in history"
     );
-    // Messages after last assistant are not included
     assert!(
-        !context.contains("Third question"),
-        "Should NOT contain message after last assistant"
+        context.contains("Third question"),
+        "Should contain third question as current task"
     );
-    // No fix prompts → no Previous Iteration Feedback
+    // Conversation History should come before Current Task (Primary Focus)
+    let history_pos = context.find("Conversation History").unwrap();
+    let current_pos = context.find("Current Task (Primary Focus)").unwrap();
     assert!(
-        !context.contains("Previous Iteration Feedback"),
-        "Should not have feedback section when no fix prompts"
+        history_pos < current_pos,
+        "Conversation History should come before Current Task (Primary Focus)"
     );
 }
 
+// =============================================================================
 // =============================================================================
 // Tests for ReviewCategory::FunctionalCompleteness
 // =============================================================================
@@ -1327,9 +1324,6 @@ fn test_is_auto_fix_prompt_edge_cases() {
 
 use my_code_agent::core::agent::client::LlmClient;
 use my_code_agent::core::agent::orchestrator::AgentOrchestrator;
-use my_code_agent::core::agent::orchestrator::{
-    create_review_baseline, detect_changed_files_from_git,
-};
 use my_code_agent::core::agent::preamble::Agent;
 use my_code_agent::core::config::Config;
 use my_code_agent::core::types::{ToolCall, ToolCallFunction};
@@ -1544,248 +1538,3 @@ fn test_should_auto_review_missing_file_path_still_triggers() {
 }
 
 // =============================================================================
-// Tests for review_baseline — incremental diff integration tests
-// =============================================================================
-//
-// Scenario: after multiple rounds of code modification, review_baseline ensures
-// the review only sees incremental changes, not cumulative ones.
-//
-// Test flow:
-// 1. Create an independent git repo in a temp directory, commit initial files
-// 2. Round 1: modify file_a.rs (add hello function)
-//    - verify: detect_changed_files(None) detects 1 changed file
-// 3. Create review baseline (create_review_baseline)
-//    - verify: returns a valid SHA
-//    - verify: detect_changed_files(baseline) returns empty (baseline captures current state)
-// 4. Round 2: modify file_a.rs (add goodbye function) + create file_b.rs
-//    - verify: detect_changed_files(None) shows cumulative changes (2 files, file_a has all rounds)
-//    - verify: detect_changed_files(Some(baseline)) shows incremental changes (2 files, file_a only round 2)
-//    - verify: incremental file_a lines < cumulative file_a lines
-//    - verify: incremental file_b lines == cumulative file_b lines (new file, same in both)
-//
-// Note: these tests use set_current_dir which changes the process-level global
-// directory, so they must use a global mutex for serialized execution to avoid
-// parallel test interference. All test_review_baseline_* tests acquire
-// REVIEW_BASELINE_TEST_MUTEX.
-
-use tempfile::TempDir;
-
-use std::sync::LazyLock;
-use std::sync::Mutex;
-
-/// Global mutex: serialize all review_baseline integration tests.
-/// These tests must exclusively hold set_current_dir — parallel runs would overwrite each other.
-static REVIEW_BASELINE_TEST_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
-/// Drop guard: ensures the original directory is restored even on panic.
-/// Unlike manual `restore()` closures, this struct restores automatically on drop,
-/// and panic triggers drop (unless abort).
-struct CwdGuard {
-    original_dir: std::path::PathBuf,
-}
-
-impl CwdGuard {
-    fn new(temp_dir: &TempDir) -> Self {
-        let original_dir = std::env::current_dir().expect("Failed to get current dir");
-        std::env::set_current_dir(temp_dir.path()).expect("Failed to cd to temp dir");
-        CwdGuard { original_dir }
-    }
-}
-
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.original_dir);
-    }
-}
-
-fn run_git(args: &[&str]) {
-    let output = std::process::Command::new("git")
-        .args(args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .expect("Failed to run git command");
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        panic!("git {} failed: {}", args.join(" "), stderr);
-    }
-}
-
-#[test]
-fn test_review_baseline_incremental_diff() {
-    let _lock = REVIEW_BASELINE_TEST_MUTEX
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let _guard = CwdGuard::new(&temp_dir);
-
-    // Initialize git repository
-    run_git(&["init"]);
-    run_git(&["config", "user.email", "test@test.com"]);
-    run_git(&["config", "user.name", "Test"]);
-
-    // Initial commit: lib.rs with main function
-    std::fs::write("lib.rs", "fn main() {\n    println!(\"v1\");\n}\n")
-        .expect("Failed to write lib.rs");
-    run_git(&["add", "lib.rs"]);
-    run_git(&["commit", "-m", "Initial"]);
-
-    let _orch = make_orchestrator(true);
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-
-    // ---- Round 1: add feature_x ----
-    std::fs::write(
-        "lib.rs",
-        "fn main() {\n    println!(\"v1\");\n}\n\npub fn feature_x() -> &'static str {\n    \"x\"\n}\n",
-    )
-    .expect("Failed");
-
-    let round1_changes = rt.block_on(detect_changed_files_from_git(None));
-    assert_eq!(round1_changes.len(), 1);
-    let r1_added = round1_changes[0].lines_added;
-    assert!(r1_added > 0);
-
-    // Create baseline
-    let baseline_sha = create_review_baseline().expect("Should create baseline after round 1");
-    assert!(!baseline_sha.is_empty());
-
-    // Baseline should exactly capture current state
-    let baseline_check = rt.block_on(detect_changed_files_from_git(Some(&baseline_sha)));
-    assert!(baseline_check.is_empty());
-
-    // ---- Round 2: add feature_y (modify lib.rs only, no new file) ----
-    // git diff doesn't show untracked files, so only modify existing files to verify incremental logic
-    std::fs::write(
-        "lib.rs",
-        "fn main() {\n    println!(\"v1\");\n}\n\npub fn feature_x() -> &'static str {\n    \"x\"\n}\n\npub fn feature_y() -> &'static str {\n    \"y\"\n}\n",
-    )
-    .expect("Failed");
-
-    // Cumulative diff (no baseline) = round 1 + round 2 all changes
-    let cumulative = rt.block_on(detect_changed_files_from_git(None));
-    assert_eq!(cumulative.len(), 1);
-    let cum_added = cumulative[0].lines_added;
-
-    // Incremental diff (with baseline) = only round 2 changes
-    let incremental = rt.block_on(detect_changed_files_from_git(Some(&baseline_sha)));
-    assert_eq!(incremental.len(), 1);
-    let inc_added = incremental[0].lines_added;
-
-    // Core assertion: incremental < cumulative (baseline excludes round 1 changes)
-    assert!(
-        inc_added < cum_added,
-        "incremental ({}) should be < cumulative ({})",
-        inc_added,
-        cum_added
-    );
-    // Incremental lines should equal exactly round 2 additions
-    let round2_added = cum_added - r1_added;
-    assert_eq!(
-        inc_added, round2_added,
-        "incremental ({}) should equal round2 only ({})",
-        inc_added, round2_added
-    );
-}
-
-#[test]
-fn test_create_review_baseline_clean_tree_returns_none() {
-    let _lock = REVIEW_BASELINE_TEST_MUTEX
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let _guard = CwdGuard::new(&temp_dir);
-
-    run_git(&["init"]);
-    run_git(&["config", "user.email", "test@test.com"]);
-    run_git(&["config", "user.name", "Test"]);
-
-    std::fs::write("main.rs", "fn main() {}").expect("Failed");
-    run_git(&["add", "main.rs"]);
-    run_git(&["commit", "-m", "Initial"]);
-
-    assert!(create_review_baseline().is_none());
-}
-
-#[test]
-fn test_detect_changed_files_non_git_directory() {
-    let _lock = REVIEW_BASELINE_TEST_MUTEX
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let _guard = CwdGuard::new(&temp_dir);
-
-    let _orch = make_orchestrator(true);
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-
-    // Non-git directory should return empty Vec, no panic
-    let changes = rt.block_on(detect_changed_files_from_git(None));
-    assert!(changes.is_empty());
-
-    // Invalid baseline should not panic either
-    let changes_with_baseline = rt.block_on(detect_changed_files_from_git(Some("invalid-sha")));
-    assert!(changes_with_baseline.is_empty());
-}
-
-/// Full lifecycle: 3 rounds of modification + 2 baseline creations, verify chained increments
-#[test]
-fn test_review_baseline_full_lifecycle() {
-    let _lock = REVIEW_BASELINE_TEST_MUTEX
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let _guard = CwdGuard::new(&temp_dir);
-
-    run_git(&["init"]);
-    run_git(&["config", "user.email", "test@test.com"]);
-    run_git(&["config", "user.name", "Test"]);
-
-    std::fs::write("lib.rs", "fn init() {}\n").expect("Failed");
-    run_git(&["add", "lib.rs"]);
-    run_git(&["commit", "-m", "Initial"]);
-
-    let _orch = make_orchestrator(true);
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-
-    // ---- Round 1 ----
-    std::fs::write(
-        "lib.rs",
-        "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x\"\n}\n",
-    )
-    .expect("Failed");
-    let sha1 = create_review_baseline().expect("Round 1 baseline");
-    assert!(
-        rt.block_on(detect_changed_files_from_git(Some(&sha1)))
-            .is_empty()
-    );
-
-    // ---- Round 2 ----
-    std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x\"\n}\n\npub fn feature_y() -> &'static str {\n    \"feature_y\"\n}\n").expect("Failed");
-
-    let cumulative2 = rt.block_on(detect_changed_files_from_git(None));
-    let cum2_added = cumulative2[0].lines_added;
-
-    let incremental2 = rt.block_on(detect_changed_files_from_git(Some(&sha1)));
-    let inc2_added = incremental2[0].lines_added;
-
-    // 增量 < 累积：基线排除了第 1 轮改动
-    assert!(inc2_added < cum2_added);
-
-    // 第 2 次基线
-    let sha2 = create_review_baseline().expect("Round 2 baseline");
-    assert_ne!(sha1, sha2);
-    assert!(
-        rt.block_on(detect_changed_files_from_git(Some(&sha2)))
-            .is_empty()
-    );
-
-    // ---- Round 3 ----
-    std::fs::write("lib.rs", "fn init() {}\n\npub fn feature_x() -> &'static str {\n    \"feature_x_updated\"\n}\n\npub fn feature_y() -> &'static str {\n    \"feature_y\"\n}\n").expect("Failed");
-
-    let from_sha1 = rt.block_on(detect_changed_files_from_git(Some(&sha1)));
-    let from_sha2 = rt.block_on(detect_changed_files_from_git(Some(&sha2)));
-
-    // Old baseline shows more changes (round 2 + round 3)
-    assert!(from_sha1[0].lines_added > from_sha2[0].lines_added);
-}
-
-// _guard and _lock drop here → CwdGuard restores directory, Mutex unlocks, TempDir cleans up

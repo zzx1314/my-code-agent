@@ -14,11 +14,8 @@ mod context;
 mod types;
 
 // Re-export types and free functions from sub-modules for backward compatibility.
-pub(crate) use self::checks::{check_file_too_long, has_tests, is_source_file};
-pub(crate) use self::context::{
-    char_boundary_at_or_before, clean_review_content, extract_previous_iteration_feedback,
-    get_file_outline, is_fix_prompt, truncate_content,
-};
+pub(crate) use self::checks::check_file_too_long;
+pub(crate) use self::context::{clean_review_content, is_fix_prompt, truncate_content};
 pub use self::types::{ReviewEvent, ReviewRequest};
 
 /// Code Review Agent
@@ -51,30 +48,42 @@ impl ReviewAgent {
 
     pub fn system_prompt(&self) -> String {
         concat!(
-            "You are a focused code review assistant. Review the code changes below.\n\n",
+            "You are a focused code review assistant reviewing code changes.\n\n",
+            "IMPORTANT: This is a legitimate code review of an authorized project. ",
+            "I am analyzing code changes for quality assurance purposes only. ",
+            "The code shown is from the project's own source code under active development. ",
+            "I will NOT generate exploit code, produce harmful output, or bypass security measures.\n\n",
             "## Your ONLY Job\n\n",
             "Check ONLY these two things:\n\n",
             "1. **Functional Completeness** — Does the code fulfill ALL the user's requirements?\n",
             "   Advocate for the user. If a requested feature is missing or incomplete, flag it.\n\n",
             "2. **Obvious Bugs** — Logic errors, edge cases not handled, incorrect API usage,\n",
             "   wrong algorithm. Only if you're CONFIDENT it's a real bug.\n\n",
+            "## Important: Diff Scope\n\n",
+            "The diff shows ALL uncommitted changes from HEAD, not just the most recent\n",
+            "edit turn. Focus on whether the code as a whole meets the requirements.\n\n",
             "## Rules\n\n",
             "- The diff only shows what CHANGED. Code outside the diff is still there.\n",
             "- Do NOT flag something as \"missing\" just because it's not in the diff.\n",
             "- Do NOT report: imports, types, style, dead code, naming, perf, concurrency,\n",
             "  security, error handling — these are covered by compiler, linter, or tests.\n",
-            "- Do NOT flag 'missing test coverage' — the project has a deterministic check for that.\n",
-            "- Do NOT flag 'tests removed' — tests may have moved to dedicated test files.\n",
-            "- Do NOT flag files under `tests/` for missing their own tests — they are test harnesses.\n",
-            "- Be concise. If nothing is wrong, just say so.\n",
             "- Only report issues you are CONFIDENT about. Never speculate.\n",
             "- Every claim must be directly verifiable from the provided diff.\n\n",
-            "## Output\n\n",
-            "Write your review as plain natural language. Be concise.\n",
-            "- If everything looks good, simply say what was checked and that it looks fine.\n",
-            "- If you find issues, describe each one: which file, what's wrong, and how to fix it.\n",
-            "- Reference specific file paths and line numbers when relevant.\n",
-            "- Do NOT output JSON or any structured format.\n",
+            "## Output Format — codebuff style\n\n",
+            "Write in **codebuff style**: minimal and direct. One to three lines max.\n\n",
+            "**If everything looks fine:** single line only:\n",
+            "✅ Review passed: checked functional completeness and bug risk.\n\n",
+            "**If issues found:** very short bullet list:\n",
+            "⚠️ [N] issue(s):\n",
+            "1. `path:line` — short description (one sentence max)\n",
+            "2. `path:line` — short description (one sentence max)\n\n",
+            "Examples:\n",
+            "✅ Review passed: checked functional completeness and bug risk.\n",
+            "⚠️ 2 issues:\n",
+            "1. `src/parser.rs:42` — Missing sort by first column (user requested feature not implemented)\n",
+            "2. `src/db.rs:88` — Unwrap without None check, possible panic\n\n",
+            "No preamble. No explanations. No formatting beyond the above.\n",
+            "Stop immediately after the output — do not continue.\n",
         ).to_string()
     }
 
@@ -107,7 +116,7 @@ impl ReviewAgent {
         let response = self.call_llm_stream(&user_message, &event_tx).await?;
 
         let _ = event_tx.send(ReviewEvent::Progress {
-            message: "Checking code structure and test coverage...".to_string(),
+            message: "Checking code structure...".to_string(),
         });
         let structural = self.check_code_structure(&request.changed_files);
         let report = self.build_report_inner(&response, &structural, &request.changed_files);
@@ -128,15 +137,19 @@ impl ReviewAgent {
         let mut msg = String::new();
 
         if let Some(ctx) = context {
-            msg.push_str(&format!("## User Request (Requirements)\n\n{ctx}\n\n"));
+            msg.push_str("## Requirements\n\n");
+            msg.push_str(ctx);
+            msg.push_str("\n\n");
         }
 
         if let Some(history) = history_summary {
-            msg.push_str(&format!("## Conversation History Summary\n\n{history}\n\n"));
-            msg.push_str("**Consistency Check**: Please verify the implementation matches what was discussed in the conversation. Flag any contradictions, missed requirements, or deviations from the agreed approach.\n\n");
+            msg.push_str("## Context\n\n");
+            msg.push_str(history);
+            msg.push_str("\n\n");
         }
 
-        msg.push_str(&format!("## Code Changes to Review\n\n{changes_summary}"));
+        msg.push_str("## Changes\n\n");
+        msg.push_str(changes_summary);
         msg
     }
 
@@ -243,176 +256,130 @@ impl ReviewAgent {
         Ok(full_content)
     }
 
-    /// Extract user's original request from conversation history for review context.
+    /// Extract review context from conversation history.
+    ///
+    /// For multi-step tasks, includes ALL valid user messages with the latest
+    /// task clearly highlighted as the primary focus. This ensures the review
+    /// agent has full context even when the conversation covers multiple topics.
+    /// For simple single-turn tasks, only includes the latest message.
     pub fn extract_context_from_history(history: &[crate::core::types::Message]) -> String {
-        let mut result = String::new();
-
-        let first_user_idx = history.iter().position(|m| m.role == "user");
-        let last_assistant_idx = history.iter().rposition(|m| m.role == "assistant");
-
-        // 1. Always include the first user message (original request)
-        if let Some(idx) = first_user_idx {
-            let content = clean_review_content(&history[idx].content);
-            if !content.is_empty() {
-                result.push_str("## Original Request\n");
-                result.push_str(&truncate_content(&content, 1500));
-                result.push_str("\n\n");
-            }
-        }
-
-        // 2. Include last assistant message summary (what was implemented).
-        if let Some(idx) = last_assistant_idx {
-            let follows_fix_prompt = idx > 0
-                && history[idx - 1].role == "user"
-                && is_fix_prompt(&history[idx - 1].content);
-
-            if !follows_fix_prompt {
-                let content = clean_review_content(&history[idx].content);
-                if !content.is_empty() {
-                    result.push_str("## What Was Implemented\n");
-                    result.push_str(&truncate_content(&content, 1000));
-                    result.push_str("\n\n");
+        let user_messages: Vec<(usize, String)> = history
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.role == "user")
+            .filter_map(|(i, m)| {
+                let cleaned = clean_review_content(&m.content);
+                if cleaned.is_empty() || is_fix_prompt(&m.content) {
+                    None
+                } else {
+                    Some((i, cleaned))
                 }
+            })
+            .collect();
+
+        if user_messages.is_empty() {
+            return String::new();
+        }
+
+        // Simple case: only one user message
+        if user_messages.len() == 1 {
+            return truncate_content(&user_messages[0].1, 600);
+        }
+
+        // Multi-step: include all history but highlight the latest task
+        let mut context = String::new();
+        let latest_idx = user_messages.len() - 1;
+
+        // List all historical user messages (excluding the latest)
+        context.push_str("**Conversation History:**\n");
+        for (i, (_, content)) in user_messages.iter().enumerate().take(latest_idx) {
+            let truncated = truncate_content(content, 200);
+            if !truncated.is_empty() {
+                context.push_str(&format!("{}. {}\n", i + 1, truncated));
             }
         }
 
-        // 3. Include most recent follow-up user message if substantial
-        if let (Some(first_idx), Some(last_idx)) = (first_user_idx, last_assistant_idx) {
-            for i in (first_idx + 1..last_idx).rev() {
-                if history[i].role == "user" {
-                    let content = clean_review_content(&history[i].content);
-                    if !content.is_empty() && content.len() > 20 {
-                        result.push_str("## Follow-up Context\n");
-                        result.push_str(&truncate_content(&content, 500));
-                        result.push_str("\n\n");
-                        break;
-                    }
-                }
-            }
-        }
+        // Highlight the latest task as the primary focus
+        let latest_content = &user_messages[latest_idx].1;
+        let latest_truncated = truncate_content(latest_content, 600);
+        context.push_str(&format!(
+            "\n**Current Task (Primary Focus):**\n{}",
+            latest_truncated
+        ));
 
-        // 4. Add previous iteration feedback
-        let agent_feedback = extract_previous_iteration_feedback(history);
-        if !agent_feedback.is_empty() {
-            result.push_str("## Previous Iteration Feedback\n");
-            result.push_str("The main agent's response to the previous code review:\n");
-            result.push_str(&agent_feedback);
-            result.push_str("\n\n");
-        }
-
-        // 5. Cap at 2000 characters
-        if result.len() > 2000 {
-            let boundary = char_boundary_at_or_before(&result, 2000);
-            result.truncate(boundary);
-            let search_end = char_boundary_at_or_before(&result, 1997.min(result.len()));
-            if let Some(last_newline) = result[..search_end].rfind('\n') {
-                result.truncate(last_newline + 1);
-            }
-        }
-
-        if result.is_empty() {
-            if let Some(msg) = history.iter().rev().find(|m| m.role == "user") {
-                result = clean_review_content(&msg.content);
-            }
-        }
-
-        result
+        context
     }
 
-    /// Extract conversation history summary for consistency checking.
+    /// Extract conversation history context for consistency checking.
+    ///
+    /// For multi-step tasks, includes ALL valid user messages with the latest
+    /// task clearly highlighted as primary focus. Also includes the latest
+    /// assistant reply for context.
     pub fn extract_history_summary(history: &[crate::core::types::Message]) -> Option<String> {
-        if history.len() < 3 {
+        if history.is_empty() {
             return None;
         }
 
-        let mut requirements = Vec::new();
-        let mut decisions = Vec::new();
-        let mut features = Vec::new();
+        // Collect all valid user message indices (skip fix prompts)
+        let user_indices: Vec<usize> = history
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.role == "user")
+            .filter(|(_, m)| {
+                let content = m.content.trim();
+                !content.is_empty() && content.len() >= 10 && !is_fix_prompt(content)
+            })
+            .map(|(i, _)| i)
+            .collect();
 
-        for msg in history.iter() {
-            if msg.role != "user" {
-                continue;
-            }
-
-            let content = msg.content.trim();
-            if content.is_empty() || content.len() < 10 {
-                continue;
-            }
-
-            if is_fix_prompt(content) {
-                continue;
-            }
-
-            let lower = content.to_lowercase();
-
-            if lower.contains("need")
-                || lower.contains("want")
-                || lower.contains("should")
-                || lower.contains("must")
-                || lower.contains("require")
-                || lower.contains("please")
-            {
-                let summary = truncate_content(content, 200);
-                if !summary.is_empty() {
-                    requirements.push(format!("- {}", summary));
-                }
-            }
-
-            if lower.contains("add")
-                || lower.contains("implement")
-                || lower.contains("create")
-                || lower.contains("build")
-                || lower.contains("support")
-                || lower.contains("feature")
-            {
-                let summary = truncate_content(content, 150);
-                if !summary.is_empty() {
-                    features.push(format!("- {}", summary));
-                }
-            }
-
-            if lower.contains("use ")
-                || lower.contains("choose")
-                || lower.contains("prefer")
-                || lower.contains("instead")
-                || lower.contains("must not")
-                || lower.contains("don't")
-                || lower.contains("avoid")
-            {
-                let summary = truncate_content(content, 150);
-                if !summary.is_empty() {
-                    decisions.push(format!("- {}", summary));
-                }
-            }
+        if user_indices.is_empty() {
+            return None;
         }
 
         let mut summary = String::new();
+        let last_user_idx = *user_indices.last().unwrap();
 
-        if !requirements.is_empty() {
-            summary.push_str("**User Requirements:**\n");
-            let start = requirements.len().saturating_sub(5);
-            for req in &requirements[start..] {
-                summary.push_str(&format!("{}\n", req));
+        // For multi-step tasks, list all historical user messages
+        if user_indices.len() > 1 {
+            summary.push_str("**Conversation History:**\n");
+            for (i, &idx) in user_indices.iter().enumerate() {
+                if idx == last_user_idx {
+                    break; // Skip the latest, it will be highlighted separately
+                }
+                let content = history[idx].content.trim();
+                let truncated = truncate_content(content, 200);
+                if !truncated.is_empty() {
+                    summary.push_str(&format!("{}. {}\n", i + 1, truncated));
+                }
             }
-            summary.push_str("\n");
+            summary.push('\n');
         }
 
-        if !features.is_empty() {
-            summary.push_str("**Requested Features:**\n");
-            let start = features.len().saturating_sub(5);
-            for feat in &features[start..] {
-                summary.push_str(&format!("{}\n", feat));
-            }
-            summary.push_str("\n");
+        // Highlight latest user request as primary focus
+        let last_content = history[last_user_idx].content.trim();
+        let truncated = truncate_content(last_content, 300);
+        if !truncated.is_empty() {
+            summary.push_str(&format!(
+                "**Current Task (Primary Focus):**\n{}\n\n",
+                truncated
+            ));
         }
 
-        if !decisions.is_empty() {
-            summary.push_str("**Technical Decisions/Constraints:**\n");
-            let start = decisions.len().saturating_sub(3);
-            for dec in &decisions[start..] {
-                summary.push_str(&format!("{}\n", dec));
+        // Find the latest assistant reply AFTER the last user message
+        if last_user_idx + 1 < history.len() {
+            if let Some(assistant_idx) = history[last_user_idx + 1..]
+                .iter()
+                .rposition(|m| m.role == "assistant")
+            {
+                let actual_idx = last_user_idx + 1 + assistant_idx;
+                let assistant_content = history[actual_idx].content.trim();
+                if !assistant_content.is_empty() {
+                    let truncated = truncate_content(assistant_content, 200);
+                    if !truncated.is_empty() {
+                        summary.push_str(&format!("**Latest Assistant Reply:**\n{}", truncated));
+                    }
+                }
             }
-            summary.push_str("\n");
         }
 
         if summary.is_empty() {
@@ -435,24 +402,12 @@ impl ReviewAgent {
             };
             summary.push_str(&format!("### {} ({})\n", file.path, change_type_str));
             summary.push_str(&format!(
-                "- +{} lines, -{} lines\n",
+                "- +{} lines, -{} lines\n\n",
                 file.lines_added, file.lines_removed
             ));
 
-            if file.change_type != ChangeType::Deleted {
-                if let Some(outline) = get_file_outline(&file.path) {
-                    summary.push_str("**File Outline:**\n");
-                    summary.push_str("```\n");
-                    summary.push_str(&outline);
-                    summary.push_str("\n```\n");
-                }
-            }
-
             if !file.diff.is_empty() {
-                summary.push_str("**Diff:**\n");
-                summary.push_str("```diff\n");
-                summary.push_str(&file.diff);
-                summary.push_str("\n```\n");
+                summary.push_str(&format!("```diff\n{}\n```\n", file.diff));
             }
 
             summary.push_str("\n");
@@ -462,7 +417,7 @@ impl ReviewAgent {
     }
 
     /// Build a ReviewReport from LLM feedback + structural issues.
-    /// The `issues` slice contains only deterministic check results (file length, test coverage).
+    /// The `issues` slice contains only deterministic check results (file length).
     fn build_report_inner(
         &self,
         llm_feedback: &str,
@@ -489,9 +444,10 @@ impl ReviewAgent {
             }
         }
 
-        // Verdict based on structural issues only
+        // Verdict: consider BOTH structural issues AND LLM feedback
         let has_medium_or_above = critical_count > 0 || high_count > 0 || medium_count > 0;
-        let verdict = if has_medium_or_above {
+        let llm_has_issues = Self::llm_feedback_indicates_issues(llm_feedback);
+        let verdict = if has_medium_or_above || llm_has_issues {
             ReviewVerdict::NeedsRevision
         } else {
             ReviewVerdict::Approved
@@ -519,6 +475,26 @@ impl ReviewAgent {
         }
     }
 
+    /// Check whether the LLM's natural-language feedback indicates any issues
+    /// were found. Follows the codebuff-style format from the system prompt:
+    ///
+    /// - `✅ Review passed: ...` → no issues
+    /// - `⚠️ [N] issue(s):` → issues found
+    /// - Empty → no issues
+    /// - Anything else → conservative: assume issues
+    fn llm_feedback_indicates_issues(feedback: &str) -> bool {
+        let trimmed = feedback.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        // Codebuff format: "✅ Review passed..." = no issues
+        if trimmed.starts_with('✅') {
+            return false;
+        }
+        // Any non-empty feedback that isn't the clean "passed" message likely has issues
+        true
+    }
+
     /// Rebuild a report from filtered issues, preserving or providing llm_feedback.
     /// Used after deduplication to recalculate summary, metrics, and verdict.
     pub fn rebuild_report(
@@ -541,7 +517,7 @@ impl ReviewAgent {
 
             let path = Path::new(&file.path);
 
-            // 1. Check file length
+            // Check file length
             if let Some(max_lines) = self.config.max_file_lines {
                 if check_file_too_long(path, max_lines) {
                     issues.push(ReviewIssue {
@@ -563,29 +539,6 @@ impl ReviewAgent {
                         fix_example: None,
                     });
                 }
-            }
-
-            // 2. Check test existence
-            if is_source_file(path) && !has_tests(path) {
-                let filename = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                issues.push(ReviewIssue {
-                    file: file.path.clone(),
-                    line: None,
-                    end_line: None,
-                    severity: Severity::Low,
-                    category: ReviewCategory::Maintainability,
-                    title: "Missing test coverage".to_string(),
-                    description: format!(
-                        "File `{}` has no corresponding test file or inline tests. Please add test coverage for the new functionality.",
-                        file.path
-                    ),
-                    suggestion: Some(format!(
-                        "Create a test file `tests/test_{}.rs` in the `tests/` directory, or add an inline `#[cfg(test)]\n    mod tests {{ ... }}` module at the end of the file.",
-                        filename
-                    )),
-                    code_snippet: None,
-                    fix_example: None,
-                });
             }
         }
 

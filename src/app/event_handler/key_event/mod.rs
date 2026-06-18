@@ -129,9 +129,53 @@ pub fn handle_key_event(key: event::KeyEvent, app: &mut App, context_manager: &m
                 app.response_rx = None;
                 app.streaming_events_rx = None;
                 app.init_rx = None;
+
+                // Save partial streaming content to chat history before clearing
+                let mut display = std::mem::take(&mut app.streaming_text);
+
+                // Merge all reasoning segments
+                let mut reasoning = std::mem::take(&mut app.streaming_reasoning);
+                for seg in app.completed_pre_text_segments.drain(..) {
+                    if !seg.trim_end().is_empty() {
+                        if !reasoning.is_empty() {
+                            reasoning.push('\n');
+                        }
+                        reasoning.push_str(seg.trim_end());
+                    }
+                }
+                for seg in app.completed_post_text_segments.drain(..) {
+                    if !seg.trim_end().is_empty() {
+                        if !reasoning.is_empty() {
+                            reasoning.push('\n');
+                        }
+                        reasoning.push_str(seg.trim_end());
+                    }
+                }
+                if !app.post_text_reasoning.is_empty() {
+                    let trimmed = app.post_text_reasoning.trim_end();
+                    if !trimmed.is_empty() {
+                        if !reasoning.is_empty() {
+                            reasoning.push('\n');
+                        }
+                        reasoning.push_str(trimmed);
+                    }
+                    app.post_text_reasoning.clear();
+                }
+                display.push_str(" ⚡*interrupted*");
+                if reasoning.is_empty() {
+                    app.chat_history
+                        .push(crate::app::ChatEntry::assistant(display));
+                } else {
+                    app.chat_history
+                        .push(crate::app::ChatEntry::assistant_with_reasoning(
+                            display, &reasoning,
+                        ));
+                }
+                app.show_inline_reasoning = !reasoning.is_empty();
+                app.auto_scroll = true;
+
                 app.is_streaming = false;
-                app.streaming_text.clear();
-                app.streaming_reasoning.clear();
+                app.text_segment_boundaries.clear();
                 app.current_tool_call = None;
                 app.status_messages.clear();
             } else {

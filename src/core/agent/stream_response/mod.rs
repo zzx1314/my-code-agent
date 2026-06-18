@@ -367,8 +367,118 @@ pub async fn stream_response(
                     }
                     loop_detector.record(&tc.function.name, &tc.function.arguments);
 
-                    let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
-                        .unwrap_or(serde_json::Value::Null);
+                    let args: serde_json::Value = match serde_json::from_str(&tc.function.arguments)
+                    {
+                        Ok(v) => v,
+                        Err(e) => {
+                            let args_len = tc.function.arguments.len();
+                            let is_truncation =
+                                matches!(e.classify(), serde_json::error::Category::Eof);
+
+                            // Use char-level slicing to avoid panicking on multi-byte UTF-8 (e.g. Chinese)
+                            let preview = if args_len > 200 {
+                                let first_100: String =
+                                    tc.function.arguments.chars().take(100).collect();
+                                let last_100: String = tc
+                                    .function
+                                    .arguments
+                                    .chars()
+                                    .rev()
+                                    .take(100)
+                                    .collect::<Vec<_>>()
+                                    .into_iter()
+                                    .rev()
+                                    .collect();
+                                format!("{}...(truncated)...{}", first_100, last_100)
+                            } else {
+                                tc.function.arguments.chars().take(200).collect()
+                            };
+
+                            if is_truncation {
+                                if let Some(recovered) =
+                                    try_recover_truncated_json(&tc.function.arguments)
+                                {
+                                    tracing::warn!(
+                                        tool = %tc.function.name,
+                                        original_len = args_len,
+                                        "Tool call arguments were truncated — auto-recovered JSON"
+                                    );
+                                    let result = tools.execute(&tc.function.name, recovered).await;
+                                    let content = match result {
+                                        Ok(output) => {
+                                            let note = "\n\n⚠️ **Note**: Your tool call arguments were truncated mid-stream (the content was too long). \
+                                                The system recovered what it could. If the file content is incomplete, use `file_update` \
+                                                to append the remaining content.";
+                                            format!("{}{}", output.trim_end(), note)
+                                        }
+                                        Err(e) => format!(
+                                            "[TOOL_ERROR] `{}` failed after JSON recovery: {}. \
+                                            \nThe original arguments were truncated (length: {}). \
+                                            \nTry using `file_update` to append content in parts.",
+                                            tc.function.name, e, args_len,
+                                        ),
+                                    };
+                                    messages.push(Message::tool(&tc.id, content));
+                                    continue;
+                                }
+                                tracing::error!(
+                                    tool = %tc.function.name,
+                                    args_len = args_len,
+                                    error = %e,
+                                    "Tool call arguments truncated — auto-recovery failed"
+                                );
+                                let content = format!(
+                                    "[TOOL_ERROR] `{}` failed: the tool call arguments were truncated (length: {}, parse error: {}).\n\
+                                     This usually happens when the file content is too long and gets cut off mid-generation.\n\
+                                     Arguments preview: `{}`\n\
+                                     **Do NOT retry with the same long content.** Instead:\n\
+                                     1. Write a smaller initial version with `file_write`\n\
+                                     2. Use `file_update` to append remaining content in parts",
+                                    tc.function.name, args_len, e, preview,
+                                );
+                                messages.push(Message::tool(&tc.id, content));
+                                if let Some(last_assistant) =
+                                    messages.iter_mut().rev().find(|m| m.role == "assistant")
+                                {
+                                    if let Some(ref mut calls) = last_assistant.tool_calls {
+                                        calls.retain(|c| c.id != tc.id);
+                                        if calls.is_empty() {
+                                            last_assistant.tool_calls = None;
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
+
+                            tracing::error!(
+                                tool = %tc.function.name,
+                                args_len = args_len,
+                                error = %e,
+                                "Tool call arguments are malformed JSON"
+                            );
+                            let content = format!(
+                                "[TOOL_ERROR] `{}` failed: invalid JSON arguments (length: {}, parse error: {}).\nArguments preview: `{}`\nStop retrying this tool call — the arguments are malformed and cannot be parsed.\n\nTry to split the large content into smaller chunks instead.",
+                                tc.function.name, args_len, e, preview,
+                            );
+                            messages.push(Message::tool(&tc.id, content));
+                            // Remove the malformed tool call from the assistant message so it
+                            // doesn't get re-serialized and sent to the LLM provider on the next
+                            // request. If we keep it, client.rs falls back to Value::String for
+                            // the unparseable arguments, which many providers reject with
+                            // "Can only get item pairs from a mapping" (they expect a JSON object).
+                            if let Some(last_assistant) =
+                                messages.iter_mut().rev().find(|m| m.role == "assistant")
+                            {
+                                if let Some(ref mut calls) = last_assistant.tool_calls {
+                                    calls.retain(|c| c.id != tc.id);
+                                    if calls.is_empty() {
+                                        last_assistant.tool_calls = None;
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                    };
                     let result = tools.execute(&tc.function.name, args).await;
                     let content = match result {
                         Ok(output) => output,
@@ -422,4 +532,24 @@ pub async fn stream_response(
             }
         }
     }
+}
+
+/// Attempt to recover a truncated JSON string by progressively appending
+/// closing delimiters. Handles the common case where tool call arguments
+/// are cut off mid-stream (e.g. `{"path":"x","content":"abc` →
+/// `{"path":"x","content":"abc"}`).
+fn try_recover_truncated_json(s: &str) -> Option<serde_json::Value> {
+    let candidates = [
+        format! {"{s}\""},
+        format! {"{s}\"\n}}\0"},
+        format! {"{s}\"}}\0"},
+        format! {"{s}\"\n  }}\0"},
+        format! {"{s}\"\n}}"},
+    ];
+    for candidate in &candidates {
+        if let Ok(v) = serde_json::from_str(candidate) {
+            return Some(v);
+        }
+    }
+    None
 }

@@ -270,7 +270,6 @@ impl LlmClient {
                     if !msg.content.is_empty() {
                         contents.push(AssistantContent::Text(Text::from(msg.content.clone())));
                     }
-
                     if let Some(ref tcs) = msg.tool_calls {
                         for tc in tcs {
                             let args: serde_json::Value = match serde_json::from_str(
@@ -278,8 +277,18 @@ impl LlmClient {
                             ) {
                                 Ok(v) => v,
                                 Err(e) => {
-                                    tracing::warn!(err = %e, "Failed to parse tool call arguments as JSON; using null");
-                                    serde_json::Value::Null
+                                    // Use empty object as fallback. Both null and raw string
+                                    // can trigger "Can only get item pairs from a mapping" 500
+                                    // errors from providers that expect arguments to be a JSON
+                                    // object/mapping. An empty object is universally accepted.
+                                    // The original malformed arguments are preserved in the
+                                    // conversation history for debugging.
+                                    tracing::warn!(
+                                        err = %e,
+                                        args_len = tc.function.arguments.len(),
+                                        "Failed to parse tool call arguments as JSON; using empty object fallback"
+                                    );
+                                    serde_json::Value::Object(serde_json::Map::new())
                                 }
                             };
                             let tool_call = ToolCall {
@@ -296,10 +305,22 @@ impl LlmClient {
                         }
                     }
 
+                    // rig's OneOrMany::many returns Err for empty vecs.
+                    // This can happen when an LLM response has only reasoning_content
+                    // (no text content, no tool calls) — the assistant message would
+                    // have empty content and no tool_calls. Insert an empty string
+                    // placeholder to prevent a panic.
+                    if contents.is_empty() {
+                        tracing::warn!(
+                            "Assistant message has empty content and no tool calls; inserting empty placeholder"
+                        );
+                        contents.push(AssistantContent::Text(Text::from("")));
+                    }
                     rig_messages.push(RigMessage::Assistant {
                         id: None,
-                        content: OneOrMany::many(contents)
-                            .expect("assistant message must have at least one content item"),
+                        content: OneOrMany::many(contents).expect(
+                            "assistant message contents should not be empty after placeholder",
+                        ),
                     });
                 }
                 "tool" => {
@@ -376,10 +397,7 @@ impl LlmClient {
         };
 
         for choice in choices {
-            let content = match choice
-                .get_mut("message")
-                .and_then(|m| m.get_mut("content"))
-            {
+            let content = match choice.get_mut("message").and_then(|m| m.get_mut("content")) {
                 Some(c) => c,
                 None => continue,
             };
@@ -558,9 +576,7 @@ impl LlmClient {
     /// (`UserContent::ToolResult`). We detect this case and extract the tool
     /// result text as the prompt instead, keeping all previous messages
     /// (including other tool results) in chat_history.
-    fn split_prompt_and_history(
-        rig_messages: Vec<RigMessage>,
-    ) -> (String, Vec<RigMessage>) {
+    fn split_prompt_and_history(rig_messages: Vec<RigMessage>) -> (String, Vec<RigMessage>) {
         // Check if the last message is a tool result (tool loop continuation)
         let is_tool_continuation = rig_messages.last().map_or(false, |m| match m {
             RigMessage::User { content } => content
