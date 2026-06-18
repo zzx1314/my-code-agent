@@ -1,9 +1,6 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use std::path::Path;
-use base64::engine::general_purpose;
-
 use my_code_agent::app::bootstrap::init_app;
 use my_code_agent::app::lifecycle::run_app;
 use my_code_agent::core::agent::preamble::build_preamble;
@@ -417,7 +414,7 @@ fn forward_stream_event(
     event: &StreamEvent,
     resp_tx: &mpsc::UnboundedSender<WsResponse>,
 ) {
-    // ── File transfer: intercept file_read and send_file tool results ──
+    // ── File transfer: intercept send_file tool result ──
     if let StreamEvent::ToolResult { name, content } = event {
         if name == "send_file" {
             // send_file tool already returns encoded data — just forward it
@@ -438,29 +435,6 @@ fn forward_stream_event(
                         encoding: "base64".to_string(),
                         id: None,
                     });
-                }
-            }
-        } else if name == "file_read" {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
-                if let Some(path_str) = val.get("path").and_then(|v| v.as_str()) {
-                    if let Ok(raw) = std::fs::read(path_str) {
-                        use base64::Engine;
-                        let b64 = general_purpose::STANDARD.encode(&raw);
-                        let fname = Path::new(path_str)
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        let _ = resp_tx.send(WsResponse::FileData {
-                            path: path_str.to_string(),
-                            name: fname,
-                            mime: infer_mime(path_str),
-                            data: b64,
-                            size: raw.len() as u64,
-                            encoding: "base64".to_string(),
-                            id: None,
-                        });
-                    }
                 }
             }
         }
@@ -490,30 +464,6 @@ fn forward_stream_event(
         StreamEvent::ReasoningActive(_) => return,
     };
     let _ = resp_tx.send(response);
-}
-
-/// Infer MIME type from file extension.
-fn infer_mime(path: &str) -> String {
-    match path.rsplit('.').next().unwrap_or("") {
-        "rs" | "js" | "ts" | "py" | "go" | "java" | "c" | "cpp" | "h"
-        | "rb" | "php" | "swift" | "kt" | "scala" => "text/plain".to_string(),
-        "html" | "htm" => "text/html".to_string(),
-        "css" => "text/css".to_string(),
-        "json" => "application/json".to_string(),
-        "md" | "txt" | "log" => "text/plain".to_string(),
-        "xml" => "application/xml".to_string(),
-        "yaml" | "yml" => "application/yaml".to_string(),
-        "toml" => "application/toml".to_string(),
-        "png" => "image/png".to_string(),
-        "jpg" | "jpeg" => "image/jpeg".to_string(),
-        "gif" => "image/gif".to_string(),
-        "svg" => "image/svg+xml".to_string(),
-        "ico" => "image/x-icon".to_string(),
-        "pdf" => "application/pdf".to_string(),
-        "zip" | "tar" | "gz" | "bz2" | "xz" => "application/zip".to_string(),
-        "wasm" => "application/wasm".to_string(),
-        _ => "application/octet-stream".to_string(),
-    }
 }
 
 /// Send the stream result back as a `WsResponse::Result`.
