@@ -65,7 +65,7 @@ pub fn build_reasoning_lines(reasoning: &str, area_width: u16) -> Option<Vec<Lin
 }
 
 /// Compute how many visual lines a `Line` occupies after word-wrap at `width`.
-fn visual_lines(line: &Line<'_>, width: u16) -> u16 {
+pub(super) fn visual_lines(line: &Line<'_>, width: u16) -> u16 {
     let line_width = line.width() as u16;
     if line_width == 0 || width == 0 {
         1
@@ -75,7 +75,7 @@ fn visual_lines(line: &Line<'_>, width: u16) -> u16 {
 }
 
 /// Build a collapsible thinking header line (▶ collapsed / ▼ expanded).
-fn build_thinking_header(collapsed: bool, hidden_count: usize) -> Line<'static> {
+pub(super) fn build_thinking_header(collapsed: bool, hidden_count: usize) -> Line<'static> {
     if collapsed {
         Line::from(vec![
             Span::styled(

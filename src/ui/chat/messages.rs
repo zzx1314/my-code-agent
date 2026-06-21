@@ -527,7 +527,7 @@ pub(super) fn render_banner(f: &mut Frame, app: &mut App, area: Rect) {
 /// the resulting visual height fluctuations that cause flickering.
 pub fn render_review_reasoning(
     lines: &mut Vec<ratatui::text::Line<'static>>,
-    app: &App,
+    app: &mut App,
     max_width: Option<usize>,
     max_height: u16,
 ) {
@@ -535,95 +535,76 @@ pub fn render_review_reasoning(
         return;
     }
 
-    let area_width = max_width.unwrap_or(80) as usize;
-    // Wrap width = terminal width - 2 for the "│ " prefix, so each final line
-    // fits in exactly 1 visual line without Paragraph re-wrapping.
-    let wrap_width = area_width.saturating_sub(2).max(8);
+    let area_width = max_width.unwrap_or(80) as u16;
 
     if app.review_reasoning.is_empty() {
         // Pad with empty lines to maintain fixed height even when no content
         if max_height > 0 {
             let header_reserve: u16 = 2; // header + trailing empty
             let content_budget = max_height.saturating_sub(header_reserve).max(1);
-            lines.push(Line::from(Span::styled(
-                "💭 Review Analysis:",
+            lines.push(Line::from(vec![Span::styled(
+                "  💭 Thinking...",
                 Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )));
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
+            )]));
             for _ in 0..content_budget {
-                lines.push(Line::from(Span::styled(
-                    "│",
-                    Style::default().fg(Color::DarkGray),
-                )));
+                lines.push(Line::default());
             }
             lines.push(Line::default());
         }
         return;
     }
 
-    // Reserve lines for: header ("💭 Review Analysis:") and trailing empty line
-    let header_reserve: u16 = 2; // header + trailing empty
-    let content_budget = max_height.saturating_sub(header_reserve).max(1);
+    // Use build_reasoning_lines for proper markdown rendering with • prefix
+    // (same rendering pipeline as the main agent)
+    let Some(styled) = super::reasoning::build_reasoning_lines(&app.review_reasoning, area_width)
+    else {
+        return;
+    };
 
-    lines.push(Line::from(Span::styled(
-        "💭 Review Analysis:",
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD),
-    )));
+    let total = styled.len();
 
-    // Pre-word-wrap each reasoning line to wrap_width so that after adding
-    // the "│ " prefix, each content line is exactly 1 visual line (no re-wrap).
-    let reasoning_wrapped: Vec<String> = app
-        .review_reasoning
-        .lines()
-        .flat_map(|line| {
-            if line.is_empty() {
-                vec![String::new()]
-            } else {
-                word_wrap_text(line, wrap_width)
+    // Reserve lines for: header and trailing empty line
+    let header_reserve: u16 = 2;
+    let content_budget = max_height.saturating_sub(header_reserve).max(1) as usize;
+
+    let vis_pos: u16 = lines.iter().map(|l| super::reasoning::visual_lines(l, area_width)).sum();
+
+    if total > content_budget {
+        let hidden_count = total - content_budget;
+        let section_id = "review_reasoning";
+        let collapsed = !app.collapsed_sections.contains(section_id);
+
+        // Build clickable header line (same as main agent)
+        let header = super::reasoning::build_thinking_header(collapsed, hidden_count);
+        app.collapsed_toggles
+            .push((vis_pos, section_id.to_string(), total));
+        lines.push(header);
+
+        if collapsed {
+            let start = total.saturating_sub(content_budget);
+            for line in styled.iter().skip(start) {
+                lines.push(line.clone());
             }
-        })
-        .collect();
-
-    let total = reasoning_wrapped.len();
-    let max_display = content_budget as usize;
-
-    if total > max_display {
-        let skipped = total - max_display;
-        // "hidden" message line also counts toward the budget
-        let effective_display = max_display.saturating_sub(1).max(1);
-        lines.push(Line::from(Span::styled(
-            format!(
-                "│ … {} lines hidden (showing last {}) …",
-                skipped, effective_display
-            ),
+        } else {
+            for line in &styled {
+                lines.push(line.clone());
+            }
+        }
+    } else {
+        // Small reasoning block: show header like main agent
+        lines.push(Line::from(vec![Span::styled(
+            "  💭 Thinking...",
             Style::default()
                 .fg(Color::DarkGray)
                 .add_modifier(Modifier::ITALIC),
-        )));
-        for line in &reasoning_wrapped[total - effective_display..] {
-            lines.push(Line::from(vec![
-                Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
-                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
-            ]));
-        }
-    } else {
-        let mut content_lines_added: u16 = 0;
-        for line in &reasoning_wrapped {
-            lines.push(Line::from(vec![
-                Span::styled("│ ".to_string(), Style::default().fg(Color::DarkGray)),
-                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
-            ]));
-            content_lines_added += 1;
-        }
+        )]));
+        lines.extend(styled);
         // Pad with empty placeholder lines to keep a fixed height
-        while content_lines_added < content_budget {
-            lines.push(Line::from(Span::styled(
-                "│",
-                Style::default().fg(Color::DarkGray),
-            )));
+        let mut content_lines_added = total as u16;
+        while content_lines_added < content_budget as u16 {
+            lines.push(Line::default());
             content_lines_added += 1;
         }
     }
