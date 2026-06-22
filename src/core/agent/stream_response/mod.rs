@@ -79,6 +79,10 @@ pub async fn stream_response(
     let max_turns = agent_config.max_turns;
     let mut turn_count: usize = 0;
     let mut loop_detector = ToolCallHistory::new();
+    // Accumulate response_text across ALL turns so full_response contains
+    // the complete text, not just the last turn (which loses content
+    // streamed before tool calls in multi-turn responses).
+    let mut accumulated_response = String::new();
 
     loop {
         turn_count += 1;
@@ -187,6 +191,9 @@ pub async fn stream_response(
                 tool_calls,
                 usage,
             } => {
+                // Accumulate this turn's text so full_response contains all turns
+                accumulated_response.push_str(&response_text);
+
                 if reasoning.is_reasoning() && display_mode != "hidden" {
                     reasoning.end_segment();
                     send_event(StreamEvent::ReasoningActive(false));
@@ -283,7 +290,7 @@ pub async fn stream_response(
                     messages.push(assistant_msg);
                     *chat_history = messages;
                     return StreamResult {
-                        full_response: response_text,
+                        full_response: accumulated_response,
                         interrupted: false,
                         should_exit: false,
                         last_reasoning: reasoning.into_total_reasoning(),
@@ -307,7 +314,7 @@ pub async fn stream_response(
                     messages.push(assistant_msg);
                     *chat_history = messages;
                     return StreamResult {
-                        full_response: response_text,
+                        full_response: accumulated_response,
                         interrupted: false,
                         should_exit: false,
                         last_reasoning: reasoning.into_total_reasoning(),
@@ -515,7 +522,7 @@ pub async fn stream_response(
                     status_messages.push("✓ Turn ended by assistant".to_string());
                     *chat_history = messages;
                     return StreamResult {
-                        full_response: response_text,
+                        full_response: accumulated_response,
                         interrupted: false,
                         should_exit: false,
                         last_reasoning: reasoning_text.clone(),
