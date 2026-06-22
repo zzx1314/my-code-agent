@@ -569,7 +569,10 @@ pub fn render_review_reasoning(
     let header_reserve: u16 = 2;
     let content_budget = max_height.saturating_sub(header_reserve).max(1) as usize;
 
-    let vis_pos: u16 = lines.iter().map(|l| super::reasoning::visual_lines(l, area_width)).sum();
+    let vis_pos: u16 = lines
+        .iter()
+        .map(|l| super::reasoning::visual_lines(l, area_width))
+        .sum();
 
     if total > content_budget {
         let hidden_count = total - content_budget;

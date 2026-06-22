@@ -451,10 +451,8 @@ fn test_review_reasoning_persists_through_progress() {
     );
 
     // Reasoning survives, additional delta appends
-    tx.send(ReviewEvent::ReasoningDelta(
-        "more thinking...".to_string(),
-    ))
-    .expect("Failed to send delta");
+    tx.send(ReviewEvent::ReasoningDelta("more thinking...".to_string()))
+        .expect("Failed to send delta");
     process_review_events(&mut app);
     assert_eq!(
         app.review_reasoning, "LLM reasoning content... more thinking...",

@@ -119,7 +119,8 @@ impl ReviewAgent {
             message: "Checking code structure...".to_string(),
         });
         let structural = self.check_code_structure(&request.changed_files);
-        let report = self.build_report_inner(&response, &reasoning, &structural, &request.changed_files);
+        let report =
+            self.build_report_inner(&response, &reasoning, &structural, &request.changed_files);
 
         let _ = event_tx.send(ReviewEvent::Completed {
             report: report.clone(),

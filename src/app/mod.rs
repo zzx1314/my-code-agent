@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 // App initialization & project knowledge (/init command)
 pub mod bootstrap;
 pub mod commands;
+pub mod headless;
 pub mod terminal;
 
 /// Represents a pending confirmation request from a tool.
