@@ -420,6 +420,9 @@ fn forward_stream_event(event: &StreamEvent, resp_tx: &mpsc::UnboundedSender<WsR
             name: name.clone(),
             arguments: arguments.clone(),
         },
+        // Skip file_read results — no need to send file contents to the phone
+        StreamEvent::ToolResult { name, .. } if name == "file_read" => return,
+
         StreamEvent::ToolResult { name, content } => WsResponse::ToolResult {
             name: name.clone(),
             content: content.clone(),
