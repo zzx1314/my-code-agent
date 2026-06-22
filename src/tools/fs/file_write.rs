@@ -36,7 +36,7 @@ impl Tool for FileWrite {
                 Creates the file if it doesn't exist, overwrites if it does. \
                 **Important**: Set create_dirs to true when the target directory might not exist, \
                 otherwise the tool will fail with 'No such file or directory'. \
-                **Content size**: For content over ~3000 characters, tool call arguments may be \
+                **Content size**: For content over ~2000 characters, tool call arguments may be \
                 truncated mid-stream. For large files, write a smaller initial version with this tool, \
                 then use `file_append` to append the remaining content in chunks (each under ~2000 characters)."
                 .to_string(),
@@ -67,9 +67,11 @@ impl Tool for FileWrite {
         if args.create_dirs
             && let Some(parent) = std::path::Path::new(&args.path).parent()
         {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| e.to_string())?;
+            if !parent.as_os_str().is_empty() {
+                tokio::fs::create_dir_all(parent)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
         }
 
         // Use the shared tracking utility: write + undo + dedup invalidation + git diff

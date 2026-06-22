@@ -101,7 +101,7 @@ pub async fn fs_delete_with_tracking(path: &str) -> Result<Option<String>, Strin
 }
 
 /// Invalidate the dedup cache for a given file path.
-fn invalidate_dedup_cache(path: &str) {
+pub(crate) fn invalidate_dedup_cache(path: &str) {
     let dedup = get_global_tool_dedup();
     let mut guard = dedup.lock().unwrap();
     guard.invalidate_path(path);

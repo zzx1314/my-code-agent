@@ -5,7 +5,7 @@ use my_code_agent::tools::ToolRegistry;
 fn test_all_tools_count() {
     let config = Config::default();
     let tools = ToolRegistry::from_config(&config);
-    assert_eq!(tools.len(), 21);
+    assert_eq!(tools.len(), 23);
 }
 
 #[test]

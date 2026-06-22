@@ -402,6 +402,59 @@ pub async fn stream_response(
                             };
 
                             if is_truncation {
+                                // For file-writing tools, auto-recovery would silently produce
+                                // truncated content on disk. Refuse recovery — force the model
+                                // to split the content into smaller chunks.
+                                const FILE_WRITE_TOOLS: [&str; 4] =
+                                    ["file_write", "file_append", "file_update", "apply_patch"];
+                                let is_file_write_tool =
+                                    FILE_WRITE_TOOLS.contains(&tc.function.name.as_str());
+
+                                if is_file_write_tool
+                                    || try_recover_truncated_json(&tc.function.arguments).is_none()
+                                {
+                                    if is_file_write_tool {
+                                        tracing::error!(
+                                            tool = %tc.function.name,
+                                            args_len = args_len,
+                                            "Tool call arguments truncated for file-writing tool — \
+                                             refusing auto-recovery to prevent silent data loss"
+                                        );
+                                    } else {
+                                        tracing::error!(
+                                            tool = %tc.function.name,
+                                            args_len = args_len,
+                                            error = %e,
+                                            "Tool call arguments truncated — auto-recovery failed"
+                                        );
+                                    }
+                                    let content = format!(
+                                        "[TOOL_ERROR] `{}` failed: the tool call arguments \
+                                         were truncated (length: {}, parse error: {}).\n\
+                                         This usually happens when the file content is too long \
+                                         and gets cut off mid-generation.\n\
+                                         Arguments preview: `{}`\n\
+                                         **Do NOT retry with the same long content.** Instead:\n\
+                                         1. Write a smaller initial version with `file_write`\n\
+                                         2. Use `file_append` to append remaining content in parts, \
+                                         each under ~2000 characters",
+                                        tc.function.name, args_len, e, preview,
+                                    );
+                                    messages.push(Message::tool(&tc.id, content));
+                                    if let Some(last_assistant) =
+                                        messages.iter_mut().rev().find(|m| m.role == "assistant")
+                                    {
+                                        if let Some(ref mut calls) = last_assistant.tool_calls {
+                                            calls.retain(|c| c.id != tc.id);
+                                            if calls.is_empty() {
+                                                last_assistant.tool_calls = None;
+                                            }
+                                        }
+                                    }
+                                    continue;
+                                }
+
+                                // Non-file tools: try auto-recovery (e.g. truncated git_diff args)
                                 if let Some(recovered) =
                                     try_recover_truncated_json(&tc.function.arguments)
                                 {

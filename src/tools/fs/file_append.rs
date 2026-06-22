@@ -68,14 +68,13 @@ impl Tool for FileAppend {
     async fn call(&self, args: serde_json::Value) -> Result<String, String> {
         let args: FileAppendArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
-        // Read current content (None if file doesn't exist)
+        // Read current content for undo history (None if file doesn't exist)
         let old_content = tokio::fs::read_to_string(&args.path).await.ok();
 
         // If file doesn't exist and create_dirs is set, create parent directories
         if old_content.is_none() && args.create_dirs {
             if let Some(parent) = std::path::Path::new(&args.path).parent() {
-                let parent = parent.as_os_str();
-                if !parent.is_empty() {
+                if !parent.as_os_str().is_empty() {
                     tokio::fs::create_dir_all(parent)
                         .await
                         .map_err(|e| e.to_string())?;
@@ -83,22 +82,31 @@ impl Tool for FileAppend {
             }
         }
 
-        // Compute new content (append to existing, or create new file)
-        let new_content = match &old_content {
-            Some(existing) => format!("{}{}", existing, args.content),
-            None => args.content.clone(),
-        };
-
         let bytes_appended = args.content.len();
 
-        // Use the shared tracking utility: write + undo + dedup invalidation + git diff
-        let (_, git_diff) = super::fs_write_with_tracking(
+        let _ = crate::tools::infra::undo_history::record_change(
             &args.path,
-            &new_content,
-            "file_append",
             old_content,
-        )
-        .await?;
+            None,
+            "file_append",
+        );
+
+        // Use OS-level append — O(1) I/O instead of read+concat+write.
+        // This avoids allocating the entire file content in memory just to add a chunk.
+        {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&args.path)
+                .map_err(|e| format!("Failed to open {} for append: {}", args.path, e))?;
+            file.write_all(args.content.as_bytes())
+                .map_err(|e| format!("Failed to append to {}: {}", args.path, e))?;
+        }
+
+        super::invalidate_dedup_cache(&args.path);
+
+        let git_diff = super::run_git_diff(&args.path).await;
 
         serde_json::to_string(&FileAppendOutput {
             path: args.path,
