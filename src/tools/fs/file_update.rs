@@ -38,6 +38,9 @@ impl Tool for FileUpdate {
         ToolDefinition {
             name: self.name().to_string(),
             description: "Edit an existing file by specifying a line range to replace. \
+                Use this to modify code at specific positions in the file. \
+                For appending content to the end of a file, use `file_append` instead — \
+                it is simpler and does not require calculating line numbers. \
                 IMPORTANT: Use file_outline first to get accurate function/struct line ranges, \
                 then use file_read to see the exact content before editing. \
                 Always calculate start_line and delete_count from the outline output. \

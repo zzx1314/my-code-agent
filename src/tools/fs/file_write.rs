@@ -35,7 +35,10 @@ impl Tool for FileWrite {
             description: "Write content to a file on the local filesystem. \
                 Creates the file if it doesn't exist, overwrites if it does. \
                 **Important**: Set create_dirs to true when the target directory might not exist, \
-                otherwise the tool will fail with 'No such file or directory'."
+                otherwise the tool will fail with 'No such file or directory'. \
+                **Content size**: For content over ~3000 characters, tool call arguments may be \
+                truncated mid-stream. For large files, write a smaller initial version with this tool, \
+                then use `file_append` to append the remaining content in chunks (each under ~2000 characters)."
                 .to_string(),
             parameters: json!({
                 "type": "object",

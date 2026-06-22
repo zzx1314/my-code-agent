@@ -127,6 +127,7 @@ impl ToolRegistry {
             Box::new(FileRead::from_config(config)),
             Box::new(FileOutline),
             Box::new(FileWrite),
+            Box::new(FileAppend),
             Box::new(FileUpdate),
             Box::new(ApplyPatch),
             Box::new(FileDelete::new(handle.clone())),

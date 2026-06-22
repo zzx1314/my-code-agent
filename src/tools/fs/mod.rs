@@ -1,4 +1,5 @@
 pub mod apply_patch;
+pub mod file_append;
 pub mod file_delete;
 pub mod file_outline;
 pub mod file_read;
@@ -11,6 +12,7 @@ pub mod propose_str_replace;
 pub mod send_file;
 
 pub use apply_patch::ApplyPatch;
+pub use file_append::FileAppend;
 pub use file_delete::FileDelete;
 pub use file_outline::FileOutline;
 pub use file_read::FileRead;
