@@ -106,6 +106,7 @@ fn render_assistant_content(
 }
 
 /// Render an assistant message with tool calls, reasoning, and markdown content.
+/// Returns `true` if any content was actually rendered (visible to the user).
 fn render_assistant_message(
     lines: &mut Vec<ratatui::text::Line<'static>>,
     entry: &ChatEntry,
@@ -115,11 +116,14 @@ fn render_assistant_message(
     area_width: u16,
     show_tool_calls: bool,
     show_tool_details: bool,
-) {
+) -> bool {
+    let mut rendered_anything = false;
+
     // Display tool calls (e.g. shell_exec) if present and config allows
     if show_tool_calls {
         if let Some(ref tool_calls) = entry.tool_calls {
             render_tool_calls(lines, tool_calls, show_tool_details);
+            rendered_anything = true;
             if !entry.content.is_empty() {
                 lines.push(Line::default());
             }
@@ -129,13 +133,20 @@ fn render_assistant_message(
     if let Some(ref reasoning) = entry.reasoning_content {
         let section_id = format!("reason_{}", entry_idx);
         render_reasoning_inline(lines, reasoning, app, &section_id, area_width);
+        rendered_anything = true;
         // Add a blank line between reasoning and content to match streaming behavior
         if !entry.content.is_empty() {
             lines.push(Line::default());
         }
     }
     // Display normal content (cached to avoid re-parsing markdown every frame)
+    let had_content = !entry.content.is_empty();
     render_assistant_content(lines, entry, app, max_width);
+    if had_content {
+        rendered_anything = true;
+    }
+
+    rendered_anything
 }
 
 /// Render a ShellExec tool result (command, exit code, stdout/stderr).
@@ -303,8 +314,7 @@ pub(super) fn render_message(
                 area_width,
                 show_tool_calls,
                 show_tool_details,
-            );
-            true
+            )
         }
         "tool" => {
             let rendered = render_tool_message(

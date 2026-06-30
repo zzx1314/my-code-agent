@@ -39,7 +39,15 @@ pub fn process_streaming_events(app: &mut App) {
         loop {
             match rx.try_recv() {
                 Ok(crate::core::agent::stream_response::StreamEvent::Text(delta)) => {
-                    if app.current_tool_call.is_some() {
+                    // Insert separator when transitioning from a tool-execution turn
+                    // to a new response turn. Two cases:
+                    //   1. Reasoning models: current_tool_call is still set when the
+                    //      next turn's first Text event arrives (ReasoningDelta doesn't
+                    //      clear it). Insert \n to separate tool display from new text.
+                    //   2. Non-thinking models: current_tool_call was already cleared
+                    //      by ToolResult, but streaming_tool_result is still set.
+                    //      Insert \n to separate tool results from the new turn's text.
+                    if app.current_tool_call.is_some() || app.streaming_tool_result.is_some() {
                         app.streaming_text.push_str("\n");
                         app.current_tool_call = None;
                     }

@@ -146,9 +146,12 @@ fn test_new_text_preserves_streaming_todos() {
         app.streaming_tool_result.is_none(),
         "streaming_tool_result should still be cleared when new text arrives"
     );
+    // The \n separator is inserted because streaming_tool_result was set
+    // (indicating the previous turn had tool calls). This mirrors how
+    // reasoning models insert a \n before new text after tool execution.
     assert_eq!(
-        app.streaming_text, "Here is the result...",
-        "streaming_text should contain the new text"
+        app.streaming_text, "\nHere is the result...",
+        "streaming_text should contain the new text with separator"
     );
 }
 
