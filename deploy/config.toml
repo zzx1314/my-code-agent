@@ -1,0 +1,42 @@
+[llm]
+provider = "deepseek"
+model = "deepseek-chat"
+api_key_env = "DEEPSEEK_API_KEY"
+
+[agent]
+max_turns = 100
+thinking_display = "collapsed"
+show_tool_calls = false
+show_tool_details = false
+
+[files]
+default_read_limit = 200
+attach_max_lines = 500
+attach_max_bytes = 51200
+
+[context]
+window_size = 1048576
+warn_threshold_percent = 75
+critical_threshold_percent = 90
+compact_retain_percent = 30
+
+[shell]
+default_timeout_secs = 30
+
+[session]
+enabled = true
+save_file = ".session.json"
+cleanup_undo_history = false
+
+[mcp]
+enabled = false
+
+[review]
+enabled = true
+auto_review = true
+threshold_lines = 5
+
+[ws_client]
+enabled = true
+url = "ws://ws-server:8088"
+reconnect_interval_secs = 5

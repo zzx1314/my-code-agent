@@ -1,0 +1,68 @@
+version: "3.8"
+
+services:
+  # ── WebSocket Relay Server ──────────────────────────────────
+  ws-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: my-code-agent:latest
+    ports:
+      - "8089:8089"   # Client port (Web frontend connections)
+    expose:
+      - "8088"        # Agent port (internal, not exposed to host)
+    command: ["ws-server", "--agent-port", "8088", "--client-port", "8089"]
+    restart: unless-stopped
+    networks:
+      - agent-net
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8089"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Agent (headless mode) ───────────────────────────────────
+  agent:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: my-code-agent:latest
+    depends_on:
+      ws-server:
+        condition: service_healthy
+    volumes:
+      # Mount your project code for file operations (change this path!)
+      # Example: - /home/user/my-project:/workspace
+      - ./workspace:/workspace
+      # Agent runtime data (config, sessions, etc.)
+      - agent-data:/workspace/.mycode
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:?Please set DEEPSEEK_API_KEY in .env}
+      - MY_CODE_AGENT_HOME=/workspace/.mycode
+    command: >
+      sh -c "cp /etc/my-code-agent/config.toml /workspace/.mycode/config.toml &&
+             my-code-agent"
+    restart: unless-stopped
+    networks:
+      - agent-net
+
+  # ── Web Frontend (nginx) ────────────────────────────────────
+  web:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../web:/usr/share/nginx/html:ro
+    depends_on:
+      - ws-server
+    restart: unless-stopped
+    networks:
+      - agent-net
+
+volumes:
+  agent-data:
+
+networks:
+  agent-net:
+    driver: bridge
