@@ -486,6 +486,7 @@ pub fn model_display_name(model: &str) -> String {
         "deepseek/deepseek-v4-pro" => "DS V4 Pro".to_string(),
         "openrouter/owl-alpha" => "Owl Alpha".to_string(),
         "moonshotai/kimi-k2.6:free" => "Kimi-k2.6".to_string(),
+        "openrouter/free" => "Free".to_string(),
         // ── DeepSeek aliases ──
         "deepseek-v4-flash" => "DS V4 Flash".to_string(),
         "deepseek-v4-pro" => "DS V4 Pro".to_string(),
@@ -511,6 +512,7 @@ pub fn get_model_options_for_provider(provider: &str) -> Vec<String> {
             "deepseek/deepseek-v4-pro".to_string(),
             "openrouter/owl-alpha".to_string(),
             "moonshotai/kimi-k2.6:free".to_string(),
+            "openrouter/free".to_string(),
         ],
         "ollama" => fetch_ollama_models(),
         "custom" => vec!["custom-model".to_string()],
